@@ -1,0 +1,157 @@
+{
+ "HGB": [
+  "lab",
+  "^(血红蛋白|Hb|HGB|Hemoglobin|HB)\\b|血红蛋白",
+  "尿|糖化|HbA1c|A1c|平均|MCH|浓度分布"
+ ],
+ "WBC": [
+  "lab",
+  "^(白细胞(计数)?|WBC|Leukocytes?|White blood cell)",
+  "尿|粪|镜检|分类|百分比|%"
+ ],
+ "ANC": [
+  "lab",
+  "中性粒细胞(绝对值|计数)|^(NEUT#?|ANC|Neutrophils?( count| absolute)?)$|NEUT#",
+  "百分比|%|比率|尿"
+ ],
+ "LYM": [
+  "lab",
+  "淋巴细胞(绝对值|计数)|^(LYMPH#?|LYM#?|Lymphocytes?( count| absolute)?)$|LYM#",
+  "百分比|%|比率"
+ ],
+ "EOS": [
+  "lab",
+  "嗜酸性粒细胞(绝对值|计数)|^(EO#|EOS#?|Eosinophils?( count| absolute)?)$|EO#",
+  "百分比|%|比率"
+ ],
+ "PLT": [
+  "lab",
+  "^(血小板(计数)?|PLT|Platelets?( count)?)",
+  "压积|分布|平均|大型|PCT|MPV|PDW"
+ ],
+ "NA": [
+  "lab",
+  "^(钠|血钠|Na|Sodium)(\\b|$|（|\\()",
+  "尿"
+ ],
+ "K": [
+  "lab",
+  "^(钾|血钾|K|Potassium)(\\b|$|（|\\()",
+  "尿"
+ ],
+ "CA": [
+  "lab",
+  "^(钙|血钙|校正钙|Ca|Calcium)(\\b|$|（|\\()",
+  "尿|离子"
+ ],
+ "MG": [
+  "lab",
+  "^(镁|血镁|Mg|Magnesium)(\\b|$|（|\\()",
+  "尿"
+ ],
+ "GLU": [
+  "lab",
+  "^(葡萄糖|血糖|空腹血糖|空腹葡萄糖|GLU|Glucose)",
+  "尿|糖化|餐后|OGTT"
+ ],
+ "CREAT": [
+  "lab",
+  "^(肌酐|血肌酐|Cr|CREA|CREAT|Creatinine)(\\b|$|（|\\()",
+  "尿|清除率|CrCl|比值"
+ ],
+ "EGFR": [
+  "lab",
+  "eGFR|估算肾小球滤过率|肾小球滤过率",
+  ""
+ ],
+ "TBIL": [
+  "lab",
+  "^(总胆红素|TBIL|T-?BIL|Total bilirubin|Bilirubin)",
+  "直接|间接|结合|DBIL|IBIL|尿"
+ ],
+ "ALB": [
+  "lab",
+  "^(白蛋白|ALB|Albumin)(\\b|$|（|\\()",
+  "尿|微量|前白蛋白|比值|A/G"
+ ],
+ "AST": [
+  "lab",
+  "天(门)?冬氨酸氨基转移酶|^(AST|SGOT|GOT)\\b",
+  "线粒体|同工酶|/ALT"
+ ],
+ "ALT": [
+  "lab",
+  "丙氨酸氨基转移酶|^(ALT|SGPT|GPT)\\b",
+  "/AST"
+ ],
+ "GGT": [
+  "lab",
+  "谷氨酰(基)?转移酶|γ-?GT|^GGT\\b|GGTP",
+  ""
+ ],
+ "ALP": [
+  "lab",
+  "碱性磷酸酶|^ALP\\b|^AKP\\b",
+  "骨"
+ ],
+ "LDH": [
+  "lab",
+  "乳酸脱氢酶|^LDH\\b|^LD\\b",
+  "同工酶"
+ ],
+ "CK": [
+  "lab",
+  "肌酸(激)?酶|^(CK|CPK)\\b",
+  "MB|同工酶"
+ ],
+ "LIP": [
+  "lab",
+  "脂肪酶|^LPS\\b|^LIP\\b|Lipase",
+  ""
+ ],
+ "AMY": [
+  "lab",
+  "淀粉酶|^AMY\\b|Amylase",
+  "尿"
+ ],
+ "UA": [
+  "lab",
+  "^(尿酸|UA|Uric acid)\\b|^尿酸",
+  "尿尿酸|24"
+ ],
+ "CHOL": [
+  "lab",
+  "^(总胆固醇|胆固醇|TC|CHOL|Total cholesterol)\\b|总胆固醇",
+  "高密度|低密度|HDL|LDL|酯"
+ ],
+ "TG": [
+  "lab",
+  "^(甘油三酯|三酰甘油|TG|Triglycerides?)\\b|甘油三酯",
+  ""
+ ],
+ "FIB": [
+  "lab",
+  "纤维蛋白原|^FIB\\b|^FIB-C|Fibrinogen",
+  "降解"
+ ],
+ "APTT": [
+  "lab",
+  "活化部分凝血活酶时间|^APTT\\b|^aPTT\\b",
+  "比值|ratio"
+ ],
+ "INR": [
+  "lab",
+  "^INR\\b|国际标准化比值",
+  ""
+ ],
+ "QTCF": [
+  "ecg",
+  "QTcF|QTc\\s*\\(?F|Fridericia|^QTc$",
+  "QTcB|Bazett"
+ ],
+ "WEIGHT": [
+  "vs",
+  "^(体重|Weight|WT)\\b|^体重",
+  ""
+ ]
+}

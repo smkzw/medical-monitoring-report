@@ -1,0 +1,4 @@
+interface:
+  display_name: "制作 Patient Profile"
+  short_description: "制作中文临床 patient profile 交互式 HTML"
+  default_prompt: "Use $clinical-patient-profile-html when the user uploads project files and asks to 制作patient profile; run precheck first and auto-build unless blocked."

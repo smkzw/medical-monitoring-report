@@ -1,0 +1,813 @@
+{
+ "cfg": {
+  "study": {
+   "title": "DEMO-101 Ⅱ期临床研究 · 医学监察报告",
+   "short": "DEMO-101",
+   "code": "DEMO-101-201",
+   "subtitle": "随机、双盲、安慰剂对照、多中心Ⅱ期研究（示例数据，全部虚构）",
+   "tags": [
+    [
+     "Ⅱ期",
+     "org"
+    ],
+    [
+     "双盲",
+     "blu"
+    ],
+    [
+     "12 周治疗",
+     "line"
+    ],
+    [
+     "示例数据",
+     "line"
+    ]
+   ],
+   "planned": 40
+  },
+  "brand": {
+   "org": "康哲药业",
+   "logo": "assets/logo_bot.svg"
+  },
+  "footer": {
+   "left": "数据来源：DEMO_EDC_listing.xlsx · DEMO_PD_and_CRO_queries.xlsx",
+   "right": "康哲药业 · 医学监察"
+  },
+  "visits": {
+   "order": [
+    "V1",
+    "D1",
+    "W2",
+    "W4",
+    "W8",
+    "W12",
+    "FU",
+    "USV",
+    "ET"
+   ],
+   "unsched": [
+    "USV"
+   ],
+   "early": [
+    "ET"
+   ],
+   "d1": "D1",
+   "labels": {
+    "V1": "筛选期",
+    "D1": "第1天",
+    "W2": "第2周",
+    "W4": "第4周",
+    "W8": "第8周",
+    "W12": "第12周",
+    "FU": "安全随访",
+    "USV": "计划外",
+    "ET": "提前退出"
+   }
+  },
+  "baselineRules": [
+   {
+    "match": "^lab:",
+    "method": "visit",
+    "visits": [
+     "V1"
+    ],
+    "fallback": "lastPre",
+    "label": "筛选期（V1）"
+   },
+   {
+    "match": "^(vs|ecg):",
+    "method": "visit",
+    "visits": [
+     "D1"
+    ],
+    "tpt": "前",
+    "fallback": "lastPre",
+    "label": "D1 给药前"
+   }
+  ],
+  "baseline": {
+   "lab": "V1",
+   "vs": "D1",
+   "vsTpt": "前",
+   "ecg": "D1",
+   "ecgTpt": "前",
+   "labLabel": "筛选期（V1）"
+  },
+  "blind": {
+   "on": true,
+   "tag": "盲态",
+   "hidden": [
+    "分组揭示性的有效性对比"
+   ]
+  },
+  "grading": {
+   "system": "CTCAE",
+   "version": "6.0",
+   "_src": "方案 §8.2：AE 严重程度按 NCI-CTCAE v6.0 分级（示例）"
+  },
+  "relChange": {
+   "metrics": "^vs:(收缩压|舒张压)|^lab:尿酸",
+   "pct": 20
+  },
+  "labGroups": {
+   "LB": "实验室检查",
+   "VS": "生命体征",
+   "EG": "心电图"
+  },
+  "strat": {
+   "label": "分层因素",
+   "flag": "是"
+  },
+  "refLines": {
+   "QTcF": [
+    [
+     500,
+     "AESI 500"
+    ]
+   ],
+   "收缩压": [
+    [
+     160,
+     "160"
+    ]
+   ]
+  },
+  "ulnMult": [
+   [
+    "丙氨酸|天门冬",
+    3
+   ]
+  ],
+  "metricRules": [
+   {
+    "match": "QTcF",
+    "note": "QTcF ≥500 ms 或 ΔQTcF >60 ms 为 AESI（R-AESI-01）",
+    "flags": [
+     {
+      "on": "val",
+      "op": ">=",
+      "v": 500,
+      "why": "QTcF ≥500 ms"
+     },
+     {
+      "on": "chg",
+      "op": ">",
+      "v": 60,
+      "why": "ΔQTcF >60 ms"
+     }
+    ],
+    "lines": {
+     "val": [
+      [
+       500,
+       "AESI 500"
+      ]
+     ],
+     "chg": [
+      [
+       30,
+       "+30"
+      ],
+      [
+       60,
+       "+60"
+      ]
+     ]
+    }
+   },
+   {
+    "match": "丙氨酸|天门冬",
+    "note": "ALT/AST >3×ULN 需复查（R-LIV-01）",
+    "flags": [
+     {
+      "on": "uln",
+      "op": ">",
+      "v": 3,
+      "why": ">3×ULN"
+     }
+    ],
+    "uln": [
+     3
+    ]
+   },
+   {
+    "match": "收缩压",
+    "note": "SBP ≥160 mmHg 复测（R-VS-01）",
+    "flags": [
+     {
+      "on": "val",
+      "op": ">=",
+      "v": 160,
+      "why": "SBP ≥160"
+     }
+    ],
+    "lines": {
+     "val": [
+      [
+       160,
+       "160"
+      ]
+     ]
+    }
+   }
+  ],
+  "query": {
+   "label": "申办方 MM 质疑",
+   "file": "DEMO_EDC_listing_申办方MM_query_首列版.xlsx",
+   "extLabel": "CRO 质疑",
+   "extShort": "CRO",
+   "note": "质疑文本可直接粘贴 EDC；与 CRO 已发质疑自动查重。"
+  },
+  "defaultTest": "lab:丙氨酸氨基转移酶",
+  "keyDays": [
+   [
+    1,
+    "D1"
+   ],
+   [
+    85,
+    "W12"
+   ]
+  ],
+  "timeline": {
+   "preDays": 30
+  }
+ },
+ "study": {
+  "design": {
+   "sub": "随机 1:1 · 双盲 · 12 周治疗 + 4 周随访",
+   "refs": [
+    "R-DES-01",
+    "R-BL-01"
+   ],
+   "flow": [
+    {
+     "n": "−14~−1 天",
+     "b": "筛选期 V1",
+     "x": "知情同意、入排"
+    },
+    {
+     "n": "D1",
+     "b": "随机 / 首剂",
+     "x": "给药前后 VS/ECG",
+     "hot": true
+    },
+    {
+     "n": "W2–W12",
+     "b": "治疗期",
+     "x": "W2/W4/W8/W12 访视"
+    },
+    {
+     "n": "W16",
+     "b": "安全随访",
+     "x": "末次给药后 4 周"
+    }
+   ],
+   "arms": {
+    "label": "组别（盲态，不展示分组）",
+    "items": [
+     [
+      "DEMO-101 10 mg QD",
+      "org"
+     ],
+     [
+      "安慰剂",
+      "line"
+     ]
+    ]
+   },
+   "baselines": {
+    "label": "规定基线",
+    "refs": [
+     "R-BL-01"
+    ],
+    "items": [
+     [
+      "实验室：V1",
+      "line"
+     ],
+     [
+      "生命体征/ECG：D1 给药前",
+      "line"
+     ]
+    ]
+   }
+  },
+  "soaNote": "SoA 完成度按访视页（SV）实际发生访视比对；计划外访视单列，不计入缺失。",
+  "soaRefs": [
+   "R-VW-01"
+  ],
+  "consensus": [
+   [
+    "生命体征基线",
+    "§9.2 写“首剂前最后一次”，SoA 脚注写“D1 给药前”",
+    "D1 给药前；缺失时首剂前最近有效值",
+    "grn",
+    "R-BL-01"
+   ],
+   [
+    "计划外访视",
+    "方案未说明是否纳入汇总",
+    "不纳入访视汇总，仅个体层面审阅",
+    "blu",
+    ""
+   ]
+  ],
+  "thresholds": [
+   {
+    "t": "QTcF",
+    "c": "red",
+    "rows": [
+     [
+      "≥500 ms",
+      "red",
+      "AESI，24h 报告"
+     ],
+     [
+      "ΔQTcF >60 ms",
+      "red",
+      "AESI"
+     ],
+     [
+      "450–499 ms",
+      "yel",
+      "复测并评估"
+     ]
+    ],
+    "refs": [
+     "R-AESI-01"
+    ],
+    "cats": [
+     "阈值规则核对"
+    ]
+   },
+   {
+    "t": "ALT / AST",
+    "c": "org",
+    "rows": [
+     [
+      ">3×ULN",
+      "org",
+      "48–72h 复查，评估 AE"
+     ],
+     [
+      "+TBIL >2×ULN",
+      "red",
+      "潜在 DILI"
+     ]
+    ],
+    "refs": [
+     "R-LIV-01"
+    ],
+    "cats": [
+     "阈值规则核对"
+    ]
+   },
+   {
+    "t": "收缩压",
+    "c": "yel",
+    "rows": [
+     [
+      "≥160 mmHg",
+      "yel",
+      "复测，持续升高评估 AE"
+     ]
+    ],
+    "refs": [
+     "R-VS-01"
+    ],
+    "cats": [
+     "阈值规则核对"
+    ]
+   },
+   {
+    "t": "CTCAE 分级",
+    "c": "blu",
+    "rows": [
+     [
+      "≥3 级",
+      "red",
+      "重点核实"
+     ],
+     [
+      "2 级",
+      "yel",
+      "结合临床"
+     ]
+    ],
+    "note": "其余检验按 CTCAE v6.0 数值条目自动分级",
+    "cats": []
+   }
+  ],
+  "ib": {
+   "notes": {
+    "神经系统": [
+     "头痛为 IB 常见不良反应",
+     "R-IB-01"
+    ],
+    "胃肠道": [
+     "恶心、腹泻为 IB 常见不良反应",
+     "R-IB-01"
+    ],
+    "心脏": [
+     "QT 间期延长为潜在风险",
+     "R-IB-01"
+    ],
+    "肝胆": [
+     "转氨酶升高为潜在风险",
+     "R-IB-01"
+    ]
+   }
+  },
+  "prohibited": {
+   "groups": [
+    [
+     "强效 CYP3A4 抑制剂",
+     "red",
+     [
+      "克拉霉素",
+      "酮康唑",
+      "伊曲康唑"
+     ]
+    ],
+    [
+     "全身性糖皮质激素（首剂前 30 天）",
+     "org",
+     [
+      "泼尼松",
+      "甲泼尼龙",
+      "地塞米松"
+     ]
+    ]
+   ],
+   "note": "命中后与 PD 清单逐事件比对。",
+   "refs": [
+    "R-CM-01",
+    "R-CM-02"
+   ]
+  },
+  "eligibility": [
+   [
+    "年龄",
+    "18–65 岁",
+    "R-IE-01"
+   ],
+   [
+    "全身激素洗脱",
+    "首剂前 ≥30 天",
+    "R-CM-02"
+   ]
+  ],
+  "eligCats": [
+   "入排标准核对",
+   "入排洗脱用药核对",
+   "禁限用药核对"
+  ],
+  "ruleGroups": [
+   [
+    "设计/基线",
+    "^R-(DES|BL)"
+   ],
+   [
+    "安全性阈值",
+    "^R-(AESI|LIV|VS)"
+   ],
+   [
+    "用药",
+    "^R-CM"
+   ],
+   [
+    "入排/访视",
+    "^R-(IE|VW)"
+   ],
+   [
+    "有效性",
+    "^R-EFF"
+   ],
+   [
+    "IB",
+    "^R-IB"
+   ]
+  ]
+ },
+ "rules": "rules.json",
+ "ibtag": {
+  "神经系统": [
+   "IB常见"
+  ],
+  "胃肠道": [
+   "IB常见"
+  ],
+  "心脏": [
+   "IB潜在"
+  ],
+  "肝胆": [
+   "IB潜在"
+  ]
+ },
+ "analysis": {
+  "population": "dosed",
+  "aeCatMap": [
+   [
+    "头痛|头晕",
+    "神经系统"
+   ],
+   [
+    "恶心|腹泻|呕吐",
+    "胃肠道"
+   ],
+   [
+    "QT|心电图|心悸",
+    "心脏"
+   ],
+   [
+    "转氨酶|氨基转移酶|ALT|AST|肝",
+    "肝胆"
+   ],
+   [
+    "皮疹|瘙痒",
+    "皮肤"
+   ],
+   [
+    "感染",
+    "感染"
+   ],
+   [
+    "乏力",
+    "全身性"
+   ]
+  ],
+  "aesi": [
+   {
+    "id": "AESI-01",
+    "name": "QT 间期延长",
+    "terms": "QT间期延长|QT延长|尖端扭转"
+   }
+  ],
+  "aePeriod": {
+   "ref": "ld",
+   "days": 28
+  },
+  "teae": {
+   "ref": "ld",
+   "days": 28
+  },
+  "reportRules": [
+   {
+    "flag": "serious",
+    "days": 1,
+    "from": "aware",
+    "label": "SAE 获知后 24 小时内报告"
+   }
+  ],
+  "aeMatch": [
+   [
+    "丙氨酸|天门冬",
+    "转氨酶|氨基转移酶|ALT|AST|肝功能",
+    14
+   ],
+   [
+    "QTcF",
+    "QT",
+    7
+   ],
+   [
+    "血红蛋白",
+    "贫血",
+    14
+   ],
+   [
+    "钾",
+    "低钾|钾",
+    14
+   ],
+   [
+    "血小板",
+    "血小板",
+    14
+   ]
+  ],
+  "thresholdRules": [
+   {
+    "id": "T-QTCF",
+    "metric": "^ecg:QTcF$",
+    "op": ">=",
+    "v": 500,
+    "label": "≥500 ms",
+    "cat": "阈值规则核对",
+    "pr": 4,
+    "aesi": true,
+    "expectAE": "QT",
+    "window": 7,
+    "sum": "QTcF {value} ms（{visit} {date}）≥500 ms，符合 AESI 定义（R-AESI-01）",
+    "ask": "请确认是否已按 AESI 记录并在 24 小时内报告。"
+   },
+   {
+    "id": "T-ALT",
+    "metric": "^lab:(丙氨酸|天门冬)",
+    "on": "uln",
+    "op": ">",
+    "v": 3,
+    "label": ">3×ULN",
+    "cat": "阈值规则核对",
+    "pr": 4,
+    "expectAE": "转氨酶|氨基转移酶|ALT|AST|肝",
+    "window": 14,
+    "sum": "{test} {value} {unit}（{visit} {date}）>3×ULN（ULN {uln}），方案要求复查（R-LIV-01）",
+    "ask": "请确认是否已按方案在 48–72 小时内复查，并评估是否记录 AE。"
+   },
+   {
+    "id": "T-SBP",
+    "metric": "^vs:收缩压$",
+    "op": ">=",
+    "v": 160,
+    "label": "≥160 mmHg",
+    "cat": "阈值规则核对",
+    "pr": 3,
+    "expectAE": "血压|高血压",
+    "sum": "收缩压 {value} mmHg（{visit} {date}）≥160 mmHg（R-VS-01）",
+    "ask": "请确认是否复测，持续升高时请评估是否为 AE。"
+   }
+  ],
+  "comboRules": [
+   {
+    "id": "C-HY",
+    "name": "潜在 Hy's law",
+    "all": [
+     {
+      "metric": "^lab:(丙氨酸|天门冬)",
+      "on": "uln",
+      "op": ">=",
+      "v": 3
+     },
+     {
+      "metric": "^lab:总胆红素",
+      "on": "uln",
+      "op": ">=",
+      "v": 2
+     }
+    ],
+    "none": [
+     {
+      "metric": "^lab:碱性磷酸酶",
+      "on": "uln",
+      "op": ">=",
+      "v": 2
+     }
+    ],
+    "window": 0,
+    "expectAE": "肝|转氨酶|胆红素",
+    "pr": 4,
+    "cat": "阈值规则核对",
+    "ask": "请评估是否符合潜在 Hy’s law 并按方案报告，补充复查结果。"
+   }
+  ],
+  "prohibited": [
+   {
+    "name": "强效 CYP3A4 抑制剂",
+    "re": "克拉霉素|酮康唑|伊曲康唑|伏立康唑",
+    "pr": 4,
+    "note": "R-CM-01"
+   }
+  ],
+  "washout": [
+   {
+    "name": "全身性糖皮质激素",
+    "re": "泼尼松|甲泼尼龙|地塞米松|氢化可的松",
+    "days": 30,
+    "ref": "fd"
+   }
+  ],
+  "eligibilitySubject": [
+   {
+    "field": "age",
+    "op": "<",
+    "v": 18,
+    "label": "年龄",
+    "text": "入选标准 1：18–65 岁"
+   },
+   {
+    "field": "age",
+    "op": ">",
+    "v": 65,
+    "label": "年龄",
+    "text": "入选标准 1：18–65 岁"
+   }
+  ],
+  "visitWindows": {
+   "W2": [
+    14,
+    3,
+    3
+   ],
+   "W4": [
+    28,
+    3,
+    3
+   ],
+   "W8": [
+    56,
+    3,
+    3
+   ],
+   "W12": [
+    84,
+    3,
+    3
+   ],
+   "FU": [
+    112,
+    7,
+    7
+   ]
+  },
+  "efficacy": [
+   {
+    "id": "score",
+    "label": "症状评分",
+    "unit": "分",
+    "kind": "continuous",
+    "src": "eff:症状评分",
+    "visits": [
+     "D1",
+     "W4",
+     "W8",
+     "W12"
+    ],
+    "keyVisit": "W12",
+    "baseVisit": "D1",
+    "refLines": [
+     [
+      0,
+      "下限 0"
+     ],
+     [
+      40,
+      "上限 40"
+     ]
+    ],
+    "note": "量表范围 0–40，越低越好",
+    "kpi": true
+   },
+   {
+    "id": "score_chg",
+    "label": "症状评分较基线变化",
+    "unit": "分",
+    "kind": "continuous",
+    "src": "eff:症状评分",
+    "derive": "chg",
+    "baseVisit": "D1",
+    "visits": [
+     "W4",
+     "W8",
+     "W12"
+    ],
+    "keyVisit": "W12",
+    "signed": true,
+    "kpi": true
+   },
+   {
+    "id": "pgic",
+    "label": "PGI-C",
+    "unit": "",
+    "kind": "ordinal",
+    "src": "eff:PGI-C",
+    "visits": [
+     "W12"
+    ],
+    "keyVisit": "W12",
+    "categories": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6,
+     7
+    ],
+    "note": "1=非常明显改善 … 7=非常明显恶化"
+   }
+  ],
+  "effRules": [
+   {
+    "metric": "score",
+    "op": ">",
+    "v": 40,
+    "label": "超出量表范围",
+    "cls": "red",
+    "st": "核对源数据/录入",
+    "qcat": [
+     "有效性数据核对"
+    ]
+   },
+   {
+    "metric": "score",
+    "op": "<",
+    "v": 0,
+    "label": "超出量表范围",
+    "cls": "red"
+   }
+  ],
+  "effRulesText": "症状评分 0–40；超范围、关键访视缺失、个体轨迹异常跳变需核对。"
+ }
+}

@@ -1,0 +1,38 @@
+{
+  "workbooks": {"edc": "DEMO_EDC_listing.xlsx", "pdq": "DEMO_PD_and_CRO_queries.xlsx"},
+  "label_row": 1, "var_row": 2, "data_start": 3,
+  "visit_map": {"筛选期": "V1", "第1天": "D1", "第2周": "W2", "第4周": "W4", "第8周": "W8", "第12周": "W12", "安全随访": "FU", "计划外访视": "USV", "提前退出": "ET"},
+  "clin_map": [["异常有临床意义", 2], ["异常无临床意义", 1], ["正常", 0]],
+  "domains": {
+    "subjects": [
+      {"wb": "edc", "sheet": "DM", "cols": {"sid": "SUBJID", "site": "SITEID", "center": "SITENAME", "icf": "ICFDAT", "age": "AGE", "sex": "SEX",
+                                         "ht": "HEIGHT", "wt": "WEIGHT", "bmi": "BMI", "eth": "ETHNIC", "rand": "RANDNO", "strat": "STRAT"}},
+      {"wb": "edc", "sheet": "DS", "cols": {"sid": "SUBJID", "eot_d": "EOTDAT", "eot_why": "EOTREAS", "eos_d": "EOSDAT", "eos_done": "EOSCOMP", "eos_why": "EOSREAS"}}
+    ],
+    "visits": [{"wb": "edc", "sheet": "SV", "cols": {"sid": "SUBJID", "visit": "VISIT", "date": "SVDAT"}}],
+    "exposure": [{"wb": "edc", "sheet": "EC", "cols": {"sid": "SUBJID", "visit": "VISIT", "start": "ECSTDAT", "end": "ECENDAT", "dose": "ECDOSE", "pause": "ECPAUSE"}}],
+    "ae": [{"wb": "edc", "sheet": "AE", "cols": {"sid": "SUBJID", "no": "AENO", "term": "AETERM", "start": "AESTDAT", "end": "AEENDAT", "grade": "AETOXGR",
+                                               "serious": "AESER", "aesi": "AESI", "rel": "AEREL", "action": "AEACN", "outcome": "AEOUT", "cm": "AECM"}}],
+    "mh": [{"wb": "edc", "sheet": "MH", "cols": {"sid": "SUBJID", "no": "MHNO", "term": "MHTERM", "start": "MHSTDAT", "end": "MHENDAT", "ongoing": "MHONGO"}}],
+    "cm": [{"wb": "edc", "sheet": "CM", "cols": {"sid": "SUBJID", "no": "CMNO", "term": "CMTRT", "start": "CMSTDAT", "end": "CMENDAT", "ongoing": "CMONGO",
+                                               "dose": "CMDOSE", "freq": "CMFREQ", "route": "CMROUTE", "indication": "CMINDC"}}],
+    "findings": [
+      {"wb": "edc", "sheet": "LB", "domain": "lab", "group": "实验室检查", "layout": "long",
+       "cols": {"sid": "SUBJID", "visit": "VISIT", "date": "LBDAT", "test": "LBTEST", "value": "LBORRES", "unit": "LBORRESU",
+                "lo": "LBORNRLO", "hi": "LBORNRHI", "clin": "LBCLSIG", "desc": "LBDESC", "link": "LBLINK"}},
+      {"wb": "edc", "sheet": "VS", "domain": "vs", "group": "生命体征", "layout": "wide",
+       "cols": {"sid": "SUBJID", "visit": "VISIT", "date": "VSDAT", "tpt": "VSTPT"},
+       "tests": {"收缩压": {"value": "SYSBP", "unit": "mmHg", "clin": "SYSCS", "lo": 90, "hi": 139},
+                 "舒张压": {"value": "DIABP", "unit": "mmHg", "clin": "DIACS", "lo": 60, "hi": 89},
+                 "脉搏": {"value": "PULSE", "unit": "次/分", "clin": "PULSECS", "lo": 60, "hi": 100},
+                 "体重": {"value": "WEIGHT", "unit": "kg"}}},
+      {"wb": "edc", "sheet": "EG", "domain": "ecg", "group": "12导联心电图", "layout": "wide",
+       "cols": {"sid": "SUBJID", "visit": "VISIT", "date": "EGDAT", "tpt": "EGTPT"},
+       "tests": {"QTcF": {"value": "QTCF", "unit": "ms", "clin": "EGCLSIG", "hi": 450},
+                 "心率": {"value": "EGHR", "unit": "次/分", "lo": 60, "hi": 100}}}
+    ],
+    "efficacy": [{"wb": "edc", "sheet": "EFF", "cols": {"sid": "SUBJID", "visit": "VISIT", "date": "QSDAT", "metric": "QSTEST", "value": "QSORRES"}}],
+    "pd": [{"wb": "pdq", "sheet": "PD", "cols": {"sid": "SUBJID", "cat": "DVCAT", "desc": "DVTERM", "date": "DVDAT"}}],
+    "extq": [{"wb": "pdq", "sheet": "CROQ", "cols": {"form": "FORM", "row": "ROW", "sid": "SUBJID", "visit": "VISIT", "text": "TEXT"}}]
+  }
+}

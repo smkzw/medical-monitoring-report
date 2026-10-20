@@ -1,0 +1,4 @@
+interface:
+  display_name: "受试者时间线构建器"
+  short_description: "构建临床受试者时间线和风险汇总"
+  default_prompt: "使用 $subject-timeline-builder 基于研究方案、数据列表、核查发现、用药规则、不良事件和采样数据，构建中文交互式受试者时间线和风险汇总工作簿。"

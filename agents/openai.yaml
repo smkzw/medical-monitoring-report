@@ -1,0 +1,4 @@
+interface:
+  display_name: "医学监察报告"
+  short_description: "方案 + listing → 9 页医学监察 HTML 报告与 EDC query"
+  default_prompt: "Use $medical-monitoring-report when the user uploads a protocol and EDC data listings and asks for 医学监察报告/医学监查/AE漏报/受试者时间线/patient profile; inventory files first, extract protocol rules with sources, ask only blocker questions, then build, render-check and validate before delivering."

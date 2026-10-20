@@ -1,0 +1,7 @@
+work/
+out/
+**/echarts.min.js
+__pycache__/
+*.pyc
+.DS_Store
+examples/demo/*.xlsx

@@ -1,0 +1,4 @@
+interface:
+  display_name: "实验室异常 AE 风险评估"
+  short_description: "评估实验室、生命体征及心电图异常的 AE 漏报风险"
+  default_prompt: "使用 $ae-risk-assessment 基于全量 Data Listing、CTCAE 和项目规则，核查实验室、生命体征或心电图异常的 AE 漏报风险。"

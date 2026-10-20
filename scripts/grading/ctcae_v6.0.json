@@ -1,0 +1,1052 @@
+{
+ "system": "CTCAE",
+ "version": "6.0",
+ "label": "CTCAE v6.0",
+ "source": "按 CTCAE v6.0 Clean Copy 转录的数值条目（仅可凭数值分级者）。交付前用 ctcae_import.py --check 对照官方文件复核。",
+ "units": {
+  "HGB": {
+   "_std": "g/L",
+   "g/l": 1,
+   "g/dl": 10,
+   "mmol/l": 16.11
+  },
+  "ALB": {
+   "_std": "g/L",
+   "g/l": 1,
+   "g/dl": 10
+  },
+  "WBC": {
+   "_std": "10^9/L",
+   "10^9/l": 1,
+   "×10^9/l": 1,
+   "x10^9/l": 1,
+   "10*9/l": 1,
+   "10e9/l": 1,
+   "g/l": 1,
+   "10^3/µl": 1,
+   "10^3/ul": 1,
+   "k/µl": 1,
+   "k/ul": 1,
+   "10^3/mm3": 1,
+   "/µl": 0.001,
+   "/ul": 0.001,
+   "/mm3": 0.001,
+   "cells/µl": 0.001,
+   "cells/ul": 0.001
+  },
+  "ANC": {
+   "_std": "10^9/L",
+   "10^9/l": 1,
+   "×10^9/l": 1,
+   "x10^9/l": 1,
+   "10*9/l": 1,
+   "10e9/l": 1,
+   "g/l": 1,
+   "10^3/µl": 1,
+   "10^3/ul": 1,
+   "k/µl": 1,
+   "k/ul": 1,
+   "10^3/mm3": 1,
+   "/µl": 0.001,
+   "/ul": 0.001,
+   "/mm3": 0.001,
+   "cells/µl": 0.001,
+   "cells/ul": 0.001
+  },
+  "LYM": {
+   "_std": "10^9/L",
+   "10^9/l": 1,
+   "×10^9/l": 1,
+   "x10^9/l": 1,
+   "10*9/l": 1,
+   "10e9/l": 1,
+   "g/l": 1,
+   "10^3/µl": 1,
+   "10^3/ul": 1,
+   "k/µl": 1,
+   "k/ul": 1,
+   "10^3/mm3": 1,
+   "/µl": 0.001,
+   "/ul": 0.001,
+   "/mm3": 0.001,
+   "cells/µl": 0.001,
+   "cells/ul": 0.001
+  },
+  "EOS": {
+   "_std": "10^9/L",
+   "10^9/l": 1,
+   "×10^9/l": 1,
+   "x10^9/l": 1,
+   "10*9/l": 1,
+   "10e9/l": 1,
+   "g/l": 1,
+   "10^3/µl": 1,
+   "10^3/ul": 1,
+   "k/µl": 1,
+   "k/ul": 1,
+   "10^3/mm3": 1,
+   "/µl": 0.001,
+   "/ul": 0.001,
+   "/mm3": 0.001,
+   "cells/µl": 0.001,
+   "cells/ul": 0.001
+  },
+  "PLT": {
+   "_std": "10^9/L",
+   "10^9/l": 1,
+   "×10^9/l": 1,
+   "x10^9/l": 1,
+   "10*9/l": 1,
+   "10e9/l": 1,
+   "g/l": 1,
+   "10^3/µl": 1,
+   "10^3/ul": 1,
+   "k/µl": 1,
+   "k/ul": 1,
+   "10^3/mm3": 1,
+   "/µl": 0.001,
+   "/ul": 0.001,
+   "/mm3": 0.001,
+   "cells/µl": 0.001,
+   "cells/ul": 0.001
+  },
+  "NA": {
+   "_std": "mmol/L",
+   "mmol/l": 1,
+   "meq/l": 1
+  },
+  "K": {
+   "_std": "mmol/L",
+   "mmol/l": 1,
+   "meq/l": 1
+  },
+  "CA": {
+   "_std": "mmol/L",
+   "mmol/l": 1,
+   "mg/dl": 0.2495
+  },
+  "MG": {
+   "_std": "mmol/L",
+   "mmol/l": 1,
+   "mg/dl": 0.4114,
+   "meq/l": 0.5
+  },
+  "GLU": {
+   "_std": "mmol/L",
+   "mmol/l": 1,
+   "mg/dl": 0.0555
+  },
+  "CHOL": {
+   "_std": "mmol/L",
+   "mmol/l": 1,
+   "mg/dl": 0.02586
+  },
+  "TG": {
+   "_std": "mmol/L",
+   "mmol/l": 1,
+   "mg/dl": 0.01129
+  },
+  "QTCF": {
+   "_std": "ms",
+   "ms": 1,
+   "msec": 1,
+   "s": 1000
+  },
+  "WEIGHT": {
+   "_std": "kg",
+   "kg": 1,
+   "lb": 0.4536
+  },
+  "EGFR": {
+   "_std": "mL/min/1.73m²",
+   "ml/min/1.73m2": 1,
+   "ml/min/1.73m²": 1,
+   "ml/min": 1
+  }
+ },
+ "ratio": [
+  "ALT",
+  "AST",
+  "ALP",
+  "GGT",
+  "TBIL",
+  "CREAT",
+  "LDH",
+  "APTT",
+  "CK",
+  "LIP",
+  "AMY",
+  "UA",
+  "FIB",
+  "INR"
+ ],
+ "items": {
+  "HGB": [
+   {
+    "term": "Anemia",
+    "zh": "贫血",
+    "dir": "L",
+    "steps": [
+     {
+      "by": "val",
+      "op": "<",
+      "v": "LLN",
+      "g": 1
+     },
+     {
+      "by": "val",
+      "op": "<",
+      "v": 100,
+      "g": 2
+     },
+     {
+      "by": "val",
+      "op": "<",
+      "v": 80,
+      "g": 3
+     }
+    ]
+   }
+  ],
+  "WBC": [
+   {
+    "term": "White blood cell decreased",
+    "zh": "白细胞减少",
+    "dir": "L",
+    "steps": [
+     {
+      "by": "val",
+      "op": "<",
+      "v": "LLN",
+      "g": 1
+     },
+     {
+      "by": "val",
+      "op": "<",
+      "v": 3.0,
+      "g": 2
+     },
+     {
+      "by": "val",
+      "op": "<",
+      "v": 2.0,
+      "g": 3
+     },
+     {
+      "by": "val",
+      "op": "<",
+      "v": 1.0,
+      "g": 4
+     }
+    ]
+   }
+  ],
+  "ANC": [
+   {
+    "term": "Neutrophil count decreased",
+    "zh": "中性粒细胞减少",
+    "dir": "L",
+    "steps": [
+     {
+      "by": "val",
+      "op": "<",
+      "v": "LLN",
+      "g": 1
+     },
+     {
+      "by": "val",
+      "op": "<",
+      "v": 1.0,
+      "g": 2
+     },
+     {
+      "by": "val",
+      "op": "<",
+      "v": 0.5,
+      "g": 3
+     },
+     {
+      "by": "val",
+      "op": "<",
+      "v": 0.1,
+      "g": 4
+     }
+    ]
+   },
+   {
+    "term": "Neutrophil count increased",
+    "zh": "中性粒细胞增多",
+    "dir": "H",
+    "steps": [
+     {
+      "by": "val",
+      "op": ">",
+      "v": "ULN",
+      "g": 1
+     }
+    ]
+   }
+  ],
+  "LYM": [
+   {
+    "term": "Lymphopenia",
+    "zh": "淋巴细胞减少",
+    "dir": "L",
+    "steps": [
+     {
+      "by": "val",
+      "op": "<",
+      "v": "LLN",
+      "g": 1
+     }
+    ]
+   }
+  ],
+  "EOS": [
+   {
+    "term": "Eosinophilia",
+    "zh": "嗜酸性粒细胞增多",
+    "dir": "H",
+    "steps": [
+     {
+      "by": "val",
+      "op": ">",
+      "v": "ULN",
+      "g": 1
+     }
+    ]
+   }
+  ],
+  "PLT": [
+   {
+    "term": "Thrombocytopenia",
+    "zh": "血小板减少",
+    "dir": "L",
+    "steps": [
+     {
+      "by": "val",
+      "op": "<",
+      "v": "LLN",
+      "g": 1
+     },
+     {
+      "by": "val",
+      "op": "<",
+      "v": 75,
+      "g": 2
+     },
+     {
+      "by": "val",
+      "op": "<",
+      "v": 50,
+      "g": 3
+     },
+     {
+      "by": "val",
+      "op": "<",
+      "v": 25,
+      "g": 4
+     }
+    ]
+   },
+   {
+    "term": "Thrombocytosis",
+    "zh": "血小板增多",
+    "dir": "H",
+    "steps": [
+     {
+      "by": "val",
+      "op": ">",
+      "v": "ULN",
+      "g": 1
+     }
+    ]
+   }
+  ],
+  "NA": [
+   {
+    "term": "Hyponatremia",
+    "zh": "低钠血症",
+    "dir": "L",
+    "steps": [
+     {
+      "by": "val",
+      "op": "<",
+      "v": "LLN",
+      "g": 1
+     },
+     {
+      "by": "val",
+      "op": "<",
+      "v": 130,
+      "g": 2
+     },
+     {
+      "by": "val",
+      "op": "<",
+      "v": 125,
+      "g": 3
+     },
+     {
+      "by": "val",
+      "op": "<",
+      "v": 120,
+      "g": 4
+     }
+    ]
+   },
+   {
+    "term": "Hypernatremia",
+    "zh": "高钠血症",
+    "dir": "H",
+    "steps": [
+     {
+      "by": "val",
+      "op": ">",
+      "v": "ULN",
+      "g": 1
+     },
+     {
+      "by": "val",
+      "op": ">",
+      "v": 150,
+      "g": 2
+     },
+     {
+      "by": "val",
+      "op": ">",
+      "v": 155,
+      "g": 3
+     },
+     {
+      "by": "val",
+      "op": ">",
+      "v": 160,
+      "g": 4
+     }
+    ]
+   }
+  ],
+  "K": [
+   {
+    "term": "Hypokalemia",
+    "zh": "低钾血症",
+    "dir": "L",
+    "steps": [
+     {
+      "by": "val",
+      "op": "<",
+      "v": "LLN",
+      "g": 1
+     },
+     {
+      "by": "val",
+      "op": "<",
+      "v": 3.0,
+      "g": 3
+     },
+     {
+      "by": "val",
+      "op": "<",
+      "v": 2.5,
+      "g": 4
+     }
+    ],
+    "note": "2 级取决于症状/干预，数值不区分 1/2 级"
+   },
+   {
+    "term": "Hyperkalemia",
+    "zh": "高钾血症",
+    "dir": "H",
+    "steps": [
+     {
+      "by": "val",
+      "op": ">",
+      "v": "ULN",
+      "g": 1
+     },
+     {
+      "by": "val",
+      "op": ">",
+      "v": 5.5,
+      "g": 2
+     },
+     {
+      "by": "val",
+      "op": ">",
+      "v": 6.0,
+      "g": 3
+     },
+     {
+      "by": "val",
+      "op": ">",
+      "v": 7.0,
+      "g": 4
+     }
+    ]
+   }
+  ],
+  "CREAT": [
+   {
+    "term": "Creatinine increased",
+    "zh": "肌酐升高",
+    "dir": "H",
+    "steps": [
+     {
+      "by": "xuln",
+      "op": ">",
+      "v": 1,
+      "g": 1
+     },
+     {
+      "by": "xuln",
+      "op": ">",
+      "v": 1.5,
+      "g": 2
+     },
+     {
+      "by": "xuln",
+      "op": ">",
+      "v": 3,
+      "g": 3
+     },
+     {
+      "by": "xuln",
+      "op": ">",
+      "v": 6,
+      "g": 4
+     }
+    ]
+   }
+  ],
+  "TBIL": [
+   {
+    "term": "Blood bilirubin increased",
+    "zh": "血胆红素升高",
+    "dir": "H",
+    "steps": [
+     {
+      "by": "xuln",
+      "op": ">",
+      "v": 1,
+      "g": 1
+     },
+     {
+      "by": "xuln",
+      "op": ">",
+      "v": 1.5,
+      "g": 2
+     },
+     {
+      "by": "xuln",
+      "op": ">",
+      "v": 3,
+      "g": 3
+     },
+     {
+      "by": "xuln",
+      "op": ">",
+      "v": 10,
+      "g": 4
+     }
+    ],
+    "when": "baseNormal"
+   },
+   {
+    "term": "Blood bilirubin increased",
+    "zh": "血胆红素升高",
+    "dir": "H",
+    "steps": [
+     {
+      "by": "xbase",
+      "op": ">",
+      "v": 1.0,
+      "g": 1
+     },
+     {
+      "by": "xbase",
+      "op": ">",
+      "v": 1.5,
+      "g": 2
+     },
+     {
+      "by": "xbase",
+      "op": ">",
+      "v": 3,
+      "g": 3
+     },
+     {
+      "by": "xbase",
+      "op": ">",
+      "v": 10,
+      "g": 4
+     }
+    ],
+    "when": "baseAbnormal"
+   }
+  ],
+  "ALB": [
+   {
+    "term": "Hypoalbuminemia",
+    "zh": "低白蛋白血症",
+    "dir": "L",
+    "steps": [
+     {
+      "by": "val",
+      "op": "<",
+      "v": "LLN",
+      "g": 1
+     },
+     {
+      "by": "val",
+      "op": "<",
+      "v": 30,
+      "g": 2
+     },
+     {
+      "by": "val",
+      "op": "<",
+      "v": 20,
+      "g": 3
+     }
+    ]
+   }
+  ],
+  "AST": [
+   {
+    "term": "Aspartate aminotransferase increased",
+    "zh": "AST升高",
+    "dir": "H",
+    "steps": [
+     {
+      "by": "xuln",
+      "op": ">",
+      "v": 1,
+      "g": 1
+     },
+     {
+      "by": "xuln",
+      "op": ">",
+      "v": 3,
+      "g": 2
+     },
+     {
+      "by": "xuln",
+      "op": ">",
+      "v": 5,
+      "g": 3
+     },
+     {
+      "by": "xuln",
+      "op": ">",
+      "v": 20,
+      "g": 4
+     }
+    ],
+    "when": "baseNormal"
+   },
+   {
+    "term": "Aspartate aminotransferase increased",
+    "zh": "AST升高",
+    "dir": "H",
+    "steps": [
+     {
+      "by": "xbase",
+      "op": ">",
+      "v": 1.0,
+      "g": 1
+     },
+     {
+      "by": "xbase",
+      "op": ">",
+      "v": 1.5,
+      "g": 2
+     },
+     {
+      "by": "xbase",
+      "op": ">",
+      "v": 3,
+      "g": 3
+     },
+     {
+      "by": "xbase",
+      "op": ">",
+      "v": 10,
+      "g": 4
+     }
+    ],
+    "when": "baseAbnormal"
+   }
+  ],
+  "ALT": [
+   {
+    "term": "Alanine aminotransferase increased",
+    "zh": "ALT升高",
+    "dir": "H",
+    "steps": [
+     {
+      "by": "xuln",
+      "op": ">",
+      "v": 1,
+      "g": 1
+     },
+     {
+      "by": "xuln",
+      "op": ">",
+      "v": 3,
+      "g": 2
+     },
+     {
+      "by": "xuln",
+      "op": ">",
+      "v": 5,
+      "g": 3
+     },
+     {
+      "by": "xuln",
+      "op": ">",
+      "v": 20,
+      "g": 4
+     }
+    ],
+    "when": "baseNormal"
+   },
+   {
+    "term": "Alanine aminotransferase increased",
+    "zh": "ALT升高",
+    "dir": "H",
+    "steps": [
+     {
+      "by": "xbase",
+      "op": ">",
+      "v": 1.0,
+      "g": 1
+     },
+     {
+      "by": "xbase",
+      "op": ">",
+      "v": 1.5,
+      "g": 2
+     },
+     {
+      "by": "xbase",
+      "op": ">",
+      "v": 3,
+      "g": 3
+     },
+     {
+      "by": "xbase",
+      "op": ">",
+      "v": 10,
+      "g": 4
+     }
+    ],
+    "when": "baseAbnormal"
+   }
+  ],
+  "GGT": [
+   {
+    "term": "GGT increased",
+    "zh": "GGT升高",
+    "dir": "H",
+    "steps": [
+     {
+      "by": "xuln",
+      "op": ">",
+      "v": 1,
+      "g": 1
+     },
+     {
+      "by": "xuln",
+      "op": ">",
+      "v": 2.5,
+      "g": 2
+     },
+     {
+      "by": "xuln",
+      "op": ">",
+      "v": 5,
+      "g": 3
+     },
+     {
+      "by": "xuln",
+      "op": ">",
+      "v": 20,
+      "g": 4
+     }
+    ],
+    "when": "baseNormal"
+   },
+   {
+    "term": "GGT increased",
+    "zh": "GGT升高",
+    "dir": "H",
+    "steps": [
+     {
+      "by": "xbase",
+      "op": ">",
+      "v": 1.0,
+      "g": 1
+     },
+     {
+      "by": "xbase",
+      "op": ">",
+      "v": 1.5,
+      "g": 2
+     },
+     {
+      "by": "xbase",
+      "op": ">",
+      "v": 3,
+      "g": 3
+     },
+     {
+      "by": "xbase",
+      "op": ">",
+      "v": 10,
+      "g": 4
+     }
+    ],
+    "when": "baseAbnormal"
+   }
+  ],
+  "ALP": [
+   {
+    "term": "Alkaline phosphatase increased",
+    "zh": "ALP升高",
+    "dir": "H",
+    "steps": [
+     {
+      "by": "xuln",
+      "op": ">",
+      "v": 1,
+      "g": 1
+     }
+    ]
+   }
+  ],
+  "LDH": [
+   {
+    "term": "Blood lactate dehydrogenase increased",
+    "zh": "LDH升高",
+    "dir": "H",
+    "steps": [
+     {
+      "by": "xuln",
+      "op": ">",
+      "v": 1,
+      "g": 1
+     }
+    ]
+   }
+  ],
+  "CHOL": [
+   {
+    "term": "Cholesterol high",
+    "zh": "胆固醇升高",
+    "dir": "H",
+    "steps": [
+     {
+      "by": "val",
+      "op": ">",
+      "v": "ULN",
+      "g": 1
+     },
+     {
+      "by": "val",
+      "op": ">",
+      "v": 7.75,
+      "g": 2
+     },
+     {
+      "by": "val",
+      "op": ">",
+      "v": 10.34,
+      "g": 3
+     },
+     {
+      "by": "val",
+      "op": ">",
+      "v": 12.92,
+      "g": 4
+     }
+    ]
+   }
+  ],
+  "TG": [
+   {
+    "term": "Hypertriglyceridemia",
+    "zh": "高甘油三酯血症",
+    "dir": "H",
+    "steps": [
+     {
+      "by": "val",
+      "op": ">=",
+      "v": 1.71,
+      "g": 1
+     },
+     {
+      "by": "val",
+      "op": ">",
+      "v": 3.42,
+      "g": 2
+     },
+     {
+      "by": "val",
+      "op": ">",
+      "v": 5.7,
+      "g": 3
+     },
+     {
+      "by": "val",
+      "op": ">",
+      "v": 11.4,
+      "g": 4
+     }
+    ],
+    "absolute": true
+   }
+  ],
+  "APTT": [
+   {
+    "term": "Activated partial thromboplastin time prolonged",
+    "zh": "APTT延长",
+    "dir": "H",
+    "steps": [
+     {
+      "by": "xuln",
+      "op": ">",
+      "v": 1,
+      "g": 1
+     },
+     {
+      "by": "xuln",
+      "op": ">",
+      "v": 1.5,
+      "g": 2
+     },
+     {
+      "by": "xuln",
+      "op": ">",
+      "v": 2.5,
+      "g": 3
+     }
+    ]
+   }
+  ],
+  "INR": [
+   {
+    "term": "INR increased",
+    "zh": "INR升高",
+    "dir": "H",
+    "steps": [
+     {
+      "by": "val",
+      "op": ">",
+      "v": 1.2,
+      "g": 1
+     },
+     {
+      "by": "val",
+      "op": ">",
+      "v": 1.5,
+      "g": 2
+     },
+     {
+      "by": "val",
+      "op": ">",
+      "v": 2.5,
+      "g": 3
+     }
+    ],
+    "absolute": true
+   }
+  ],
+  "QTCF": [
+   {
+    "term": "Electrocardiogram QT corrected interval prolonged",
+    "zh": "QTc间期延长",
+    "dir": "H",
+    "steps": [
+     {
+      "by": "val",
+      "op": ">=",
+      "v": 450,
+      "g": 1
+     },
+     {
+      "by": "val",
+      "op": ">=",
+      "v": 481,
+      "g": 2
+     },
+     {
+      "by": "val",
+      "op": ">=",
+      "v": 501,
+      "g": 3
+     },
+     {
+      "by": "chg",
+      "op": ">",
+      "v": 60,
+      "g": 3
+     }
+    ],
+    "absolute": true
+   }
+  ],
+  "WEIGHT": [
+   {
+    "term": "Weight gain",
+    "zh": "体重增加",
+    "dir": "H",
+    "steps": [
+     {
+      "by": "pct",
+      "op": ">=",
+      "v": 5,
+      "g": 1
+     },
+     {
+      "by": "pct",
+      "op": ">=",
+      "v": 10,
+      "g": 2
+     },
+     {
+      "by": "pct",
+      "op": ">=",
+      "v": 20,
+      "g": 3
+     }
+    ]
+   },
+   {
+    "term": "Weight loss",
+    "zh": "体重减轻",
+    "dir": "L",
+    "steps": [
+     {
+      "by": "pct",
+      "op": "<=",
+      "v": -5,
+      "g": 1
+     },
+     {
+      "by": "pct",
+      "op": "<=",
+      "v": -10,
+      "g": 2
+     },
+     {
+      "by": "pct",
+      "op": "<=",
+      "v": -20,
+      "g": 3
+     }
+    ]
+   }
+  ]
+ }
+}
