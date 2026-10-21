@@ -953,7 +953,7 @@ def build_eff(C):
     C.effsub = defaultdict(dict)
     for m in M:
         src = m['src']
-        for sid in C.pop:
+        for sid in sorted(C.pop):  # deterministic eff.data order (set iteration varies per process)
             rs = [x for x in by.get((sid, src), []) if x[2] is not None]
             if not rs:
                 continue
