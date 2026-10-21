@@ -13,7 +13,7 @@ app.innerHTML=`<div class="flex mb"><h1 style="font-size:18px">参与者时间�
 const pane=document.getElementById('pane');
 let mode=H.c&&!H.s?'c':'s';
 K.seg(document.getElementById('mode'),[['s','单受试者'],['c','中心概览']],mode,v=>{mode=v;v==='s'?one(H.s||subs[0].id):center(H.c||'03')});
-mode==='s'?one(H.s||'03001'):center(H.c||'03');
+mode==='s'&&subs.length?one(H.s||subs[0].id):center(H.c||'03');
 /* ---------------- single subject */
 async function one(id){
   H.s=id;K.setHash({s:id});
