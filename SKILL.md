@@ -131,4 +131,5 @@ node scripts/render_check.js out/demo/HTML && python3 scripts/validate_contract.
 - `references/design-system.md` — 康哲设计体系与用户偏好
 - `references/validation-checklist.md` — 交付前检查
 - `references/lessons-learned.md` — 既往项目经验
+- `references/ext-hooks.md` — 宿主系统扩展钩子（cfg.ext 声明式加载 data/sys.js 与 assets/ext/*；不声明则无任何影响）
 - `vendor/` — 三个上游技能原文（仅供追溯，不直接调用）

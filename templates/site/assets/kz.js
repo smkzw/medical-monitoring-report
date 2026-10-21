@@ -192,3 +192,15 @@ K.ybOpt=R=>{if(!R)return {};const br=R.breaks||[],o={};if(R.hi!=null)o.max=R.hi;
   const keep=new Set([Math.min(...br.map(b=>b.start)),Math.max(...br.map(b=>b.end))]);
   return {...o,breaks:br,breakLabelLayout:{moveOverlap:'auto'},breakArea:{show:true,itemStyle:{color:'#fff',borderColor:'#C9CCD1',borderWidth:1,borderType:[3,3],opacity:1},zigzagAmplitude:3,expandOnClick:true},axisLabel:{color:'#64676B',formatter:(v,i,ex)=>ex&&ex.break&&!keep.has(v)?'':K.fmt(v)}}};
 
+/* Extension hooks: a host system (e.g. the kz workbench) may ship extra layers alongside a built report —
+ * a system layer `data/sys.js` (window.KZS) and optional assets. Everything is DECLARED AT BUILD TIME via
+ * study.json `cfg.ext = {sys:"data/sys.js", js:["assets/ext/…"], css:["assets/ext/…"]}`; nothing is probed
+ * at runtime (fetch/HEAD does not work on file:// and missing-resource loads log console errors), so a
+ * standalone skill build without cfg.ext behaves exactly as before. See references/ext-hooks.md. */
+(function(){
+  const ex = ((window.KZ || {}).cfg || {}).ext;
+  if (!ex) return;
+  const head = document.head;
+  (ex.css || []).forEach(h => { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = h; head.appendChild(l); });
+  [].concat(ex.sys || [], ex.js || []).forEach(s => { const t = document.createElement('script'); t.src = s; t.async = false; head.appendChild(t); });
+})();
