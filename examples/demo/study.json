@@ -141,7 +141,7 @@
   "metricRules": [
    {
     "match": "QTcF",
-    "note": "QTcF ≥500 ms 或 ΔQTcF >60 ms 为 AESI（R-AESI-01）",
+    "note": "QTcF ≥500 ms 或 ΔQTcF >60 ms 为 AESI",
     "flags": [
      {
       "on": "val",
@@ -177,7 +177,7 @@
    },
    {
     "match": "丙氨酸|天门冬",
-    "note": "ALT/AST >3×ULN 需复查（R-LIV-01）",
+    "note": "ALT/AST >3×ULN 需复查",
     "flags": [
      {
       "on": "uln",
@@ -192,7 +192,7 @@
    },
    {
     "match": "收缩压",
-    "note": "SBP ≥160 mmHg 复测（R-VS-01）",
+    "note": "SBP ≥160 mmHg 复测",
     "flags": [
      {
       "on": "val",
@@ -599,7 +599,7 @@
     "aesi": true,
     "expectAE": "QT",
     "window": 7,
-    "sum": "QTcF {value} ms（{visit} {date}）≥500 ms，符合 AESI 定义（R-AESI-01）",
+    "sum": "QTcF {value} ms（{visit} {date}）≥500 ms，符合 AESI 定义",
     "ask": "请确认是否已按 AESI 记录并在 24 小时内报告。"
    },
    {
@@ -613,7 +613,7 @@
     "pr": 4,
     "expectAE": "转氨酶|氨基转移酶|ALT|AST|肝",
     "window": 14,
-    "sum": "{test} {value} {unit}（{visit} {date}）>3×ULN（ULN {uln}），方案要求复查（R-LIV-01）",
+    "sum": "{test} {value} {unit}（{visit} {date}）>3×ULN（ULN {uln}），方案要求复查",
     "ask": "请确认是否已按方案在 48–72 小时内复查，并评估是否记录 AE。"
    },
    {
@@ -625,7 +625,7 @@
     "cat": "阈值规则核对",
     "pr": 3,
     "expectAE": "血压|高血压",
-    "sum": "收缩压 {value} mmHg（{visit} {date}）≥160 mmHg（R-VS-01）",
+    "sum": "收缩压 {value} mmHg（{visit} {date}）≥160 mmHg",
     "ask": "请确认是否复测，持续升高时请评估是否为 AE。"
    }
   ],
