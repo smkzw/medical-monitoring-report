@@ -15,6 +15,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 import ctcae
+import ext_rules
 from common import days, dump_json, fmt, is_full_date, load_json, quantile, study_day
 
 AGG_EXCL = set()
@@ -300,7 +301,7 @@ def build_findings(C):
             v, bv = r.get('value'), (b or {}).get('value')
             r['chg'] = None if v is None or bv is None or r['isb'] else v - bv
             r['pct'] = None if r['chg'] is None or not bv else r['chg'] / abs(bv) * 100
-            r['dev'] = deviation(v, r.get('lo'), r.get('hi'))
+            r['dev'] = ext_rules.dev_of(r)          # M15：vs 收缩压/舒张压无上限时用默认上限（139/89）
             r['grade'], r['gterm'] = None, ''
             if code and v is not None and fac is not None:
                 lo = r.get('lo') * fac if r.get('lo') is not None else None
@@ -492,7 +493,8 @@ def rel_candidates(C):
                 continue
             if r['dev'] < dev_f:
                 continue
-            above = r.get('hi') is not None and r['value'] > r['hi']
+            hi_e = ext_rules.ref_hi(r)
+            above = hi_e is not None and r['value'] > hi_e
             below = r.get('lo') is not None and r['value'] < r['lo']
             if mdir == 'up' and not above:
                 continue
@@ -1298,6 +1300,8 @@ def defaults(C):
             C.todo.insert(4, ['有效性', 'blu', '；'.join(f'{k} {v}' for k, v in an.most_common(2)), 'efficacy.html'])
     else:
         C.todo = C.S['todo']
+    if getattr(C, 'todo_hint', ''):                 # 扩展规则词表缺失 → 待办区提示（D-P5-2 fail-visible，不覆盖默认）
+        C.todo.append(['词表', 'yel', C.todo_hint, 'methods.html'])
 
 
 # ----------------------------------------------------------------------------- main
@@ -1335,6 +1339,7 @@ def main():
     eligibility_checks(C)
     visit_window_checks(C)
     pd_reconcile(C)
+    csb_candidates = ext_rules.run(C)                    # M13–M23 确定性＋日期序＋CSB 候选（PR-5）
     C.others.sort(key=lambda o: (-o['pr'], o['cat'], o['sid'], o['d']))
     build_queries(C)
     build_cons(C)
@@ -1376,6 +1381,7 @@ def main():
     dump_json(KZ['labrows'], aud / 'labrows.json')
     dump_json(KZ['others'], aud / 'others.json')
     dump_json(C.cons, aud / 'cons.json')
+    dump_json(csb_candidates, aud / 'csb_candidates.json')
     gmap = [{'metric': mid, 'label': m['label'], 'domain': m['domain'], 'code': C.cmap.get(mid) or '', 'unit': m.get('gunit', ''), 'factor': C.fac.get(mid),
              'issue': m.get('unitIssue', ''), 'n': m['n'], 'baseline': dict(m.get('btype', {}))} for mid, m in sorted(C.metric.items())]
     dump_json({'grading': C.GL, 'table': str(ctcae.table_path(C.cfg, C.dir)), 'metrics': gmap}, aud / 'grading_map.json')
