@@ -42,6 +42,34 @@ def rx(p):
     return re.compile(p) if p else None
 
 
+def wb_sheet(C, sheet):
+    """Workbook-qualified sheet name (business-key scope): same-name sheets in different workbooks stay distinct.
+    Sheet alias -> owning workbook alias via normalize _source.json sheets[<sheet>].wb."""
+    sheet = str(sheet or '')
+    if not sheet:
+        return ''
+    wb = ((C.src.get('sheets') or {}).get(sheet) or {}).get('wb') or ''
+    return f"{wb}:{sheet}" if wb else sheet
+
+
+def oth_qkey(C, sid, cat, sh, v, d, test, rel, rule, bkey=None):
+    """Business key of a rule signal (PR-2): rule id + workbook-qualified form + record business key.
+    Row numbers and raw values never enter the key: a row drift or a value edit keeps the identity.
+    Record key preference: explicit bkey > linked record number (AE/CM, fallback term+start) >
+    metric+visit+date (finding-based rules) > visit/date (form-level checks)."""
+    rid = (rule or {}).get('id') or cat
+    if bkey:
+        rec = str(bkey)
+    elif rel:
+        l0 = rel[0]
+        rec = f"{l0[0]}:{l0[3]}" if l0[3] not in (None, '') else f"{l0[1]}|{l0[2]}"
+    elif test and (v or d):
+        rec = f"{test}|{v or ''}|{d or ''}"
+    else:
+        rec = f"{v or ''}|{d or ''}"
+    return f"oth|{sid}|{rid}|{wb_sheet(C, sh)}|{rec}"
+
+
 def cmp(op, a, b):
     if a is None or b is None:
         return False
@@ -409,15 +437,17 @@ def build_labrows(C):
             'base': [b.get('visit'), b.get('raw'), b.get('unit') or '', b.get('clin')] if b else None,
             'pts': [[r.get('visit'), r.get('date'), r.get('raw'), r.get('unit') or '', r.get('grade'), r.get('clin'),
                      None if r.get('pct') is None else round(r['pct'], 1), r['sheet'], r['row'], r.get('desc') or ''] for r in P],
-            'rel': [l[:4] for l in links], 'ctx': ctx, 'q': [], 'fid': [], 'cro': '', 'mg': mg, 'risk': risk})
+            'rel': [l[:4] for l in links], 'ctx': ctx, 'q': [], 'fid': [], 'cro': '', 'mg': mg, 'risk': risk,
+            'qkey': f"lab|{sid}|{risk}|{wb_sheet(C, f0.get('sheet'))}|{mid}|{f0.get('visit') or ''}"})
     C.labrows.sort(key=lambda g: (-g['pr'], g['sid'], g['test']))
 
 
 # ----------------------------------------------------------------------------- rule-based signals ("others")
-def add_other(C, sid, cat, pr, summ, v=None, d=None, sh='', row=None, test='', clin=None, rel=None, ctx=None, risk=None, rule=None, lane=None, level=None):
+def add_other(C, sid, cat, pr, summ, v=None, d=None, sh='', row=None, test='', clin=None, rel=None, ctx=None, risk=None, rule=None, lane=None, level=None, bkey=None):
     s = C.subj[sid]
     o = {'sid': sid, 'site': s['site'], 'cat': cat, 'pr': pr, 'sum': summ, 'v': v or '', 'd': d or '', 'sh': sh, 'row': row, 'test': test,
-         'clin': clin, 'rel': rel or [], 'ctx': ctx or [], 'q': [], 'fid': [], 'cro': '', 'risk': risk or '', '_rule': rule or {}}
+         'clin': clin, 'rel': rel or [], 'ctx': ctx or [], 'q': [], 'fid': [], 'cro': '', 'risk': risk or '', '_rule': rule or {},
+         'qkey': oth_qkey(C, sid, cat, sh, v, d, test, rel, rule, bkey)}
     C.others.append(o)
     if lane:
         C.tl[sid].setdefault(lane, []).append([d, summ, level if level is not None else (2 if pr >= 4 else 1 if pr >= 3 else 0), (rule or {}).get('symbol', 'diamond'), test])
@@ -465,7 +495,7 @@ def threshold_rules(C):
                             unit=r.get('unit') or '', visit=r.get('visit'), date=r.get('date'), thr=R.get('label', f"{R.get('op', '>=')}{R['v']}"),
                             base=b.get('raw'), chg=r.get('chg'), pct=None if r.get('pct') is None else round(r['pct'], 1), uln=r.get('hi'), lln=r.get('lo'))
                 add_other(C, sid, R['cat'], pr, summ, r.get('visit'), r.get('date'), r['sheet'], r['row'], C.metric[mid]['label'], r.get('clin'), rel, ctx, risk, R,
-                          R.get('lane'), R.get('level'))
+                          R.get('lane'), R.get('level'), bkey=f"{C.metric[mid]['label']}|{r.get('visit') or ''}|{r.get('date') or ''}")
 
 
 def combo_rules(C):
@@ -510,7 +540,8 @@ def combo_rules(C):
                     det = '；'.join(f"{C.metric[p['mid']]['label']} {p.get('raw')} {p.get('unit') or ''}".strip() + (f"（{p['value'] / p['hi']:.1f}×ULN）" if p.get('hi') and p.get('value') is not None else '') for p in parts)
                     summ = fill(R.get('sum', '{name}：{detail}（{visit} {date}）'), name=R.get('name', R['id']), detail=det, visit=r0.get('visit'), date=r0['date'])
                     add_other(C, sid, R.get('cat', '阈值规则核对'), pr, summ, r0.get('visit'), r0['date'], r0['sheet'], r0['row'], C.metric[r0['mid']]['label'],
-                              r0.get('clin'), rel, ctx, risk, R, R.get('lane'), R.get('level'))
+                              r0.get('clin'), rel, ctx, risk, R, R.get('lane'), R.get('level'),
+                              bkey=f"{C.metric[r0['mid']]['label']}|{r0.get('visit') or ''}|{r0['date']}")
                     if R.get('once', True):
                         break
 
@@ -592,7 +623,8 @@ def cm_checks(C):
                 if pre.search(c['t']) and overlap(c, a, b):
                     add_other(C, sid, P.get('cat', '禁限用药核对'), P.get('pr', 4),
                               f"CM「{c['t']}」（{c['s'] or '?'}~{'持续' if c['ong'] else c['e'] or '?'}）属于{P['name']}，与{('首剂前 %d 天至' % w0) if w0 else ''}治疗期重叠；用药原因：{c['why'] or '—'}",
-                              None, c['s'], c['sh'], c['row'], c['t'], ctx=[P.get('note', '')] if P.get('note') else [])
+                              None, c['s'], c['sh'], c['row'], c['t'], ctx=[P.get('note', '')] if P.get('note') else [],
+                              bkey=f"{c['t']}|{c['s']}")
     for W in C.A.get('washout', []):  # {"name","re","days","ref":"icf"|"fd"}
         pre = re.compile(W['re'], re.I)
         for sid in C.pop:
@@ -605,7 +637,7 @@ def cm_checks(C):
                 if pre.search(c['t']) and (c['ong'] or (is_full_date(c['e']) and c['e'] >= a)) and (not is_full_date(c['s']) or c['s'] <= ref):
                     add_other(C, sid, W.get('cat', '入排洗脱用药核对'), W.get('pr', 3),
                               f"CM「{c['t']}」末次 {c['e'] or '持续'}，距{'知情' if W.get('ref') == 'icf' else '首剂'}（{ref}）不足 {W['days']} 天洗脱期（{W['name']}）",
-                              None, c['e'] or c['s'], c['sh'], c['row'], c['t'])
+                              None, c['e'] or c['s'], c['sh'], c['row'], c['t'], bkey=f"{c['t']}|{c['s']}")
 
 
 def eligibility_checks(C):
@@ -623,13 +655,14 @@ def eligibility_checks(C):
                 if cmp(E['op'], x, E['v']):
                     add_other(C, sid, E.get('cat', '入排标准核对'), E.get('pr', 4),
                               f"筛选期 {C.metric[mid]['label']} {r.get('raw')} {r.get('unit') or ''}（{r.get('visit')} {r.get('date')}）符合排除标准「{E['text']}」，但已随机/给药",
-                              r.get('visit'), r.get('date'), r['sheet'], r['row'], C.metric[mid]['label'], r.get('clin'), ctx=[E.get('id', '')])
+                              r.get('visit'), r.get('date'), r['sheet'], r['row'], C.metric[mid]['label'], r.get('clin'), ctx=[E.get('id', '')],
+                              bkey=f"{C.metric[mid]['label']}|{r.get('visit') or ''}|{r.get('date') or ''}")
     for E in C.A.get('eligibilitySubject', []):  # {"field":"age","op","v","text"}
         for sid in C.pop:
             v = C.subj[sid].get(E['field'])
             if cmp(E['op'], v, E['v']):
                 add_other(C, sid, E.get('cat', '入排标准核对'), E.get('pr', 4), f"{E.get('label', E['field'])} = {fmt(v) if isinstance(v, float) else v}，不符合入选/排除「{E['text']}」", None, C.subj[sid].get('icf'),
-                          C.subj[sid].get('sheet', ''), C.subj[sid].get('row'))
+                          C.subj[sid].get('sheet', ''), C.subj[sid].get('row'), bkey=f"{E['field']}|{E.get('id') or ''}")
 
 
 def visit_window_checks(C):
@@ -733,7 +766,7 @@ def build_queries(C):
     Q = []
     common = defaultdict(list)
 
-    def new_q(sid, cat, sh, row, v, d, test, fact, ask, ev, src):
+    def new_q(sid, cat, sh, row, v, d, test, fact, ask, ev, src, qkey=''):
         same = next((q for q in Q if q['sid'] == sid and q['sh'] == sh and row is not None and q['row'] == row), None)
         if same and C.A.get('mergeSameCell', True):  # one EDC cell → one query; append the extra fact/ask
             same['parts'] += [['另：' + fact, 0], [ask, 1]]
@@ -745,7 +778,7 @@ def build_queries(C):
         if st == '同主题已查重' and C.A.get('skipDuplicates', False):
             return None
         q = {'id': f'Q{len(Q) + 1:03d}', 'sid': sid, 'site': C.subj[sid]['site'], 'cat': cat, 'sh': sh, 'row': row, 'v': v or '', 'd': d or '', 'test': test or '',
-             'text': fact + ask, 'parts': [[fact, 0], [ask, 1]], 'ev': ev, 'cro': st, 'flags': [], '_cro': cro}
+             'text': fact + ask, 'parts': [[fact, 0], [ask, 1]], 'ev': ev, 'cro': st, 'flags': [], '_cro': cro, 'qkey': qkey}
         if ask and ask not in common[cat]:
             common[cat].append(ask)
         Q.append(q)
@@ -775,17 +808,18 @@ def build_queries(C):
                     mh=mh, bvis=(g['base'] or [None])[0], braw=(g['base'] or [None, '—'])[1])
         if len(P) > 1:
             fact += f"（同类异常另有 {len(P) - 1} 次：{'、'.join(str(x[0]) for x in P[1:4])}{'…' if len(P) > 4 else ''}）"
-        new_q(g['sid'], cat, p[7], p[8], p[0], p[1], g['test'], fact, ask, [[x[7], x[8], x[0], g['test']] for x in P], g)
+        new_q(g['sid'], cat, p[7], p[8], p[0], p[1], g['test'], fact, ask, [[x[7], x[8], x[0], g['test']] for x in P], g, g.get('qkey', ''))
     for o in C.others:
         R = o['_rule']
         if o['pr'] < C.A.get('queryMinPr', 3) or R.get('query') is False:
             continue
         ask = R.get('ask') or C.A.get('askByCat', {}).get(o['cat']) or '请核实并更正，或提供医学说明。'
-        new_q(o['sid'], o['cat'], o['sh'], o['row'], o['v'], o['d'], o['test'], o['sum'] + '。', ask, [[o['sh'], o['row'], o['v'], o['test']]], o)
+        new_q(o['sid'], o['cat'], o['sh'], o['row'], o['v'], o['d'], o['test'], o['sum'] + '。', ask, [[o['sh'], o['row'], o['v'], o['test']]], o, o.get('qkey', ''))
     for m in C.S.get('queries_manual', []) or []:  # MM-written queries: {sid, cat, sh, row, v, d, test, fact, ask}
         if m.get('sid') in C.subj:
             new_q(m['sid'], m['cat'], m.get('sh', ''), m.get('row'), m.get('v'), m.get('d'), m.get('test'), m['fact'], m.get('ask', ''),
-                  [[m.get('sh', ''), m.get('row'), m.get('v', ''), m.get('test', '')]], {'q': [], 'cro': ''})
+                  [[m.get('sh', ''), m.get('row'), m.get('v', ''), m.get('test', '')]], {'q': [], 'cro': ''},
+                  f"man|{m['sid']}|{m['cat']}|{wb_sheet(C, m.get('sh', ''))}|{m.get('v', '')}|{m.get('d', '')}|{m.get('test', '')}")
     C.queries = Q
     C.qcommon = dict(common)
 
