@@ -398,7 +398,7 @@ def date_order(C):
         if c['sid'] in C.subj and bad(c.get('start'), c.get('end')):
             add_ext(C, c['sid'], '日期完整性核对', 'DATEORD', 3,
                     f"合并用药「{c.get('term')}」开始日期 {c['start']} 晚于结束日期 {c['end']}",
-                    None, c['start'], c['sh'], c['row'], c.get('term'),
+                    None, c['start'], c.get('sheet', ''), c.get('row'), c.get('term'),
                     rule={'ask': '请核实并更正起止日期。'}, bkey=f"{c.get('no') or c.get('term')}|{c['start']}|{c['end']}")
     for e in C.exposure:
         if e['sid'] in C.subj and bad(e.get('start'), e.get('end')):
@@ -572,7 +572,7 @@ def _csb_query(C, r, kind, rec, extra, flags):
             fact = f"{head}，{cs}{extra or ''}{base_txt}。"
     add_ext(C, r['sid'], CSB_CAT[kind], kind, CSB_PR[kind], fact.rstrip('。'),
             r.get('visit'), r.get('date'), r['sheet'], r['row'], C.metric[r['mid']]['label'],
-            ctx=flags, rule={'ask': QT_CSB_ASK[kind]}, risk=kind,
+            ctx=flags, rule={'ask': QT_CSB_ASK[kind]},
             bkey=f"{r['mid']}|{r.get('visit')}|{r.get('date')}")
 
 
