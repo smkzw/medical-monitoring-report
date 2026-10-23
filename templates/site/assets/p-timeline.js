@@ -65,7 +65,9 @@ async function one(id){
   const allT=[...Object.keys(d.labs).map(t=>['labs',t]),...Object.keys(d.ecg).map(t=>['ecg',t]),...Object.keys(d.vs).map(t=>['vs',t])].filter(([o,t])=>d[o][t].some(r=>r[2]!=null)&&d[o][t].filter(r=>r[2]!=null).length>1);
   const fl=new Set(lr.filter(g=>g.risk!=='NCS').map(g=>g.test));
   allT.sort((a,b)=>(fl.has(b[1])-fl.has(a[1])));
-  const ts=document.getElementById('tsel');ts.innerHTML=allT.map(([o,t])=>`<option value="${K.esc(t)}">${fl.has(t)?'● ':''}${K.esc(t)}</option>`).join('');
+  const ts=document.getElementById('tsel');
+  if(!allT.length){ts.innerHTML='<option value="">（该受试者无≥2 次数值检验）</option>';return;}   // 单次/定性-only 受试者不再崩溃
+  ts.innerHTML=allT.map(([o,t])=>`<option value="${K.esc(t)}">${fl.has(t)?'● ':''}${K.esc(t)}</option>`).join('');
   const def=H.t&&allT.some(x=>x[1]===H.t)?H.t:(allT.find(x=>fl.has(x[1]))||allT.find(x=>x[1]===CF.defaultTest)||allT[0])[1];ts.value=def;
   ts.onchange=trend;
   function trend(){const t=ts.value;const o=allT.find(x=>x[1]===t)[0];const rows=d[o][t].filter(r=>r[2]!=null);
