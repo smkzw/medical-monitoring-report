@@ -10,14 +10,19 @@
 | `subs` | list | 受试者摘要（id, site, center, status, icf, fd, ld, age, sex, 风险计数…；盲态下无 grp） |
 | `centers` | list | 中心汇总（n、csx/mhx/ncs2、AE 率、漏斗图数据） |
 | `aes` / `aesum` | list / dict | AE 明细（含分类、IB 标签、TEAE、相关性、SAE/AESI）/ 汇总 |
-| `labrows` | list | 检验风险组：`sid test mid risk pts[[visit,date,raw,unit,grade,clin,pct,sheet,row,desc]] base rel ctx q cro…` |
-| `others` | list | 规则信号：`sid cat pr sum v d sh row test rel ctx risk q…` |
-| `queries` | list | `id sid cat sh text parts ev[[sheet,row,visit,test]] cro …` |
+| `labrows` | list | 检验风险组：`sid test mid risk pts[[visit,date,raw,unit,grade,clin,pct,sheet,row,desc]] base rel ctx q cro qkey…` |
+| `others` | list | 规则信号：`sid cat pr sum v d sh row test rel ctx risk q qkey…` |
+| `queries` | list | `id sid cat sh text parts ev[[sheet,row,visit,test]] cro qkey…` |
 | `cro` | list | CRO 已发质疑 |
 | `cons` | list | 同中心判定一致性 |
 | `rules` / `methods` / `study` | list / list / dict | 规则溯源、方法学、研究要点 |
 | `eff` | dict | 有效性：metrics, data, anomalies, rulesText |
 | `review` / `todo` / `unres` | list | 审阅流程、待办、未决 |
+
+`qkey`（labrows / others / queries 各自带，PR-2）：跨快照稳定的业务键，格式 `lab|<sid>|<risk>|<wb>:<sheet>|<mid>|<主访视>`、
+`oth|<sid>|<规则id或cat>|<wb>:<sheet>|<记录业务键>`（关联记录优先用 AE/CM 编号，无编号回退「术语＋开始日期」；检验类规则用「指标|访视|日期」）、
+queries 取其主源（首源，合并格同此）的 qkey，手写 query（`study.queries_manual`）为 `man|<sid>|<cat>|<wb>:<sheet>|<访视>|<日期>|<指标>`。
+行号与原值不进入 qkey——他人行增删导致的行号漂移、同一记录的数值更正都不改变身份；sheet 名以工作簿别号限定，同名 sheet 跨工作簿可区分。
 
 ## data/trend.js → `window.KZT`
 `meta.visits`、`subjects`、`centers`、`metrics[{id,label,unit,lo,hi,dom,grp,…}]`、`obs{metricId: [...]}`（每个 metric 必须在 obs 中有键）。
