@@ -86,6 +86,35 @@
 更低时取收紧值），每点携带偏离比例（`pts[10]`），页面按所选 T_dev/T_base 即时重分类、不重新构建；
 同一 (受试者,指标) 已有 pr≥3 条目时 REL 不重复列行，双阈值事实写入该条目上下文。
 
+## 16. 扩展规则（M13–M23 确定性部分；编号沿用工作台执行包 03 §3）
+词表键：`analysis.mhMatch` [[指标Re, 病史术语Re]]、`analysis.cmIndicationMap` [[用药原因Re, 疾病术语Re]]、
+`analysis.indicationBackground` [[指标Re, 说明]]、`analysis.cmProtocolRequired` [药名Re]、`analysis.aeMatch`（已有）、
+`study.diseaseProgressionNotAE` {quote, loc, confirmed}。**词表缺失 → 对应规则零命中＋todo 列「词表未配置」**（不猜医学对应）。
+
+- **M13 MHX-T**：首剂前判 NCS/未评价且偏离 ≥T_dev（或 ≥2 级/定性 ≥+）且病史未记录（`mhMatch` 未命中、检验页未关联病史）
+  → labrows 候选 pr2（不发 query）。排除 CS（M23）、研究疾病表现（`indicationBackground`）、已触发入排核查（M09）的同一数值；
+  首剂前 ≥2 次或首剂后同向持续 → ctx「持续异常」；`cmIndicationMap` 对应用药 → ctx「有对应用药」。qkey `lab|sid|MHX-T|wb:sheet|mid|主访视`。
+- **M15 血压**：与其他数值项一致（T_dev/T_base 默认 30%，D18）；listing 未给范围时默认上限 收缩压 139 / 舒张压 89 mmHg（仅用于偏离计算）。
+- **M16 定性**：±/弱阳性/微量 → pr1 提示（判 CS 走 M01）；基线阴性 → 给药后 ≥+ → 定性新发（pr3，判 CS 者由 M01/M23 分层）。
+- **M17 CM-IND**：合并用药原因指向疾病、病史与 AE 均无对应记录（`cmIndicationMap`）→ pr3 发 query；首剂前开始问病史、首剂后问 AE；
+  排除预防用药与 `cmProtocolRequired` 方案合并治疗。qkey `oth|sid|M17|wb:sheet|CM 编号`。
+- **M18 PREG**：任何时点妊娠试验阳性或 hCG 超范围 → pr4 发 query（不进 AE 漏报分层）。
+- **M19 AE-EX**：给药中断（原因=不良事件）±`aeExWindow`（默认 7）天无对应措施的 AE；或 AE 措施=暂停/停药但给药记录无中断 → pr3 发 query。
+- **M20 AE-SAE**：SAE=是但标准全空 / 勾选标准但 SAE=否 / 转归死亡与研究结束日期不一致 / 死亡后仍有给药、访视或检验 → pr4 发 query。
+- **M21 AE-COURSE**：AE 已结束但关联检验结束后仍异常（≥2 级）→ pr2 提示（`query:false`）；末次访视异常未恢复且 AE 未结束无随访安排 → pr2 提示。
+- **M23 CSB（步骤 1/1′/2/3/4 确定性＋候选导出）**：所有时点判 CS 的检验/检查——
+  关联对象不存在或词表确认不对应 → **LINK** query（pr3）；关联 AE 对应 → 通过（等级一致性 M07）；
+  关联/匹配（`mhMatch` 时段覆盖）病史：给药前或未恶化 → 通过，给药后恶化 → **MH 加重** query（pr3）；
+  同期匹配 AE（`aeMatch`）→ **CSX_AE**（pr4，不自动关联）；给药后确定性恶化（等级升高/CS 新出现/超范围且同向较基线 ≥T_base/
+  基线缺失按新发；T_base 取 `cfg.thresholds.base`）→ 基线异常 **CSW**（pr4）/ 基线正常或缺失 **CSX**（pr4），不调模型（D19）；
+  方案进展条款已确认（`diseaseProgressionNotAE.confirmed`）且有研究疾病线索的确定性恶化 → 转候选交 A5R5（D21）；
+  其余（给药前未绑定、给药后未恶化未绑定、词表无法判断、文本型恶化未知）→ **步骤 5 候选**导出
+  `analysis/csb_candidates.json`（字段：ref/sid/domain/test/label/visit/date/post/value/unit/lo/hi/grade/gl/clin/desc/
+  baseline/worsening{known,value,flags}/binding{link,matched_ae,matched_mh}/disease_hint/source），
+  由工作台 `review/csb.py::explain_cs` 做 A5R5 三问＋恶化与 A6 复核。
+- **DATEORD 日期序**：AE/合并用药/给药 开始>结束（均有完整日期，影响洗脱/TEAE/给药期判定）→ pr3 发 query（S45 收口）；
+  不做纯格式/缺失类数据管理核查。
+
 ## 组合规则（`comboRules`）
 同一受试者同日（或 `window` 天内）多指标同时满足 `all` 且不满足 `none`，如 Hy’s law：ALT 或 AST ≥3×ULN 且 TBIL ≥2×ULN 且 ALP <2×ULN。
 命中后核对 `expectAE` 时间窗内是否有对应 AE（`aesi:true` 时同时核对 AESI 勾选）；`pr` 决定是否发 query。
