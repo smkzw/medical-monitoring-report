@@ -19,7 +19,7 @@ K.studyDay=(d,fd)=>{const x=K.days(d,fd);return x==null?'':(x>=0?'D'+(x+1):'D'+x
 K.clin=c=>c===2?K.p('CS','red'):c===1?K.p('NCS','yel'):c===0?K.p('正常','grn'):'';
 K.PRI={4:['优先核实','red'],3:['需核实','org'],2:['结合临床','yel'],1:['筛查提示','']};
 K.pri=n=>K.p(K.PRI[n]?.[0]||'—',K.PRI[n]?.[1]||'');
-K.RISK={CSX:['CS·未关联AE/MH','solid-red','判CS但未关联AE或病史：漏报AE风险最高'],MH:['CS·仅关联MH','org','判CS且仅关联既往病史：需判断是否给药后加重'],NCS2:['NCS·≥2级','yel','数值落入'+((window.KZ||{}).cfg||{}).ctcaeVersion+'≥2级但判NCS'],NA2:['未评价·≥2级','yel','数值达≥2级但未见研究者临床意义评价'],AE:['已关联AE','grn','已有对应AE记录'],NCS:['NCS','','异常无临床意义'],REL:['较基线显著变化','yel','给药后超出参考范围且偏离≥T_dev、同向较基线变化≥T_base（双阈值，按当前所选档位即时重分类）']};
+K.RISK={CSX:['CS·未关联AE/MH','solid-red','判CS但未关联AE或病史：漏报AE风险最高'],MH:['CS·仅关联MH','org','判CS且仅关联既往病史：需判断是否给药后加重'],NCS2:['NCS·≥2级','yel','数值落入'+((window.KZ||{}).cfg||{}).ctcaeVersion+'≥2级但判NCS'],NA2:['未评价·≥2级','yel','数值达≥2级但未见研究者临床意义评价'],AE:['已关联AE','grn','已有对应AE记录'],NCS:['NCS','','异常无临床意义'],REL:['较基线显著变化','yel','给药后超出参考范围且偏离≥T_dev、同向较基线变化≥T_base（双阈值，按当前所选档位即时重分类）'],'MHX-T':['疑似病史漏记·首剂前','org','首剂前判NCS/未评价且偏离≥T_dev（或≥2级）且病史未记录（按当前所选档位即时重分类）']};
 K.risk=r=>K.p(K.RISK[r]?.[0]||r,K.RISK[r]?.[1]||'',K.RISK[r]?.[2]);
 /* ---- 双阈值（T_dev/T_base，PR-4）：状态读取 + REL 即时重分类 + 变更监听 ----
  * 档位来源：系统层 KZS.thresholds（选择器写入）＞ cfg.thresholds（构建配置，默认 30%/30%）。
@@ -33,6 +33,8 @@ K.thrOf=mid=>{const t=K.thr(),pm=(t.per_metric||{})[mid]||{},ti=((C0().metricTig
 K.relPts=g=>{if(!g||g.risk!=='REL')return [];const t=K.thrOf(g.mid||('lab:'+g.test));
   return (g.pts||[]).filter(p=>p[10]!=null&&p[6]!=null&&p[10]>=t.dev&&Math.abs(p[6])>=t.base*100)};
 K.relOn=g=>K.relPts(g).length>0;                 /* 当前所选阈值下该 REL 候选是否构成风险项 */
+K.mhxOn=g=>{if(!g||g.risk!=='MHX-T')return false;const t=K.thrOf(g.mid||('lab:'+g.test));
+  return (g.pts||[]).some(p=>(p[10]!=null&&p[10]>=t.dev)||(p[4]!=null&&p[4]>=2))};  /* M13：偏离≥T_dev 或 ≥2 级 */
 K._thrFns=[];
 K.onThr=fn=>{K._thrFns.push(fn)};
 K.setThr=sel=>{if(window.KZS)KZS.thresholds={...KZS.thresholds,...sel};else K._thrSel={...(K._thrSel||{}),...sel};
