@@ -15,7 +15,10 @@
 | `blind` | `{on, tag, hidden:[被隐藏内容说明]}`；on=true 时清空分组、隐藏分组对比 |
 | `ctcaeMap` | 可选覆盖：`{"<域>:<检查项>": "<分级代码>"}`；`""` 表示不分级。缺省由 `scripts/grading/analytes.json` 按检查项名（中/英/缩写）自动映射，结果写入 `analysis/grading_map.json` 供核对 |
 | `ctcaeVersion` | 由构建自动写为分级标签（如 `CTCAE v5.0`），前端显示用；手写仅作旧键兼容 |
-| `relChange` | `{metrics:"<正则>", pct:20}`：分级表无条目的指标按较基线相对变化补充筛查 |
+| `relChange` | `{metrics:"<正则>"}`：REL 双阈值候选的指标限定（`pct` 已废弃——相对变化补充筛查语义由 M14 REL 双阈值取代） |
+| `thresholds` | `{dev:0.3, base:0.3, per_metric:{}}`：双阈值 T_dev（偏离上下限）/T_base（同向较基线变化），默认各 30%（血压同为 30%）；`per_metric` 按指标覆盖（如 `{"vs:收缩压":{"dev":0.1}}`，默认为空） |
+| `metricDir` | `{指标正则: "up"|"down"}`：单向不利指标只计不利方向（如降压药研究中血压只计升高） |
+| `metricThreshold` | `[{metric, dev?, base?, quote}]`：项目收紧阈值，有效值=min(所选档位,收紧值)，两参数各自计算；须带方案/IB 原文（`quote`） |
 | `labGroups` | `{sheet名: 组名}` 用于 query 表单名匹配与展示 |
 | `strat` | `{label, flag}` 分层因素显示 |
 | `refLines` | `{检查项: [[值, 标签]]}` 趋势图参考线 |

@@ -12,26 +12,29 @@ K.tabs(document.getElementById('tabs'),tabs,H.tab||'lab',v=>{K.setHash({...(v===
 /* ---------- lab */
 function tabLab(){
   const st={risk:H.risk||null,cat:'',grp:'',site:H.c||'',q:''};
-  pane.innerHTML=`<div class="grid g4 mb">${['CSX','MH','NCS2','NA2','AE'].filter(k=>k!=='NA2'||lab.some(g=>g.risk==='NA2')).map(k=>`<div class="box ${k==='CSX'?'red':k==='MH'?'org':''}"><div class="flex">${K.risk(k)}<span class="sp"></span><b style="font-size:18px;color:var(--ink)">${lab.filter(g=>g.risk===k).length}</b></div><div class="xs muted mt" style="margin-top:3px">${K.RISK[k][2]}</div></div>`).join('')}</div>
-  <div class="card"><div class="tbar"><div class="chips" id="rk"></div><span class="sp"></span>${sel('cat',[['','全部来源'],['治疗后新发/加重检验异常','治疗后新发/加重（'+(K.cfg().ctcaeVersion||'分级')+'/参考范围）'],['相对变化补充筛查','较基线相对变化筛查']],'')}${sel('site',centerOpts,st.site)}<input class="s" id="q" placeholder="受试者 / 指标"></div>
+  pane.innerHTML=`<div class="grid g4 mb">${['CSX','MH','NCS2','NA2','AE','REL'].filter(k=>k!=='NA2'||lab.some(g=>g.risk==='NA2')).filter(k=>k!=='REL'||lab.some(g=>g.risk==='REL')).map(k=>`<div class="box ${k==='CSX'?'red':k==='MH'?'org':''}" ${k==='REL'?'id="kz-rel-box"':''}><div class="flex">${K.risk(k)}<span class="sp"></span><b style="font-size:18px;color:var(--ink)" ${k==='REL'?'id="kz-rel-n"':''}>${k==='REL'?lab.filter(g=>g.risk==='REL'&&K.relOn(g)).length:lab.filter(g=>g.risk===k).length}</b>${k==='REL'?`<small class="muted">/${lab.filter(g=>g.risk==='REL').length}</small>`:''}</div><div class="xs muted mt" style="margin-top:3px">${K.RISK[k][2]}</div></div>`).join('')}</div>
+  <div class="card"><div class="tbar"><div class="chips" id="rk"></div><span class="sp"></span>${sel('cat',[['','全部来源'],['治疗后新发/加重检验异常','治疗后新发/加重（'+(K.cfg().ctcaeVersion||'分级')+'/参考范围）'],['较基线显著变化且超出参考范围','较基线显著变化（双阈值 REL）']],'')}${sel('site',centerOpts,st.site)}<input class="s" id="q" placeholder="受试者 / 指标"></div>
   <div class="tbar"><div class="chips" id="grp"></div></div><div id="tb"></div>
   <div class="legend mt"><span class="vchip cs">CS</span>异常有临床意义 <span class="vchip ncs">NCS</span>异常无临床意义 <span class="vchip n">值</span>正常/未评价 · 基线：按方案基线定义（${K.esc(((K.cfg().baseline||{}).labLabel)||'见检验检查趋势页各指标')}），缺失时按规则回退 · G=${K.esc(K.cfg().ctcaeVersion||'方案分级标准')} 数值分级（仅数值条目）</div></div>`;
   const groups=[...new Set(lab.map(g=>g.grp))];
-  const rk=K.chips(document.getElementById('rk'),Object.keys(K.RISK).map(k=>[k,K.RISK[k][0],lab.filter(g=>g.risk===k).length]),v=>{st.risk=v;draw()},{value:st.risk});
+  const rk=K.chips(document.getElementById('rk'),Object.keys(K.RISK).map(k=>[k,K.RISK[k][0],k==='REL'?lab.filter(g=>g.risk==='REL'&&K.relOn(g)).length:lab.filter(g=>g.risk===k).length]).filter(x=>x[2]||!lab.some(g=>g.risk===x[0])),v=>{st.risk=v;draw()},{value:st.risk});
+  K.onThr(()=>{rk.set(st.risk);draw();const b=document.getElementById('kz-rel-n');if(b)b.textContent=lab.filter(g=>g.risk==='REL'&&K.relOn(g)).length});
   K.chips(document.getElementById('grp'),groups.map(g=>[g,g,lab.filter(x=>x.grp===g).length]),v=>{st.grp=v||'';draw()},{all:'全部分组'});
   document.getElementById('cat').onchange=e=>{st.cat=e.target.value;draw()};document.getElementById('site').onchange=e=>{st.site=e.target.value;draw()};document.getElementById('q').oninput=e=>{st.q=e.target.value.trim();draw()};
-  const order={CSX:0,MH:1,NCS2:2,AE:3,NCS:4};
+  const order={CSX:0,MH:1,NCS2:2,AE:3,NCS:4,REL:5};
   const tb=K.table(document.getElementById('tb'),{rows:[],h:'640px',pageSize:80,cols:[
     {k:'risk',t:'风险',s:r=>-order[r.risk],f:r=>K.risk(r.risk)},
     {k:'sid',t:'受试者',f:r=>K.sid(r.sid)+` <span class="xs faint">${r.site}</span>`},
-    {k:'test',t:'指标',f:r=>`<b style="color:var(--ink)">${K.esc(r.test)}</b>${r.cat==='相对变化补充筛查'?' '+K.p('Δ%','line sq','较基线相对变化≥'+((K.cfg().relChange||{}).pct||20)+'%筛查'):''}`},
+    {k:'test',t:'指标',f:r=>{if(r.risk!=='REL')return `<b style="color:var(--ink)">${K.esc(r.test)}</b>`;const t=K.thrOf(r.mid||('lab:'+r.test));return `<b style="color:var(--ink)">${K.esc(r.test)}</b> ${K.p('偏离≥'+Math.round(t.dev*100)+'% Δ≥'+Math.round(t.base*100)+'%','line sq','双阈值 T_dev/T_base'+(t.ov?'（per_metric 覆盖）':'')+(t.tight?'（项目收紧后有效值）':''))}`}},
     {k:'base',t:'基线',ns:1,f:r=>r.base?`<span class="vchip ${r.base[3]===2?'cs':r.base[3]===1?'ncs':'n'}"><i>${r.base[0]}</i>${K.esc(r.base[1]??'—')}</span>`:'—'},
-    {k:'pts',t:'给药后异常点',ns:1,f:r=>r.pts.map(p=>`<span class="vchip ${p[5]===2?'cs':p[5]===1?'ncs':'n'}" title="${K.esc(p[1]+' · '+p[7]+' 行'+p[8]+(p[6]!=null?' · Δ'+K.pct(p[6]):'')+(p[9]?' · '+p[9]:''))}"><i>${p[0]}</i>${K.esc(p[2])}${p[4]!=null?`<i>G${p[4]}</i>`:''}</span>`).join('')},
+    {k:'pts',t:'给药后异常点',ns:1,f:r=>r.pts.map(p=>`<span class="vchip ${p[5]===2?'cs':p[5]===1?'ncs':'n'}" title="${K.esc(p[1]+' · '+p[7]+' 行'+p[8]+(p[6]!=null?' · Δ'+K.pct(p[6]):'')+(p[10]!=null?' · 偏离'+Math.round(p[10]*100)+'%':'')+(p[9]?' · '+p[9]:''))}"><i>${p[0]}</i>${K.esc(p[2])}${p[4]!=null?`<i>G${p[4]}</i>`:''}${p[10]!=null?`<i>${Math.round(p[10]*100)}%</i>`:''}</span>`).join('')},
     {k:'mg',t:'最高',s:r=>r.mg??-1,f:r=>K.grade(r.mg)},
     {k:'rel',t:'已关联',ns:1,f:r=>r.rel.map(x=>K.p((x[0]==='AE'?'AE ':'MH ')+K.esc(x[1]),x[0]==='AE'?'grn':'org')).join(' ')},
     {k:'ctx',t:'背景',ns:1,f:r=>K.ctxTags(r.ctx)+(r.cro?K.p(((K.cfg().query||{}).extShort||'外部')+'已覆盖','line'):'')},
     {k:'q',t:'质疑',s:r=>r.q.length,f:r=>r.q.map(K.qPill).join('')}],onRow:showLab,sort:'risk',dir:-1});
-  function draw(){const q=st.q.toLowerCase();tb.set(lab.filter(g=>(!st.risk||g.risk===st.risk)&&(!st.cat||g.cat===st.cat)&&(!st.grp||g.grp===st.grp)&&(!st.site||g.site===st.site)&&(!q||g.sid.includes(q)||g.test.toLowerCase().includes(q))))}
+  /* REL 候选：满足当前所选阈值才进默认风险列表（计入 KPI/box）；未满足候选不隐藏——box 显示 n/候选 m，
+     逐点偏离%/Δ% 在满足行与检验检查趋势页明细可见（03 §5「显示」行） */
+  function draw(){const q=st.q.toLowerCase();tb.set(lab.filter(g=>((g.risk==='REL'&&!K.relOn(g))?false:(!st.risk||g.risk===st.risk))&&(!st.cat||g.cat===st.cat)&&(!st.grp||g.grp===st.grp)&&(!st.site||g.site===st.site)&&(!q||g.sid.includes(q)||g.test.toLowerCase().includes(q))))}
   draw();
 }
 async function showLab(g){

@@ -42,6 +42,18 @@ def rx(p):
     return re.compile(p) if p else None
 
 
+def deviation(v, lo, hi):
+    """偏离参考范围的比例（T_dev 口径）：高于上限 (x−ULN)/ULN，低于下限 (LLN−x)/LLN；
+    范围内 = 0.0；无值或无范围 = None。与工作台问数据引擎同口径（mm3/ask/dataset.py deviation）。"""
+    if v is None or (lo is None and hi is None):
+        return None
+    if hi is not None and v > hi:
+        return (v - hi) / abs(hi) if hi else None
+    if lo is not None and v < lo:
+        return (lo - v) / abs(lo) if lo else None
+    return 0.0
+
+
 def wb_sheet(C, sheet):
     """Workbook-qualified sheet name (business-key scope): same-name sheets in different workbooks stay distinct.
     Sheet alias -> owning workbook alias via normalize _source.json sheets[<sheet>].wb."""
@@ -97,6 +109,12 @@ def load(study_p, norm_p):
             C.S[k] = load_json(C.dir / C.S[k], [])
     C.cfg = C.S.setdefault('cfg', {})
     C.A = C.S.get('analysis', {})
+    # 双阈值（T_dev/T_base，PR-4）：默认 30%/30%，per_metric 覆盖默认为空；血压同为 30%（D18）
+    TH = C.cfg.get('thresholds') or {}
+    TH.setdefault('dev', 0.3); TH.setdefault('base', 0.3); TH.setdefault('per_metric', {})
+    C.cfg['thresholds'] = TH
+    C.mdir = C.A.get('metricDir') or {}        # {metricRe: 'up'|'down'} 单向不利指标
+    C.mthr = C.A.get('metricThreshold') or []  # 项目收紧：有效值=min(所选,收紧值)，两参数各自（须带方案/IB 原文）
     C.G = ctcae.load(C.cfg, C.dir)  # grading system/version from the protocol (cfg.grading or cfg.ctcaeVersion) — never defaulted
     C.cfg['ctcaeVersion'] = C.G.label
     C.GL = C.G.label
@@ -282,6 +300,7 @@ def build_findings(C):
             v, bv = r.get('value'), (b or {}).get('value')
             r['chg'] = None if v is None or bv is None or r['isb'] else v - bv
             r['pct'] = None if r['chg'] is None or not bv else r['chg'] / abs(bv) * 100
+            r['dev'] = deviation(v, r.get('lo'), r.get('hi'))
             r['grade'], r['gterm'] = None, ''
             if code and v is not None and fac is not None:
                 lo = r.get('lo') * fac if r.get('lo') is not None else None
@@ -365,9 +384,6 @@ def resolve_links(C, sid, links):
 
 def build_labrows(C):
     doms = set(C.A.get('labDomains', ['lab', 'vs', 'ecg']))
-    rc = C.cfg.get('relChange', {})
-    rcre = rx(rc.get('metrics'))
-    rcp = rc.get('pct', 20)
     match = [(re.compile(a), re.compile(b), w) for a, b, w in C.A.get('aeMatch', [])]  # [metricRe, aeTermRe, ±days]
     C.labrows = []
     for (sid, mid), rows in C.F.items():
@@ -381,13 +397,10 @@ def build_labrows(C):
             if not r['post'] or (C.aeEnd.get(sid) and is_full_date(r.get('date')) and r['date'] > C.aeEnd[sid]):
                 continue
             new = finding_abn(r) and (r.get('clin') == 2 or (r.get('grade') or 0) > bg or (r.get('clin') or 0) > bc or not (b and finding_abn(b)))
-            relc = (not new and rcre and rcre.search(mid) and not C.G.has(C.cmap.get(mid)) and r.get('pct') is not None and abs(r['pct']) >= rcp)
-            if new or relc:
-                pts.append((r, bool(relc and not new)))
+            if new:
+                pts.append((r, False))
         if not pts:
             continue
-        if all(x[1] for x in pts):
-            cat = '相对变化补充筛查'
         links = []
         for r, _ in pts:
             for l in resolve_links(C, sid, r.get('links') or []):
@@ -439,6 +452,73 @@ def build_labrows(C):
                      None if r.get('pct') is None else round(r['pct'], 1), r['sheet'], r['row'], r.get('desc') or ''] for r in P],
             'rel': [l[:4] for l in links], 'ctx': ctx, 'q': [], 'fid': [], 'cro': '', 'mg': mg, 'risk': risk,
             'qkey': f"lab|{sid}|{risk}|{wb_sheet(C, f0.get('sheet'))}|{mid}|{f0.get('visit') or ''}"})
+    C.labrows.sort(key=lambda g: (-g['pr'], g['sid'], g['test']))
+
+
+# ----------------------------------------------------------------------------- M14 REL 双阈值候选（PR-4 数据面）
+def thr_eff(C, mid):
+    """有效阈值（per_metric 覆盖＝直接替换；metricThreshold 收紧＝min(所选,收紧值)，两参数各自）。"""
+    TH = C.cfg['thresholds']
+    pm = (TH.get('per_metric') or {}).get(mid, {})
+    dev = float(pm.get('dev', TH['dev']))
+    base = float(pm.get('base', TH['base']))
+    for T in C.mthr:
+        if T.get('metric') and re.search(T['metric'], mid):
+            if T.get('dev') is not None:
+                dev = min(dev, float(T['dev']))
+            if T.get('base') is not None:
+                base = min(base, float(T['base']))
+    return dev, base
+
+
+def rel_candidates(C):
+    """M14 REL：给药后超出参考范围且偏离 ≥T_dev 且同向较基线变化 ≥T_base 的候选（pr2，不自动发 query）。
+    构建按最低档（默认 20%；per_metric/metricThreshold 更低时取更低）写全量候选并逐点携带 dev（pts[10]）；
+    页面按所选 T_dev/T_base 即时重分类（kz.js），不重新构建。范围内变化不产生候选（dev=0）；
+    基线已异常但 Δ<T_base 者不满足同向变化条件、自然排除。同一 (sid,mid) 已有 pr≥3 条目时不重复列 REL 行，
+    只把双阈值事实写进该条目 ctx（03 §1）。cfg.relChange.metrics 保留为指标限定（旧「相对变化补充筛查」由本规则取代）。"""
+    doms = set(C.A.get('labDomains', ['lab', 'vs', 'ecg']))
+    rcre = rx((C.cfg.get('relChange') or {}).get('metrics'))
+    by_key = {(g['sid'], g.get('mid')): g for g in C.labrows}
+    for (sid, mid), rows in sorted(C.F.items()):
+        if sid not in C.pop or mid.split(':')[0] not in doms or (rcre and not rcre.search(mid)):
+            continue
+        dev_f, base_f = thr_eff(C, mid)
+        dev_f, base_f = min(0.20, dev_f), min(0.20, base_f)      # 最低档候选地板：项目收紧低于 20% 时取收紧值
+        mdir = next((d for mre, d in C.mdir.items() if re.search(mre, mid)), None)
+        cand = []
+        for r in rows:
+            if not r['post'] or r.get('value') is None or not r.get('dev') or r.get('pct') is None:
+                continue
+            if r['dev'] < dev_f:
+                continue
+            above = r.get('hi') is not None and r['value'] > r['hi']
+            below = r.get('lo') is not None and r['value'] < r['lo']
+            if mdir == 'up' and not above:
+                continue
+            if mdir == 'down' and not below:
+                continue
+            if (above and r['pct'] >= base_f * 100) or (below and -r['pct'] >= base_f * 100):
+                cand.append(r)
+        if not cand:
+            continue
+        b = rows[0]['base']
+        exist = by_key.get((sid, mid))
+        if exist is not None and (exist.get('pr') or 0) >= 3:
+            for r in cand:                                       # 同一源行已有 pr≥3：只作上下文
+                exist['ctx'].append(f"双阈值：{r.get('visit')} 偏离参考范围 {r['dev']:.0%}，较基线 {r['pct']:+.0f}%")
+            continue
+        worst = max(cand, key=lambda r: r['dev'])
+        C.labrows.append({
+            'sid': sid, 'site': C.subj[sid]['site'], 'cat': '较基线显著变化且超出参考范围', 'test': C.metric[mid]['label'], 'mid': mid,
+            'grp': cand[0].get('group') or '', 'pr': 2,
+            'base': [b.get('visit'), b.get('raw'), b.get('unit') or '', b.get('clin')] if b else None,
+            'pts': [[r.get('visit'), r.get('date'), r.get('raw'), r.get('unit') or '', r.get('grade'), r.get('clin'),
+                     None if r.get('pct') is None else round(r['pct'], 1), r['sheet'], r['row'], r.get('desc') or '',
+                     None if r.get('dev') is None else round(r['dev'], 4)] for r in cand],
+            'rel': [], 'ctx': [f"双阈值候选：偏离上下限 ≥{dev_f:.0%} 且同向较基线变化 ≥{base_f:.0%}（按当前所选阈值即时重分类）"],
+            'q': [], 'fid': [], 'cro': '', 'mg': max([r.get('grade') or 0 for r in cand] + [0]), 'risk': 'REL',
+            'qkey': f"lab|{sid}|REL|{wb_sheet(C, worst.get('sheet'))}|{mid}|{worst.get('visit') or ''}"})
     C.labrows.sort(key=lambda g: (-g['pr'], g['sid'], g['test']))
 
 
@@ -878,7 +958,8 @@ def build_centers(C):
             c['g2'] += sum((grade_int(a['g']) or 0) >= 2 for a in post)
     for g in C.labrows:
         c = cen[g['site']]
-        c['labrows'] += 1
+        if g['risk'] != 'REL':                  # REL 为双阈值候选（pr2），不计入「异常行」负荷
+            c['labrows'] += 1
         c['csx'] += g['risk'] == 'CSX'
         c['mhx'] += g['risk'] == 'MH'
         c['ncs2'] += g['risk'] == 'NCS2'
@@ -958,7 +1039,8 @@ def build_trend(C):
                 sd = days(r.get('date'), C.subj[sid]['fd'])
                 o.append([idx[sid], r.get('date'), sd, r['value'], r.get('clin'), C.vi(r.get('visit')), r['sheet'], r['row'], 1, 1 if r['isb'] else 0,
                           None if r['chg'] is None else round(r['chg'], 4), None if r['pct'] is None else round(r['pct'], 2), r.get('lo'), r.get('hi'),
-                          r.get('raw'), r.get('unit'), 1 if r['post'] else 0, r.get('tpt') or '', r.get('time') or ''])
+                          r.get('raw'), r.get('unit'), 1 if r['post'] else 0, r.get('tpt') or '', r.get('time') or '',
+                          None if r.get('dev') is None else round(r['dev'], 4)])
             obs[mid] = o
             b = {}
             for (sid, mm), rs in C.F.items():
@@ -1144,6 +1226,22 @@ def defaults(C):
         tax['domains'] = [[k, v, col.get(k, '')] for k, v in grp.items()] + [['检验异常', list(dict.fromkeys(QT[k][0] for k in QT)), 'org']]
     meths = C.S.get('methods') or [{'id': m[0], 'domain': m[1].replace('{GL}', C.GL), 'data': m[2].replace('{GL}', C.GL), 'principle': m[3].replace('{GL}', C.GL),
                                     'risk': m[4], 'action': m[5], 'source': '引擎内置规则'} for m in BUILTIN_METHODS]
+    # 双阈值方法学卡（F-THR-7：方法学页写入当前 T_dev/T_base；选择器档位变化时以顶栏/信息条为准）
+    TH = C.cfg['thresholds']
+    _pm = TH.get('per_metric') or {}
+    _tight = '；'.join(f"{t2.get('metric')}→dev {float(t2['dev']):.0%}" for t2 in C.mthr if t2.get('dev') is not None) + \
+             ''.join(f"；{t2.get('metric')}→base {float(t2['base']):.0%}" for t2 in C.mthr if t2.get('base') is not None)
+    meths.insert(0, {'id': 'M-THR', 'domain': '双阈值风险判定（T_dev / T_base）',
+                     'data': '检验/VS/ECG 数值行：偏离参考范围比例（高于上限 (x−ULN)/ULN、低于下限 (LLN−x)/LLN）＋同向较基线变化 |x−基线|/|基线|',
+                     'principle': (f"给药后超出参考范围且偏离 ≥T_dev（构建配置 {float(TH['dev']):.0%}）且同向较基线变化 "
+                                   f"≥T_base（构建配置 {float(TH['base']):.0%}）→ REL 风险项（pr2，不自动发 query，可转 query）；"
+                                   "范围内变化不论较基线变化多大都不计风险（明细可见 Δ%）；超出范围但 Δ<T_base（基线已异常）不算新风险；"
+                                   "同一源行已有 pr≥3 条目时 REL 只作该条目上下文"
+                                   + (f"；按指标覆盖 per_metric：{len(_pm)} 项" if _pm else "")
+                                   + (f"；项目收紧 metricThreshold：{_tight}（有效值=min(所选,收紧值)）" if C.mthr else "")
+                                   + (f"；单向不利指标 metricDir：{len(C.mdir)} 项" if C.mdir else "")),
+                     'risk': '漏检显著变化', 'action': '构建按最低档 20% 写全量候选，页面按所选 T_dev/T_base 即时重分类（不重新构建）',
+                     'source': '引擎内置规则（双阈值）'})
     C.methods = meths
     if C.S.get('review'):
         C.review = C.S['review']
@@ -1212,11 +1310,24 @@ def main():
     a = ap.parse_args()
     C = load(a.study, a.norm)
     C.others, C.tl = [], defaultdict(dict)
+    mt = {}
+    for T in C.mthr:                                   # 收紧映射（供前端 K.thrOf 折叠；quote 不进页面数据）
+        if not T.get('metric'):
+            continue
+        for mid in C.metric:
+            if re.search(T['metric'], mid):
+                e = mt.setdefault(mid, {})
+                if T.get('dev') is not None:
+                    e['dev'] = min(e.get('dev', 1), float(T['dev']))
+                if T.get('base') is not None:
+                    e['base'] = min(e.get('base', 1), float(T['base']))
+    C.cfg['metricTight'] = mt
     build_subjects(C)
     build_events(C)
     ae_summary(C)
     build_findings(C)
     build_labrows(C)
+    rel_candidates(C)
     threshold_rules(C)
     combo_rules(C)
     ae_checks(C)
@@ -1248,7 +1359,7 @@ def main():
                                  'status': dict(stc), 'n': len(S), 'centers': len(C.centers), 'dosed': len(C.pop), 'built': dt.datetime.now().strftime('%Y-%m-%d %H:%M'),
                                  'sources': C.cfg.get('footer', {}).get('left', '')},
           'subs': subs, 'centers': C.centers, 'aes': [{k: v for k, v in x.items() if not k.startswith('_') and k != 'sh'} for x in C.aes if x['sid'] in C.pop],
-          'aesum': C.aesum, 'aecat': list(C.aesum), 'ibtag': ibtag, 'labrows': [{k: v for k, v in g.items() if k != 'mid'} for g in C.labrows],
+          'aesum': C.aesum, 'aecat': list(C.aesum), 'ibtag': ibtag, 'labrows': [{k: v for k, v in g.items() if k != 'mid' or g.get('risk') == 'REL'} for g in C.labrows],
           'others': [{k: v for k, v in o.items() if not k.startswith('_')} for o in C.others],
           'queries': [{k: v for k, v in q.items() if not k.startswith('_')} for q in C.queries], 'qcommon': C.qcommon,
           'cro': [[x.get('form') or '', x.get('row') or '', x.get('sid') or '', x.get('visit') or '', x.get('text') or ''] for x in C.extq],
