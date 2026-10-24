@@ -128,8 +128,11 @@ def main():
         if any(s[20] for s in KZ.get('subs', []) if len(s) > 20):
             WARN.append('blind.on but subs[].grp populated — make sure it is not the randomised arm')
     if a.source_check and sheets:
+        # 批量核验：按（工作簿, sheet）聚合所需行号，每 sheet 单次顺序扫描。
+        # 大研究（如 500 受试者/10 万行、数千 query）下 O(行数) 取代 O(query×行数) 的逐条
+        # iter_rows(min_row=row) 重扫（read_only 模式每次都要从头解析 XML 流）。
         import openpyxl
-        wbs = {}
+        need = {}
         for q in KZ.get('queries', []):
             for ev in q.get('ev', []):
                 sh, row = ev[0], ev[1]
@@ -137,10 +140,22 @@ def main():
                 if not meta or not row:
                     continue
                 path = run['source']['workbooks'][meta['wb']]
-                wb = wbs.setdefault(path, openpyxl.load_workbook(path, read_only=True, data_only=True))
-                vals = [c.value for c in next(wb[sh].iter_rows(min_row=row, max_row=row))]
-                if not any(v not in (None, '') for v in vals):
-                    ERR.append(f"query {q['id']}: source {sh} row {row} is empty")
+                need.setdefault((path, sh), {}).setdefault(int(row), []).append(q['id'])
+        wbs = {}
+        for (path, sh), rows in need.items():
+            wb = wbs.setdefault(path, openpyxl.load_workbook(path, read_only=True, data_only=True))
+            pending = dict(rows)
+            for r_idx, cells in enumerate(wb[sh].iter_rows(values_only=True), start=1):
+                if not pending:
+                    break
+                hit = pending.pop(r_idx, None)
+                if hit and not any(v not in (None, '') for v in cells):
+                    for qid in hit:
+                        ERR.append(f"query {qid}: source {sh} row {r_idx} is empty")
+            for r_idx, qids in pending.items():
+                # 引用行超出 sheet 实际范围：与逐行 iter_rows 的空行口径一致（ERROR）
+                for qid in qids:
+                    ERR.append(f"query {qid}: source {sh} row {r_idx} is empty")
     return finish(KZ)
 
 
