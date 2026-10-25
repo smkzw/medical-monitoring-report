@@ -29,14 +29,25 @@ def main():
     src = json.loads(Path(a.norm, '_source.json').read_text(encoding='utf-8'))
     Q = json.loads(Path(a.queries).read_text(encoding='utf-8'))
     sheets = src.get('sheets', {})
-    by = defaultdict(lambda: defaultdict(list))
+    by_name = src.get('sheets_by_name', {})
+    # PR-8: evidence sheet ids are unique 'wb:sheet' keys (plain names from legacy builds resolve via
+    # sheets_by_name — ambiguous names attribute to the first owning workbook, deterministic).
+
+    def meta(sh):
+        if sh in sheets:
+            return sheets[sh]
+        ids = by_name.get(sh) or []
+        return sheets.get(ids[0]) if ids else {}
+
+    by = defaultdict(lambda: defaultdict(list))          # sheet id -> row -> [queries]
     wbcount = defaultdict(int)
     for q in Q:
         for e in q['ev']:
             sh, row = e[0], e[1]
-            if sh in sheets and row:
+            m = meta(sh)
+            if m and row:
                 by[sh][row].append(q)
-                wbcount[sheets[sh]['wb']] += 1
+                wbcount[m['wb']] += 1
     alias = a.wb or (max(wbcount, key=wbcount.get) if wbcount else next(iter(src['workbooks'])))
     path = Path(src['workbooks'][alias])
     wb = openpyxl.load_workbook(path)
@@ -49,15 +60,20 @@ def main():
         if vr:
             ws.cell(vr, 1, 'MMQUERY')
         ws.column_dimensions['A'].width = 60
-        for row, qs in by.get(ws.title, {}).items():
-            seen = []
-            for q in qs:
-                if q['id'] not in [s['id'] for s in seen]:
-                    seen.append(q)
-            c = ws.cell(row, 1, '\n\n'.join(f"[{q['id']}] {q['text']}" for q in seen))
-            c.alignment = Alignment(wrap_text=True, vertical='top')
-            c.fill = FILL
-            n += len(seen)
+        # PR-8: annotate only the evidence rows that belong to THIS workbook (meta['wb'] == alias and
+        # plain sheet name == ws.title) — same-name sheets in another workbook are never mis-attributed.
+        rows_here = {sid_key: rows for sid_key, rows in by.items()
+                     if meta(sid_key).get('wb') == alias and meta(sid_key).get('sheet') == ws.title}
+        for rows in rows_here.values():
+            for row, qs in rows.items():
+                seen = []
+                for q in qs:
+                    if q['id'] not in [s['id'] for s in seen]:
+                        seen.append(q)
+                c = ws.cell(row, 1, '\n\n'.join(f"[{q['id']}] {q['text']}" for q in seen))
+                c.alignment = Alignment(wrap_text=True, vertical='top')
+                c.fill = FILL
+                n += len(seen)
         ws.freeze_panes = None
     out = Path(a.out) / f"{path.stem}_申办方MM_query_首列版.xlsx"
     wb.save(out)

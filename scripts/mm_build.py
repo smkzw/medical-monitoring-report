@@ -55,14 +55,26 @@ def deviation(v, lo, hi):
     return 0.0
 
 
+def sheet_meta(C, sheet):
+    """PR-8: resolve sheet meta from the unique per-workbook id ('wb:sheet' key of normalize _source.json
+    sheets) or a plain sheet name (deterministic first owning id in _source order). {} when unknown."""
+    sheets = C.src.get('sheets') or {}
+    if sheet in sheets:
+        return sheets[sheet]
+    for m in sheets.values():
+        if m.get('sheet') == sheet:
+            return m
+    return {}
+
+
 def wb_sheet(C, sheet):
     """Workbook-qualified sheet name (business-key scope): same-name sheets in different workbooks stay distinct.
-    Sheet alias -> owning workbook alias via normalize _source.json sheets[<sheet>].wb."""
+    PR-8: accepts a unique id ('wb:sheet') or a plain sheet name (resolved via sheet_meta)."""
     sheet = str(sheet or '')
     if not sheet:
         return ''
-    wb = ((C.src.get('sheets') or {}).get(sheet) or {}).get('wb') or ''
-    return f"{wb}:{sheet}" if wb else sheet
+    m = sheet_meta(C, sheet)
+    return f"{m['wb']}:{m['sheet']}" if m.get('wb') else sheet
 
 
 def oth_qkey(C, sid, cat, sh, v, d, test, rel, rule, bkey=None):
@@ -217,7 +229,7 @@ def build_events(C):
         rec = {'n': a.get('no') or len(C.ae_by[sid]) + 1, 't': term, 'c': cat, 's': a.get('start') or '', 'e': a.get('end') or '',
                'g': gtxt(a.get('grade')), 'sae': bool(a.get('serious')), 'aesi': bool(a.get('aesi')),
                'dili': bool(a.get('dili')), 'rel': rel or '—', 'act': a.get('action') or '—', 'out': a.get('outcome') or '—',
-               'cm': a.get('cm') or '', 'wd': a.get('withdraw') or '', 'row': a['row'], 'sh': a['sheet'], 'sid': sid, 'site': s['site'], 'fd': s['fd'] or '',
+               'cm': a.get('cm') or '', 'wd': a.get('withdraw') or '', 'row': a['row'], 'sh': a['sheet'], 'wb': a.get('wb') or '', 'sid': sid, 'site': s['site'], 'fd': s['fd'] or '',
                'pre': bool(s['fd'] and is_full_date(a.get('start')) and a['start'] < s['fd']), '_rel': related,
                '_aesi_term': bool(aesi_hit), '_aesi_def': aesi_hit, 'pt': a.get('pt') or '', 'soc': a.get('soc') or '',
                'rpt': a.get('rpt') or '', 'aware': a.get('aware') or ''}
@@ -227,14 +239,14 @@ def build_events(C):
     C.mh_by = defaultdict(list)
     for m in C.mh:
         C.mh_by[m['sid']].append({'n': m.get('no') or len(C.mh_by[m['sid']]) + 1, 't': m.get('term') or '', 's': m.get('start') or '',
-                                  'e': m.get('end') or '', 'ong': '是' if m.get('ongoing') else '否', 'row': m['row'], 'sh': m['sheet']})
+                                  'e': m.get('end') or '', 'ong': '是' if m.get('ongoing') else '否', 'row': m['row'], 'sh': m['sheet'], 'wb': m.get('wb') or ''})
     C.cm_by = defaultdict(list)
     for c in C.cm:
         ind = c.get('indication') or ''
         wk = c.get('ind_kind') or ('AE' if re.search(r'^AE|不良事件', ind) else 'MH' if re.search(r'^MH|病史', ind) else '')
         C.cm_by[c['sid']].append({'n': c.get('no') or len(C.cm_by[c['sid']]) + 1, 't': c.get('term') or '', 's': c.get('start') or '',
                                   'e': c.get('end') or '', 'ong': bool(c.get('ongoing')), 'dose': c.get('dose') or '', 'fq': c.get('freq') or '',
-                                  'rt': c.get('route') or '', 'why': ind, 'wk': wk, 'row': c['row'], 'sh': c['sheet'], 'f': ''})
+                                  'rt': c.get('route') or '', 'why': ind, 'wk': wk, 'row': c['row'], 'sh': c['sheet'], 'wb': c.get('wb') or '', 'f': ''})
 
 
 def ae_summary(C):
@@ -450,8 +462,10 @@ def build_labrows(C):
             'pr': {'CSX': 4, 'MH': 3, 'NCS2': 3, 'NA2': 3}.get(risk, 1),
             'base': [b.get('visit'), b.get('raw'), b.get('unit') or '', b.get('clin')] if b else None,
             'pts': [[r.get('visit'), r.get('date'), r.get('raw'), r.get('unit') or '', r.get('grade'), r.get('clin'),
-                     None if r.get('pct') is None else round(r['pct'], 1), r['sheet'], r['row'], r.get('desc') or ''] for r in P],
+                     None if r.get('pct') is None else round(r['pct'], 1), r['sheet'], r['row'], r.get('desc') or '',
+                     r.get('wb') or ''] for r in P],   # p[10]=归属工作簿（PR-8 行级归属；前端按位取值不变）
             'rel': [l[:4] for l in links], 'ctx': ctx, 'q': [], 'fid': [], 'cro': '', 'mg': mg, 'risk': risk,
+            'wb': f0.get('wb') or '',
             'qkey': f"lab|{sid}|{risk}|{wb_sheet(C, f0.get('sheet'))}|{mid}|{f0.get('visit') or ''}"})
     C.labrows.sort(key=lambda g: (-g['pr'], g['sid'], g['test']))
 
@@ -525,11 +539,22 @@ def rel_candidates(C):
 
 
 # ----------------------------------------------------------------------------- rule-based signals ("others")
-def add_other(C, sid, cat, pr, summ, v=None, d=None, sh='', row=None, test='', clin=None, rel=None, ctx=None, risk=None, rule=None, lane=None, level=None, bkey=None):
+def ev_sh(C, sh, wb=''):
+    """PR-8: evidence sheet reference — unique per-workbook id 'wb:sheet' (owning workbook known),
+    else deterministic wb_sheet() resolution (first owning id in _source order)."""
+    sh = str(sh or '')
+    if not sh:
+        return ''
+    if wb and f"{wb}:{sh}" in (C.src.get('sheets') or {}):
+        return f"{wb}:{sh}"
+    return wb_sheet(C, sh)
+
+
+def add_other(C, sid, cat, pr, summ, v=None, d=None, sh='', row=None, test='', clin=None, rel=None, ctx=None, risk=None, rule=None, lane=None, level=None, bkey=None, wb=''):
     s = C.subj[sid]
     o = {'sid': sid, 'site': s['site'], 'cat': cat, 'pr': pr, 'sum': summ, 'v': v or '', 'd': d or '', 'sh': sh, 'row': row, 'test': test,
          'clin': clin, 'rel': rel or [], 'ctx': ctx or [], 'q': [], 'fid': [], 'cro': '', 'risk': risk or '', '_rule': rule or {},
-         'qkey': oth_qkey(C, sid, cat, sh, v, d, test, rel, rule, bkey)}
+         'wb': wb or '', 'qkey': oth_qkey(C, sid, cat, sh, v, d, test, rel, rule, bkey)}
     C.others.append(o)
     if lane:
         C.tl[sid].setdefault(lane, []).append([d, summ, level if level is not None else (2 if pr >= 4 else 1 if pr >= 3 else 0), (rule or {}).get('symbol', 'diamond'), test])
@@ -577,7 +602,7 @@ def threshold_rules(C):
                             unit=r.get('unit') or '', visit=r.get('visit'), date=r.get('date'), thr=R.get('label', f"{R.get('op', '>=')}{R['v']}"),
                             base=b.get('raw'), chg=r.get('chg'), pct=None if r.get('pct') is None else round(r['pct'], 1), uln=r.get('hi'), lln=r.get('lo'))
                 add_other(C, sid, R['cat'], pr, summ, r.get('visit'), r.get('date'), r['sheet'], r['row'], C.metric[mid]['label'], r.get('clin'), rel, ctx, risk, R,
-                          R.get('lane'), R.get('level'), bkey=f"{C.metric[mid]['label']}|{r.get('visit') or ''}|{r.get('date') or ''}")
+                          R.get('lane'), R.get('level'), bkey=f"{C.metric[mid]['label']}|{r.get('visit') or ''}|{r.get('date') or ''}", wb=r.get('wb') or '')
 
 
 def combo_rules(C):
@@ -623,7 +648,7 @@ def combo_rules(C):
                     summ = fill(R.get('sum', '{name}：{detail}（{visit} {date}）'), name=R.get('name', R['id']), detail=det, visit=r0.get('visit'), date=r0['date'])
                     add_other(C, sid, R.get('cat', '阈值规则核对'), pr, summ, r0.get('visit'), r0['date'], r0['sheet'], r0['row'], C.metric[r0['mid']]['label'],
                               r0.get('clin'), rel, ctx, risk, R, R.get('lane'), R.get('level'),
-                              bkey=f"{C.metric[r0['mid']]['label']}|{r0.get('visit') or ''}|{r0['date']}")
+                              bkey=f"{C.metric[r0['mid']]['label']}|{r0.get('visit') or ''}|{r0['date']}", wb=r0.get('wb') or '')
                     if R.get('once', True):
                         break
 
@@ -642,7 +667,7 @@ def ae_checks(C):
             continue
         if 'predose_related' in on and a['pre'] and a['_rel']:
             add_other(C, sid, 'AE给药前事件相关性核对', 3, f"AE「{a['t']}」开始于首剂（{a['fd']}）前 {a['s']}，相关性记为「{a['rel']}」", None, a['s'], a['sh'], a['row'], a['t'],
-                      rel=[['AE', a['t'], a['s'], a['n']]], risk='AE')
+                      rel=[['AE', a['t'], a['s'], a['n']]], risk='AE', wb=a.get('wb') or '')
         if 'grade_vs_lab' in on:
             rs = [r for r in lab_by_ae[(sid, str(a['n']))] if r.get('grade')]
             gi = grade_int(a['g']) or 0
@@ -654,15 +679,15 @@ def ae_checks(C):
             cms = [c for c in C.cm_by[sid] if c['wk'] == 'AE' and (a['t'] and a['t'] in c['why'] or re.search(rf'\b{a["n"]}\b', c['why']))]
             if cms:
                 add_other(C, sid, 'AE合并用药标记核对', 2, f"AE「{a['t']}」记「是否有合并用药=否」，但 CM「{cms[0]['t']}」用药原因指向该 AE", None, a['s'], a['sh'], a['row'], a['t'],
-                          rel=[['AE', a['t'], a['s'], a['n']]], risk='AE')
+                          rel=[['AE', a['t'], a['s'], a['n']]], risk='AE', wb=a.get('wb') or '')
         if 'aesi_terms' in on and a['_aesi_term'] and not a['aesi'] and not a['pre']:
-            add_other(C, sid, 'AESI标记核对', 3, f"AE「{a['t']}」符合方案 AESI 定义（{'、'.join(a['_aesi_def'])}），但「是否AESI」未勾选", None, a['s'], a['sh'], a['row'], a['t'], rel=[['AE', a['t'], a['s'], a['n']]], risk='AE')
+            add_other(C, sid, 'AESI标记核对', 3, f"AE「{a['t']}」符合方案 AESI 定义（{'、'.join(a['_aesi_def'])}），但「是否AESI」未勾选", None, a['s'], a['sh'], a['row'], a['t'], rel=[['AE', a['t'], a['s'], a['n']]], risk='AE', wb=a.get('wb') or '')
     termdefs = [d for d in C.aesiDefs if d['_t'] or d['_soc']]
     if 'aesi_unmatched' in on and termdefs and len(termdefs) == len(C.aesiDefs) and not any(R.get('aesi') for R in C.A.get('thresholdRules', []) + C.A.get('comboRules', [])):
         for a in C.aes:  # flagged AESI but matches none of the protocol's (purely term-based) AESI definitions
             if a['sid'] in C.pop and a['aesi'] and not a['_aesi_term']:
                 add_other(C, a['sid'], 'AESI标记核对', 2, f"AE「{a['t']}」勾选为 AESI，但不符合方案列出的 AESI 定义（{'、'.join(d.get('name') or d.get('id') for d in termdefs)}）",
-                          None, a['s'], a['sh'], a['row'], a['t'], rel=[['AE', a['t'], a['s'], a['n']]], risk='AE')
+                          None, a['s'], a['sh'], a['row'], a['t'], rel=[['AE', a['t'], a['s'], a['n']]], risk='AE', wb=a.get('wb') or '')
     for RR in C.A.get('reportRules', []):  # {"flag": "serious"|"aesi", "days": 1, "from": "aware"|"start", "label": "SAE 24h"}
         key = {'serious': 'sae', 'aesi': 'aesi'}.get(RR.get('flag'), RR.get('flag'))
         for a in C.aes:
@@ -672,11 +697,11 @@ def ae_checks(C):
             dd = days(a.get('rpt'), t0) if is_full_date(a.get('rpt')) and is_full_date(t0) else None
             if dd is None:
                 if RR.get('requireDate'):
-                    add_other(C, a['sid'], 'AE报告时限核对', 2, f"{RR.get('label', key)}：AE「{a['t']}」缺少报告日期", None, a['s'], a['sh'], a['row'], a['t'], risk='AE')
+                    add_other(C, a['sid'], 'AE报告时限核对', 2, f"{RR.get('label', key)}：AE「{a['t']}」缺少报告日期", None, a['s'], a['sh'], a['row'], a['t'], risk='AE', wb=a.get('wb') or '')
                 continue
             if dd > RR.get('days', 1):
                 add_other(C, a['sid'], 'AE报告时限核对', RR.get('pr', 3), f"{RR.get('label', key)}：AE「{a['t']}」{'获知' if t0 == a.get('aware') else '发生'}于 {t0}，报告于 {a['rpt']}（{dd} 天，方案要求 ≤{RR.get('days', 1)} 天）",
-                          None, a['s'], a['sh'], a['row'], a['t'], rel=[['AE', a['t'], a['s'], a['n']]], risk='AE')
+                          None, a['s'], a['sh'], a['row'], a['t'], rel=[['AE', a['t'], a['s'], a['n']]], risk='AE', wb=a.get('wb') or '')
     if 'duplicate' in on:
         for sid, L in C.ae_by.items():
             for i, x in enumerate(L):
@@ -706,7 +731,7 @@ def cm_checks(C):
                     add_other(C, sid, P.get('cat', '禁限用药核对'), P.get('pr', 4),
                               f"CM「{c['t']}」（{c['s'] or '?'}~{'持续' if c['ong'] else c['e'] or '?'}）属于{P['name']}，与{('首剂前 %d 天至' % w0) if w0 else ''}治疗期重叠；用药原因：{c['why'] or '—'}",
                               None, c['s'], c['sh'], c['row'], c['t'], ctx=[P.get('note', '')] if P.get('note') else [],
-                              bkey=f"{c['t']}|{c['s']}")
+                              bkey=f"{c['t']}|{c['s']}", wb=c.get('wb') or '')
     for W in C.A.get('washout', []):  # {"name","re","days","ref":"icf"|"fd"}
         pre = re.compile(W['re'], re.I)
         for sid in C.pop:
@@ -719,7 +744,7 @@ def cm_checks(C):
                 if pre.search(c['t']) and (c['ong'] or (is_full_date(c['e']) and c['e'] >= a)) and (not is_full_date(c['s']) or c['s'] <= ref):
                     add_other(C, sid, W.get('cat', '入排洗脱用药核对'), W.get('pr', 3),
                               f"CM「{c['t']}」末次 {c['e'] or '持续'}，距{'知情' if W.get('ref') == 'icf' else '首剂'}（{ref}）不足 {W['days']} 天洗脱期（{W['name']}）",
-                              None, c['e'] or c['s'], c['sh'], c['row'], c['t'], bkey=f"{c['t']}|{c['s']}")
+                              None, c['e'] or c['s'], c['sh'], c['row'], c['t'], bkey=f"{c['t']}|{c['s']}", wb=c.get('wb') or '')
 
 
 def eligibility_checks(C):
@@ -765,7 +790,7 @@ def visit_window_checks(C):
             ad = s.get({'rand': 'rand_d', 'icf': 'icf'}.get(anc, '')) if anc in ('rand', 'icf') else next((x.get('date') for x in C.visits if x['sid'] == sid and x.get('visit') == anc), None)
             sd, lab = (days(v.get('date'), ad) if is_full_date(ad) and is_full_date(v.get('date')) else None), f'{anc}+'
         if sd is not None and (sd < t - mi or sd > t + pl):
-            add_other(C, sid, '访视超窗核对', 2, f"{v['visit']} 实际 {v['date']}（{lab}{sd}），方案窗 {lab}{t}{'−%d' % mi}/+{pl}", v['visit'], v['date'], v['sheet'], v['row'])
+            add_other(C, sid, '访视超窗核对', 2, f"{v['visit']} 实际 {v['date']}（{lab}{sd}），方案窗 {lab}{t}{'−%d' % mi}/+{pl}", v['visit'], v['date'], v['sheet'], v['row'], wb=v.get('wb') or '')
 
 
 def pd_reconcile(C):
@@ -849,7 +874,12 @@ def build_queries(C):
     common = defaultdict(list)
 
     def new_q(sid, cat, sh, row, v, d, test, fact, ask, ev, src, qkey=''):
-        same = next((q for q in Q if q['sid'] == sid and q['sh'] == sh and row is not None and q['row'] == row), None)
+        # PR-8: evidence rows and the query sheet column use the per-workbook unique id ('wb:sheet')
+        # so same-name sheets in different workbooks never share attribution; display keeps the id
+        # (front-end filter chips / source review show 'wb:sheet'-style traceability).
+        src_wb = (src or {}).get('wb') if isinstance(src, dict) else ''
+        sh_id = ev_sh(C, sh, src_wb)
+        same = next((q for q in Q if q['sid'] == sid and q['sh'] == sh_id and row is not None and q['row'] == row), None)
         if same and C.A.get('mergeSameCell', True):  # one EDC cell → one query; append the extra fact/ask
             same['parts'] += [['另：' + fact, 0], [ask, 1]]
             same['text'] = ''.join(x[0] for x in same['parts'])
@@ -859,7 +889,8 @@ def build_queries(C):
         st, cro = ext_match(C, sid, sh, fact + ask)
         if st == '同主题已查重' and C.A.get('skipDuplicates', False):
             return None
-        q = {'id': f'Q{len(Q) + 1:03d}', 'sid': sid, 'site': C.subj[sid]['site'], 'cat': cat, 'sh': sh, 'row': row, 'v': v or '', 'd': d or '', 'test': test or '',
+        ev = [[ev_sh(C, e[0], src_wb)] + list(e[1:]) for e in ev]
+        q = {'id': f'Q{len(Q) + 1:03d}', 'sid': sid, 'site': C.subj[sid]['site'], 'cat': cat, 'sh': sh_id, 'row': row, 'v': v or '', 'd': d or '', 'test': test or '',
              'text': fact + ask, 'parts': [[fact, 0], [ask, 1]], 'ev': ev, 'cro': st, 'flags': [], '_cro': cro, 'qkey': qkey}
         if ask and ask not in common[cat]:
             common[cat].append(ask)
@@ -890,7 +921,14 @@ def build_queries(C):
                     mh=mh, bvis=(g['base'] or [None])[0], braw=(g['base'] or [None, '—'])[1])
         if len(P) > 1:
             fact += f"（同类异常另有 {len(P) - 1} 次：{'、'.join(str(x[0]) for x in P[1:4])}{'…' if len(P) > 4 else ''}）"
-        new_q(g['sid'], cat, p[7], p[8], p[0], p[1], g['test'], fact, ask, [[x[7], x[8], x[0], g['test']] for x in P], g, g.get('qkey', ''))
+        row_wb = (p[10] if len(p) > 10 else '') or g.get('wb') or ''
+        gq = dict(g, wb=row_wb)                      # PR-8：证据行归属＝被选行（CS/阈值行）的工作簿
+        qk = g.get('qkey', '')
+        if row_wb and qk.count('|') >= 4:
+            parts = qk.split('|')
+            parts[3] = f"{row_wb}:{p[7]}"            # qkey 的 wb:sheet 段与被选行一致
+            qk = '|'.join(parts)
+        new_q(g['sid'], cat, p[7], p[8], p[0], p[1], g['test'], fact, ask, [[x[7], x[8], x[0], g['test']] for x in P], gq, qk)
     for o in C.others:
         R = o['_rule']
         if o['pr'] < C.A.get('queryMinPr', 3) or R.get('query') is False:
@@ -1179,7 +1217,7 @@ def build_ex(C):
         path = C.src['workbooks'][meta['wb']]
         wb = wbs.get(path) or openpyxl.load_workbook(path, read_only=True, data_only=True)
         wbs[path] = wb
-        ws = wb[sh]
+        ws = wb[meta['sheet']]   # PR-8: sheets keyed by unique id — open by plain sheet name
         labels = None
         for i, r in enumerate(ws.iter_rows(values_only=True), start=1):
             if i == meta['label_row']:

@@ -201,13 +201,13 @@ def m16_qual(C):
                         f"{r.get('visit')}（{r.get('date')}）{test}「{r.get('raw')}」（±/弱阳性/微量）",
                         r.get('visit'), r.get('date'), r['sheet'], r['row'], test,
                         ctx=['弱阳性最高提示（pr1）；研究者判 CS 者走 M01'],
-                        rule={'ask': '请结合复测与临床判断是否需关注。'}, bkey=f"{mid}|{r.get('visit')}|{r.get('date')}")
+                        rule={'ask': '请结合复测与临床判断是否需关注。'}, bkey=f"{mid}|{r.get('visit')}|{r.get('date')}", wb=r.get('wb') or '')
             elif lv == 2 and base_lv == 0 and (r.get('clin') or 0) != 2:
                 add_ext(C, sid, '定性结果核对', 'M16-NEW', 3,
                         f"{r.get('visit')}（{r.get('date')}）{test}「{r.get('raw')}」，该指标基线（首剂前最近一次）为阴性",
                         r.get('visit'), r.get('date'), r['sheet'], r['row'], test,
                         ctx=['定性新发异常（基线阴性 → ≥+）；判 CS 者由 M01/M23 分层'],
-                        rule={'ask': '请评估该新发定性异常的临床意义，必要时复测。'}, bkey=f"{mid}|{r.get('visit')}|{r.get('date')}")
+                        rule={'ask': '请评估该新发定性异常的临床意义，必要时复测。'}, bkey=f"{mid}|{r.get('visit')}|{r.get('date')}", wb=r.get('wb') or '')
 
 
 # --------------------------------------------------------------------------- M17 CM-IND
@@ -234,7 +234,7 @@ def m17_cm_ind(C):
                     f"合并用药「{c['t']}」（{c['s'] or '?'} 起，用药原因「{why}」），{where}均未见「{why}」相关记录",
                     None, c['s'], c['sh'], c['row'], c['t'],
                     ctx=['首剂前开始 → 核对病史' if ask_hist else '首剂后开始 → 核对不良事件'],
-                    rule={'ask': '请确认是否需补充记录。'}, bkey=f"{c.get('n') or c['t']}|{c['s']}")
+                    rule={'ask': '请确认是否需补充记录。'}, bkey=f"{c.get('n') or c['t']}|{c['s']}", wb=c.get('wb') or '')
 
 
 # --------------------------------------------------------------------------- M18 PREG
@@ -255,7 +255,7 @@ def m18_preg(C):
                     f"{r.get('visit')}（{r.get('date')}）{test}{vshow}",
                     r.get('visit'), r.get('date'), r['sheet'], r['row'], test,
                     rule={'ask': '请确认是否为妊娠事件，并按方案要求完成妊娠报告与随访；如为误录，请更正。'},
-                    bkey=f"{mid}|{r.get('visit')}|{r.get('date')}")
+                    bkey=f"{mid}|{r.get('visit')}|{r.get('date')}", wb=r.get('wb') or '')
 
 
 # --------------------------------------------------------------------------- M19 AE-EX
@@ -278,7 +278,7 @@ def m19_ae_ex(C):
             add_ext(C, sid, 'AE与给药记录一致性核对', 'M19', 3,
                     f"给药记录 {e.get('visit') or ''}（{e.get('start')}）「{why}」，不良事件页未见同期（±{w} 天）采取措施为暂停/停药的记录",
                     e.get('visit'), e.get('start'), e.get('sheet', ''), e.get('row'), '',
-                    rule={'ask': '请核实并补充或更正。'}, bkey=f"{e.get('start')}|{why}")
+                    rule={'ask': '请核实并补充或更正。'}, bkey=f"{e.get('start')}|{why}", wb=e.get('wb') or '')
         for a in C.ae_by[sid]:                          # ② AE 措施=停药/暂停但给药记录无中断
             if not act_re.search(str(a.get('act') or '')):
                 continue
@@ -287,7 +287,7 @@ def m19_ae_ex(C):
             add_ext(C, sid, 'AE与给药记录一致性核对', 'M19', 3,
                     f"AE「{a['t']}」（{a['s']}）采取措施「{a['act']}」，给药记录未见同期（±{w} 天）中断/暂停",
                     None, a['s'], a['sh'], a['row'], a['t'],
-                    rule={'ask': '请核实给药记录与 AE 措施是否一致。'}, bkey=f"{a.get('n')}|{a['s']}")
+                    rule={'ask': '请核实给药记录与 AE 措施是否一致。'}, bkey=f"{a.get('n')}|{a['s']}", wb=a.get('wb') or '')
 
 
 # --------------------------------------------------------------------------- M20 AE-SAE
@@ -301,12 +301,12 @@ def m20_ae_sae(C):
             add_ext(C, sid, 'SAE与死亡一致性核对', 'M20', 4,
                     f"AE「{a['t']}」（{a['s']}）SAE=是，但 SAE 标准（致死/危及生命/住院/致残/先天异常/其他重要事件）均未勾选",
                     None, a['s'], a['sh'], a['row'], a['t'], rel=[['AE', a['t'], a['s'], a['n']]],
-                    rule={'ask': '请核实 SAE 判定与标准勾选是否一致。'}, bkey=f"{a.get('n')}|{a['s']}")
+                    rule={'ask': '请核实 SAE 判定与标准勾选是否一致。'}, bkey=f"{a.get('n')}|{a['s']}", wb=a.get('wb') or '')
         elif (not a['sae']) and crit.strip():
             add_ext(C, sid, 'SAE与死亡一致性核对', 'M20', 4,
                     f"AE「{a['t']}」（{a['s']}）勾选了 SAE 标准（{crit}），但 SAE=否",
                     None, a['s'], a['sh'], a['row'], a['t'], rel=[['AE', a['t'], a['s'], a['n']]],
-                    rule={'ask': '请核实 SAE 判定与标准勾选是否一致。'}, bkey=f"{a.get('n')}|{a['s']}")
+                    rule={'ask': '请核实 SAE 判定与标准勾选是否一致。'}, bkey=f"{a.get('n')}|{a['s']}", wb=a.get('wb') or '')
     deaths = {}
     for a in C.aes:
         if a['sid'] in C.pop and re.search(r'死亡', str(a.get('out') or '')):
@@ -319,7 +319,7 @@ def m20_ae_sae(C):
             add_ext(C, sid, 'SAE与死亡一致性核对', 'M20', 4,
                     f"AE「{a['t']}」转归「死亡」（{d}），研究结束日期 {s['eos_d']}（原因「{s.get('eos_why') or ''}」）不一致",
                     None, d, a['sh'], a['row'], a['t'], rel=[['AE', a['t'], a['s'], a['n']]],
-                    rule={'ask': '请核实死亡日期与研究结束信息。'}, bkey=f"{a.get('n')}|死亡日期")
+                    rule={'ask': '请核实死亡日期与研究结束信息。'}, bkey=f"{a.get('n')}|死亡日期", wb=a.get('wb') or '')
         later = [x.get('start') for x in C.exposure if x['sid'] == sid and is_full_date(x.get('start')) and x['start'] > d]
         later += [x.get('date') for x in C.visits if x['sid'] == sid and is_full_date(x.get('date')) and x['date'] > d]
         later += [r.get('date') for (s2, mid), rs in C.F.items() if s2 == sid for r in rs
@@ -328,7 +328,7 @@ def m20_ae_sae(C):
             add_ext(C, sid, 'SAE与死亡一致性核对', 'M20', 4,
                     f"AE「{a['t']}」转归「死亡」（{d}），其后仍有给药/访视/检验记录：{'、'.join(sorted(set(later))[:4])}",
                     None, d, a['sh'], a['row'], a['t'], rel=[['AE', a['t'], a['s'], a['n']]],
-                    rule={'ask': '请核实死亡日期或后续记录。'}, bkey=f"{a.get('n')}|死亡后活动")
+                    rule={'ask': '请核实死亡日期或后续记录。'}, bkey=f"{a.get('n')}|死亡后活动", wb=a.get('wb') or '')
 
 
 # --------------------------------------------------------------------------- M21 AE-COURSE
@@ -367,7 +367,7 @@ def m21_ae_course(C):
                         rel=[['AE', a['t'], a['s'], a['n']]],
                         ctx=['检验走势与 AE 转归不一致（pr2 提示，可转 query）'],
                         rule={'query': False, 'ask': '请评估是否需更新 AE 转归或补充随访检验。'},
-                        bkey=f"{a.get('n')}|{C.metric[w0['mid']]['label']}")
+                        bkey=f"{a.get('n')}|{C.metric[w0['mid']]['label']}", wb=w0.get('wb') or '')
         else:                                           # ② 末次访视异常未恢复、AE 未结束且无随访安排
             last_d = max((v.get('date') or '' for v in C.visits if v['sid'] == sid), default='')
             open_abn = [r for r in labs if (r.get('clin') or 0) >= 1 and r.get('date') and (not last_d or r['date'] >= last_d)]
@@ -380,7 +380,7 @@ def m21_ae_course(C):
                         rel=[['AE', a['t'], a['s'], a['n']]],
                         ctx=['异常未恢复且 AE 未结束（pr2 提示）'],
                         rule={'query': False, 'ask': '请确认随访安排或更新 AE 转归。'},
-                        bkey=f"{a.get('n')}|{C.metric[r0['mid']]['label']}|未恢复")
+                        bkey=f"{a.get('n')}|{C.metric[r0['mid']]['label']}|未恢复", wb=a.get('wb') or '')
 
 
 # --------------------------------------------------------------------------- 日期序（S45 收口，D-P5-14）
@@ -393,7 +393,7 @@ def date_order(C):
             add_ext(C, a['sid'], '日期完整性核对', 'DATEORD', 3,
                     f"AE「{a['t']}」开始日期 {a['s']} 晚于结束日期 {a['e']}",
                     None, a['s'], a['sh'], a['row'], a['t'], rel=[['AE', a['t'], a['s'], a['n']]],
-                    rule={'ask': '请核实并更正起止日期。'}, bkey=f"{a.get('n')}|{a['s']}|{a['e']}")
+                    rule={'ask': '请核实并更正起止日期。'}, bkey=f"{a.get('n')}|{a['s']}|{a['e']}", wb=a.get('wb') or '')
     for c in C.cm:
         if c['sid'] in C.subj and bad(c.get('start'), c.get('end')):
             add_ext(C, c['sid'], '日期完整性核对', 'DATEORD', 3,
@@ -405,7 +405,7 @@ def date_order(C):
             add_ext(C, e['sid'], '日期完整性核对', 'DATEORD', 3,
                     f"给药记录{('（' + e['visit'] + '）') if e.get('visit') else ''}开始日期 {e['start']} 晚于结束日期 {e['end']}",
                     e.get('visit'), e['start'], e.get('sheet', ''), e.get('row'), '',
-                    rule={'ask': '请核实并更正起止日期。'}, bkey=f"{e['start']}|{e['end']}")
+                    rule={'ask': '请核实并更正起止日期。'}, bkey=f"{e['start']}|{e['end']}", wb=e.get('wb') or '')
 
 
 # --------------------------------------------------------------------------- M23 CSB 确定性＋候选
@@ -573,7 +573,7 @@ def _csb_query(C, r, kind, rec, extra, flags):
     add_ext(C, r['sid'], CSB_CAT[kind], kind, CSB_PR[kind], fact.rstrip('。'),
             r.get('visit'), r.get('date'), r['sheet'], r['row'], C.metric[r['mid']]['label'],
             ctx=flags, rule={'ask': QT_CSB_ASK[kind]},
-            bkey=f"{r['mid']}|{r.get('visit')}|{r.get('date')}")
+            bkey=f"{r['mid']}|{r.get('visit')}|{r.get('date')}", wb=r.get('wb') or '')
 
 
 def _candidate(C, r, binding, known, worse, flags, dh):
@@ -594,10 +594,10 @@ def _candidate(C, r, binding, known, worse, flags, dh):
 
 
 # --------------------------------------------------------------------------- others 帮手
-def add_ext(C, sid, cat, risk, pr, summ, v, d, sh, row, test='', rel=None, ctx=None, rule=None, bkey=None):
+def add_ext(C, sid, cat, risk, pr, summ, v, d, sh, row, test='', rel=None, ctx=None, rule=None, bkey=None, wb=''):
     from mm_build import add_other        # 复用 mm_build 的 others 通道（qkey/时间线一致；延迟导入避免环）
     return add_other(C, sid, cat, pr, summ, v, d, sh, row, test, None, rel or [], ctx or [], risk,
-                     {'id': risk, **(rule or {})}, None, None, bkey)
+                     {'id': risk, **(rule or {})}, None, None, bkey, wb)
 
 
 def run(C):
