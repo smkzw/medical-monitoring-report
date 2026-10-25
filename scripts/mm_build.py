@@ -922,13 +922,13 @@ def build_queries(C):
         if len(P) > 1:
             fact += f"（同类异常另有 {len(P) - 1} 次：{'、'.join(str(x[0]) for x in P[1:4])}{'…' if len(P) > 4 else ''}）"
         row_wb = (p[10] if len(p) > 10 else '') or g.get('wb') or ''
-        gq = dict(g, wb=row_wb)                      # PR-8：证据行归属＝被选行（CS/阈值行）的工作簿
+        g['wb'] = row_wb                             # PR-8：证据行归属＝被选行（CS/阈值行）的工作簿（原位回写）
         qk = g.get('qkey', '')
         if row_wb and qk.count('|') >= 4:
             parts = qk.split('|')
             parts[3] = f"{row_wb}:{p[7]}"            # qkey 的 wb:sheet 段与被选行一致
             qk = '|'.join(parts)
-        new_q(g['sid'], cat, p[7], p[8], p[0], p[1], g['test'], fact, ask, [[x[7], x[8], x[0], g['test']] for x in P], gq, qk)
+        new_q(g['sid'], cat, p[7], p[8], p[0], p[1], g['test'], fact, ask, [[x[7], x[8], x[0], g['test']] for x in P], g, qk)
     for o in C.others:
         R = o['_rule']
         if o['pr'] < C.A.get('queryMinPr', 3) or R.get('query') is False:
