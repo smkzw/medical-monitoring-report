@@ -12,7 +12,7 @@
 | `aes` / `aesum` | list / dict | AE 明细（含分类、IB 标签、TEAE、相关性、SAE/AESI）/ 汇总 |
 | `labrows` | list | 检验风险组：`sid test mid risk pts[[visit,date,raw,unit,grade,clin,pct,sheet,row,desc]] base rel ctx q cro qkey…` |
 | `others` | list | 规则信号：`sid cat pr sum v d sh row test rel ctx risk q qkey…` |
-| `queries` | list | `id sid cat sh text parts ev[[sheet,row,visit,test]] cro qkey…` |
+| `queries` | list | `id sid cat sh text parts ev[[sheet,row,visit,test]] cro qkey…`（PR-8：`sh`/`ev[0]` 用逐工作簿唯一 id `wb:sheet`，如 `lab:LB`） |
 | `cro` | list | CRO 已发质疑 |
 | `cons` | list | 同中心判定一致性 |
 | `rules` / `methods` / `study` | list / list / dict | 规则溯源、方法学、研究要点 |
@@ -39,6 +39,6 @@ queries 取其主源（首源，合并格同此）的 qkey，手写 query（`stu
 `KZ.subs` 中每个受试者都必须有对应文件（按需加载）。
 
 ## 不变量
-- 证据 `[sheet,row]` 必须指向 `_source.json.sheets` 中的 sheet，`--source-check` 时必须是源 workbook 的非空行。
+- 证据 `[sheet,row]` 必须指向 `_source.json.sheets` 中的 sheet（PR-8 起键＝逐工作簿唯一 id `wb:sheet`；同名 sheet 于不同工作簿各有其键，`sheets_by_name` 供名称反查），`--source-check` 时必须是源 workbook 的非空行。
 - query id 唯一；labrows/others 的 sid 必须在 subs 中。
 - `cfg.blind.on` 时任何文件不得出现分组字段/分组名（守卫检查）。

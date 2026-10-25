@@ -140,7 +140,8 @@ def main():
                 if not meta or not row:
                     continue
                 path = run['source']['workbooks'][meta['wb']]
-                need.setdefault((path, sh), {}).setdefault(int(row), []).append(q['id'])
+                # PR-8: `sheets` keyed by unique 'wb:sheet' id — the plain sheet name is meta['sheet']
+                need.setdefault((path, meta.get('sheet') or sh), {}).setdefault(int(row), []).append(q['id'])
         wbs = {}
         for (path, sh), rows in need.items():
             wb = wbs.setdefault(path, openpyxl.load_workbook(path, read_only=True, data_only=True))

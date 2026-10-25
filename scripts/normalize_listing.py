@@ -98,14 +98,18 @@ def conv(field, v, M):
 
 
 def read_spec(spec, books, M):
-    wb = books[spec.get('wb', next(iter(books)))]
+    alias = spec.get('wb', next(iter(books)))
+    book = books[alias]
     lr = spec.get('label_row', M.get('label_row', 1))
     vr = spec.get('var_row', M.get('var_row', 2))
     ds = spec.get('data_start', M.get('data_start', 3))
-    labels, vars_, data = wb.sheet(spec['sheet'], lr, vr, ds)
+    labels, vars_, data = book.sheet(spec['sheet'], lr, vr, ds)
     cols = {k: col_index(c, labels, vars_) for k, c in spec.get('cols', {}).items()}
     hlk = ('value', 'clin', 'desc', 'link', 'grade', 'rel', 'term', 'aesi', 'serious', 'action', 'indication', 'start', 'end', 'date')
-    meta = SHEETS.setdefault(spec['sheet'], {'wb': spec.get('wb', next(iter(books))), 'label_row': lr, 'var_row': vr, 'data_start': ds, 'hl': [], 'sid': None})
+    # PR-8: SHEETS keyed by per-workbook unique id "wb:sheet" — same-name sheets in different
+    # workbooks no longer collapse into one meta entry (each keeps its own highlight columns / sid label).
+    sid_key = f"{alias}:{spec['sheet']}"
+    meta = SHEETS.setdefault(sid_key, {'wb': alias, 'sheet': spec['sheet'], 'label_row': lr, 'var_row': vr, 'data_start': ds, 'hl': [], 'sid': None})
     for k, i in cols.items():
         if i is not None and i < len(labels) and k in hlk and labels[i] not in meta['hl']:
             meta['hl'].append(labels[i])
@@ -131,6 +135,7 @@ def read_spec(spec, books, M):
                 continue
             if 'not' in filt and str(fv) == str(filt['not']):
                 continue
+        rec['wb'] = alias           # PR-8: owning workbook alias on every record (row-level attribution)
         rec['sheet'] = spec['sheet']
         rec['row'] = rown
         rec.update(spec.get('const', {}))
@@ -141,7 +146,7 @@ def findings(spec, books, M):
     out = []
     lay = spec.get('layout', 'long')
     for rec, r, labels, vars_ in read_spec(spec, books, M):
-        base = {k: rec.get(k) for k in ('sid', 'visit', 'date', 'time', 'tpt', 'sheet', 'row', 'done')}
+        base = {k: rec.get(k) for k in ('sid', 'visit', 'date', 'time', 'tpt', 'sheet', 'row', 'done', 'wb')}
         base['domain'] = spec.get('domain', 'lab')
         base['group'] = spec.get('group', spec['sheet'])
         if lay == 'long':
@@ -206,8 +211,14 @@ def main():
             recs = list(by.values())
         dump_json(recs, out / f'{dom}.json')
         print(f'{dom}: {len(recs)}')
+    # PR-8: `sheets` is keyed by per-workbook unique id "wb:sheet"; `sheets_by_name` maps each plain
+    # sheet name to its owning ids (migration/back-compat: name-keyed consumers resolve deterministically).
+    by_name = {}
+    for sid_key, m in SHEETS.items():
+        by_name.setdefault(m['sheet'], []).append(sid_key)
     dump_json({'workbooks': {k: b.path for k, b in books.items()}, 'label_row': M.get('label_row', 1),
-               'var_row': M.get('var_row', 2), 'data_start': M.get('data_start', 3), 'sheets': SHEETS}, out / '_source.json')
+               'var_row': M.get('var_row', 2), 'data_start': M.get('data_start', 3),
+               'sheets': SHEETS, 'sheets_by_name': by_name}, out / '_source.json')
 
 
 if __name__ == '__main__':
