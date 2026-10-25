@@ -165,8 +165,8 @@ def m13_mhx_t(C):
         if cm_hit:
             ctx.append(f"有对应用药：{cm_hit[0]['t']}（{cm_hit[0]['s']} 起，用药原因「{cm_hit[0]['why']}」）")
         b = rows[0]['base']
-        wb = ((C.src.get('sheets') or {}).get(worst.get('sheet')) or {}).get('wb', '')
-        wbs = f"{wb}:{worst['sheet']}" if wb else (worst.get('sheet') or '')
+        from mm_build import wb_sheet          # PR-8：唯一 id 解析（旧名键控查不到 → 未限定）
+        wbs = wb_sheet(C, worst.get('sheet'))
         C.labrows.append({
             'sid': sid, 'site': C.subj[sid]['site'], 'cat': '疑似病史漏记（首剂前偏离）', 'test': C.metric[mid]['label'], 'mid': mid,
             'grp': pre[0].get('group') or '', 'pr': 2,
