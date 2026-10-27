@@ -492,11 +492,12 @@ def build_labrows(C):
                 if l[:2] not in [x[:2] for x in links]:
                     links.append(l)
         ctx = []
+        opp = ext_rules.opposite_dir([r for r, _ in pts])   # mm4：方向相反的 AE 不算同期疑似（嗜酸性粒细胞升高 ≠「白细胞减少」）
         # inferred AE (no dynamic link but a plausible AE exists in time window) → context only, never auto-links
         for mre, are, w in match:
             if mre.search(mid):
                 for a in C.ae_by[sid]:
-                    if are.search(a['t']) and any(days(a['s'], r['date']) is not None and abs(days(a['s'], r['date'])) <= w for r, _ in pts):
+                    if are.search(a['t']) and not opp.search(a['t']) and any(days(a['s'], r['date']) is not None and abs(days(a['s'], r['date'])) <= w for r, _ in pts):
                         ctx.append(f"同期 AE「{a['t']}」（{a['s']}）可能对应，但检验页未关联")
         P = [r for r, _ in pts]
         anycs = any(r.get('clin') == 2 for r in P)

@@ -454,21 +454,30 @@ def disease_kw(C):
     return re.compile('|'.join(sorted(map(re.escape, kws), key=len, reverse=True))) if kws else None
 
 
+def opposite_dir(pts):
+    """与这组检验异常方向相反的 AE 术语写法（升高的指标不对应「…减少/降低」）；方向不明时不排除任何术语。"""
+    up = any(r.get('value') is not None and r.get('hi') is not None and r['value'] > r['hi'] for r in pts)
+    down = any(r.get('value') is not None and r.get('lo') is not None and r['value'] < r['lo'] for r in pts)
+    return re.compile('减少|降低|下降|减低|偏低' if up and not down else '增多|升高|增高|增加|偏高' if down and not up else '$^')
+
+
 def disease_ae(C, sid, mid, pts, dz=None):
-    """同期（±aeExWindow 天，默认 14）已记录的研究疾病加重类 AE：术语含研究疾病/表现关键词，或命中该指标的 aeMatch。"""
+    """同期（±aeExWindow 天，默认 14）已记录的研究疾病加重类 AE：术语含研究疾病/表现关键词，或含该指标名（如「嗜酸性粒细胞增多」）；
+    数值方向相反的不算（D001 QC：aeMatch 方向不分，曾把「白细胞减少」当成嗜酸性粒细胞升高的疾病加重 AE）。"""
     dz = dz if dz is not None else disease_kw(C)
     aew = int(C.A.get('aeExWindow', 14))
     ds = [r['date'] for r in pts if is_full_date(r.get('date'))]
     if not ds:
         return []
     lo_, hi_ = min(ds), max(ds)
-    match = [(re.compile(a), re.compile(b)) for a, b, *_ in C.A.get('aeMatch', [])]
+    opp = opposite_dir(pts)
+    stem = re.sub(r'[（(].*$|百分比|计数|绝对值|浓度|含量', '', str(((getattr(C, 'metric', None) or {}).get(mid) or {}).get('label') or mid))
     hit = []
     for a in C.ae_by[sid]:
         s0 = a.get('s')
-        if not is_full_date(s0) or a.get('pre') or (days(s0, lo_) or 0) < -aew or (days(s0, hi_) or 0) > aew:
+        if not is_full_date(s0) or a.get('pre') or (days(s0, lo_) or 0) < -aew or (days(s0, hi_) or 0) > aew or opp.search(a['t']):
             continue
-        if (dz and dz.search(a['t'])) or any(mr.search(mid) and ar.search(a['t']) for mr, ar in match):
+        if (dz and dz.search(a['t'])) or (len(stem) >= 2 and stem in a['t']):
             hit.append(a)
     return hit
 
@@ -539,6 +548,8 @@ def m23_csb(C):
                 # 用户 2026-10-27：归因研究疾病不算「未关联」。只有较基线明显加重（D14/D19，判定波动不算）且同期未见
                 # 「研究疾病加重」类 AE 才作为风险；其余只作提示。方案进展条款已确认时交步骤 5 候选（D21）。
                 wf = worse_vs_base(r, r.get('base'), t_base) if r['post'] and r.get('base') else None
+                if not wf and r['post'] and r.get('value') is None and (r.get('base') or {}).get('clin') == 0:
+                    wf = '基线正常，给药后新出现异常'           # 定性检查（体检/影像）：基线正常 → CS 视为明显异常；NCS→CS 判定波动不算
                 if not wf or disease_ae(C, sid, mid, [r]):
                     continue
                 if exempt:
@@ -587,9 +598,10 @@ def m23_csb(C):
                             emit = ('MH', ev, None)
             if emit is None and not link:
                 maes = []
-                for mre, are, w in ae_match_rows(C, mid):   # 步骤 2：匹配 AE
+                opp = opposite_dir([r])
+                for mre, are, w in ae_match_rows(C, mid):   # 步骤 2：匹配 AE（方向相反的不算）
                     for a in C.ae_by[sid]:
-                        if are.search(a['t']) and a.get('s') and r.get('date') and days(a['s'], r['date']) is not None \
+                        if are.search(a['t']) and not opp.search(a['t']) and a.get('s') and r.get('date') and days(a['s'], r['date']) is not None \
                                 and abs(days(a['s'], r['date'])) <= w:
                             maes.append({'no': a['n'], 'term': a['t'], 'start': a['s'], 'match': True})
                 binding['matched_ae'] = maes[:4]

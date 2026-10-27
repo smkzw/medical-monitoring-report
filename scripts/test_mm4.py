@@ -79,6 +79,10 @@ class DiseaseRelatedCS(unittest.TestCase):
         hit = disease_ae(C, 'S1', '嗜酸性粒细胞', [{'date': '2026-05-15'}])
         self.assertEqual([a['t'] for a in hit], ['特应性皮炎加重'])                 # 头痛不算；窗口外（±14 天）不算
         self.assertEqual(disease_ae(C, 'S1', '嗜酸性粒细胞', [{'date': '2026-06-30'}]), [])
+        C.ae_by['S2'] = [{'t': '白细胞减少', 's': '2026-05-20'}, {'t': '嗜酸性粒细胞减少', 's': '2026-05-20'}, {'t': '嗜酸性粒细胞增多', 's': '2026-05-21'}]
+        C.metric = {'EOS%': {'label': '嗜酸性粒细胞百分比'}}
+        hit = disease_ae(C, 'S2', 'EOS%', [{'date': '2026-05-15', 'value': 16.5, 'hi': 8}])
+        self.assertEqual([a['t'] for a in hit], ['嗜酸性粒细胞增多'])               # 方向相反、其他细胞类型都不算
 
 
 class QualLevel(unittest.TestCase):
