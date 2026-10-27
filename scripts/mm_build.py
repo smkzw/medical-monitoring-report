@@ -498,7 +498,9 @@ def build_labrows(C):
             if mre.search(mid):
                 for a in C.ae_by[sid]:
                     if are.search(a['t']) and not opp.search(a['t']) and any(days(a['s'], r['date']) is not None and abs(days(a['s'], r['date'])) <= w for r, _ in pts):
-                        ctx.append(f"同期 AE「{a['t']}」（{a['s']}）可能对应，但检验页未关联")
+                        c_ = f"同期 AE「{a['t']}」（{a['s']}）可能对应，但检验页未关联"
+                        if c_ not in ctx:                # 多条 aeMatch 命中同一 AE 时只列一次（ext 夹具 21029 曾重复）
+                            ctx.append(c_)
         P = [r for r, _ in pts]
         anycs = any(r.get('clin') == 2 for r in P)
         mg = max([r.get('grade') or 0 for r in P] + [0])
