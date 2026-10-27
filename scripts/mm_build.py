@@ -459,25 +459,17 @@ def resolve_links(C, sid, links):
     return out
 
 
-def worse_vs_base(r, b, t_base):
-    """D14/D19 较基线加重：分级升高（0→1 级不单独算，见 ext_rules.grade_up），或超出范围且同向较基线变化 ≥T_base。
-    返回说明文本或 None；仅临床意义 NCS→CS 的判定波动不算加重。"""
-    if ext_rules.grade_up((b or {}).get('grade'), r.get('grade')):
-        return f"等级 {(b or {}).get('grade') or 0}→{r.get('grade')} 级"
-    v, bv = r.get('value'), (b or {}).get('value')
-    if v is None or bv in (None, 0) or not r.get('oor'):
-        return None
-    pct = (v - bv) / abs(bv)
-    if r.get('hi') is not None and v > r['hi'] and pct >= t_base:
-        return f"较基线升高 {pct * 100:.0f}%"
-    if r.get('lo') is not None and v < r['lo'] and -pct >= t_base:
-        return f"较基线降低 {-pct * 100:.0f}%"
-    return None
+worse_vs_base = ext_rules.worse_vs_base
+disease_kw = ext_rules.disease_kw
 
 
 def build_labrows(C):
     doms = set(C.A.get('labDomains', ['lab', 'vs', 'ecg']))
     match = [(re.compile(a), re.compile(b), w) for a, b, w in C.A.get('aeMatch', [])]  # [metricRe, aeTermRe, ±days]
+    dz = disease_kw(C)
+
+    def disease_ae(sid, mid, pts):
+        return ext_rules.disease_ae(C, sid, mid, pts, dz)
     C.labrows = []
     for (sid, mid), rows in C.F.items():
         if sid not in C.pop or mid.split(':')[0] not in doms or C.metric[mid]['nq'] > C.metric[mid]['n']:
@@ -518,10 +510,13 @@ def build_labrows(C):
         cs_pts = [r for r in P if r.get('clin') == 2]
         dis_only = bool(cs_pts) and not links and all('disease' in (r.get('reason') or '') for r in cs_pts)
         if anycs and dis_only:
+            # 用户 2026-10-27：归因研究疾病不算「未关联」；只有较基线明显加重、且未记录「研究疾病加重」类 AE 才作为风险
             t_base = float(C.cfg['thresholds'].get('base', 0.3))
-            worse = [r for r in cs_pts if r['post'] and ext_rules._worsening(r, t_base)[1]]
-            risk = 'DISW' if worse else 'DIS'
-            ctx.append('研究者归因：研究疾病' + ('；给药后较基线加重' if worse else ''))
+            wf = next((w for w in (worse_vs_base(r, b, t_base) for r in cs_pts if r['post']) if w), None) if b else None
+            dae = disease_ae(sid, mid, cs_pts) if wf else []
+            risk = 'DISW' if wf and not dae else 'DIS'
+            ctx.append('研究者归因：研究疾病' + (f'；给药后较基线加重（{wf}）' if wf else '；基线缺失，无法判断是否加重' if not b else '；较基线未明显加重') +
+                       (f"；已记录研究疾病加重 AE「{dae[0]['t']}」（{dae[0]['s']}，未关联，提示关联）" if dae else ''))
         elif anycs:
             risk = 'AE' if has_ae else 'MH' if has_mh else 'CSX'
             # mm4：关联按组汇总会掩盖单点——某次 CS 结果自身未关联，且不在本组已关联 AE/MH 的持续期间内 → 仍按 CSX
@@ -543,7 +538,11 @@ def build_labrows(C):
                     ctx.append(f'研究疾病表现（{nm}）；基线缺失，无法判断是否较基线加重')
                 else:
                     wf = next((w for w in (worse_vs_base(r, b, float(C.cfg['thresholds'].get('base', 0.3))) for r in cs_pts if r['post']) if w), None)
-                    if wf:
+                    dae = disease_ae(sid, mid, cs_pts) if wf else []
+                    if wf and dae:
+                        risk = 'DIS'
+                        ctx.append(f"研究疾病表现（{nm}）较基线加重（{wf}），已记录研究疾病加重 AE「{dae[0]['t']}」（{dae[0]['s']}，未关联，提示关联）")
+                    elif wf:
                         ctx.append(f'研究疾病表现（{nm}），但较基线进一步加重：{wf}')
                     else:                                # 用户 2026-10-27：疾病本身的表现、较基线没有进一步加重 → 不作为风险
                         risk = 'DIS'
@@ -581,7 +580,12 @@ def build_labrows(C):
             t_base = float(C.cfg['thresholds'].get('base', 0.3))
 
             worse = any(worse_vs_base(r, b, t_base) for r in P if r.get('clin') == 2)
-            ctx.append('较基线加重：需判断是否给药后加重（AE）' if worse else '与基线同级或变化未达阈值：病史延续可能')
+            dz_mh = bool(dz) and any(l[0] == 'MH' and dz.search(l[1] or '') for l in links)
+            dae = disease_ae(sid, mid, [r for r in P if r.get('clin') == 2]) if worse and dz_mh else []
+            if dae:
+                ctx.append(f"研究疾病病史，加重已记录为 AE「{dae[0]['t']}」（{dae[0]['s']}，未关联，提示关联）")
+            else:
+                ctx.append('较基线加重：需判断是否给药后加重（AE）' if worse else '与基线同级或变化未达阈值：病史延续可能')
         for l in links:
             if not l[4]:
                 ctx.append(f'关联对象不存在：{l[0]}+{l[3]}')
@@ -1080,7 +1084,7 @@ QT = {  # default query wording (Chinese, fact first, then the ask). Override in
     'NA': ('超出参考范围·未评价临床意义', '{visit}（{date}）{test} {raw} {unit}（参考范围 {rng}），该结果超出参考范围，未见研究者临床意义评价。',
            '请评价该结果的临床意义；如判定有临床意义，请评估是否需记录不良事件并关联。'),
     'DISW': ('CS归因研究疾病·给药后加重', '{visit}（{date}）{test} {raw} {unit}（参考范围 {rng}{gtxt}），研究者判定「异常有临床意义」并归因研究疾病；基线（{bvis}）为 {braw}{unit}。',
-             '该异常较基线加重，请评估是否需记录为不良事件（不良事件定义不论与研究药物的因果关系）；如判断仍属研究疾病自然病程，请在异常描述中说明依据。'),
+             '该异常较基线明显加重，且同期未见「研究疾病加重」类不良事件记录。请评估是否需记录为不良事件（如研究疾病加重；不良事件定义不论与研究药物的因果关系）；如判断仍属研究疾病自然病程，请在异常描述中说明依据。'),
     'NA2': ('未评价临床意义·达分级≥2级', '{visit}（{date}）{test} {raw} {unit}（参考范围 {rng}），按 {gl} 数值达 {grade} 级（{gterm}），该结果未见研究者临床意义评价。',
             '请评估该结果的临床意义；如判定有临床意义，请评估是否需记录 AE 并关联。'),
 }
@@ -1365,12 +1369,20 @@ def build_trend(C):
 
 
 # ----------------------------------------------------------------------------- efficacy
+def eff_num(v):
+    """量表取值 → 数值：数字原样；「4=重度」「6分」「43.8」取开头数字；纯文字（如「不是」）→ None。"""
+    if isinstance(v, (int, float)):
+        return v
+    m = re.match(r'\s*(-?\d+(?:\.\d+)?)', str(v or ''))
+    return float(m.group(1)) if m else None
+
+
 def build_eff(C):
     M = C.A.get('efficacy', [])
     data = {}
     by = defaultdict(list)  # (sid, src) -> [(visit,date,value,raw)]
     for e in C.efficacy:
-        by[(e['sid'], 'eff:' + str(e.get('metric')))].append((e.get('visit'), e.get('date'), e.get('value') if isinstance(e.get('value'), (int, float)) else None, e.get('value')))
+        by[(e['sid'], 'eff:' + str(e.get('metric')))].append((e.get('visit'), e.get('date'), eff_num(e.get('value')), e.get('value')))
     for (sid, mid), rs in C.F.items():
         for r in rs:
             by[(sid, mid)].append((r.get('visit'), r.get('date'), r.get('value'), r.get('raw')))
@@ -1383,7 +1395,10 @@ def build_eff(C):
                 continue
             vm = {}
             for v, d, x, raw in sorted(rs, key=lambda t: (C.vi(t[0]), t[1] or '')):
-                vm.setdefault(v, (d, x, raw))
+                if m.get('agg') == 'max' and v in vm and x > vm[v][1]:
+                    vm[v] = (d, x, raw)                      # mm4：终点取「最大的…」时同访视多条记录取最大值
+                else:
+                    vm.setdefault(v, (d, x, raw))
             bv = vm.get(m.get('baseVisit'), (None, None, None))[1]
             out = {}
             for v, (d, x, raw) in vm.items():
@@ -1417,7 +1432,8 @@ def build_eff(C):
             if kv not in data.get(sid, {'v': {}})['v'].get(m['id'], {}):
                 anomalies.append({'sid': sid, 'site': C.subj[sid]['site'], 'k': f'{kv} {m["label"]}缺失', 'c': '', 'v': kv, 't': f'{kv} 访视已发生，但未见 {m["label"]} 数据', 'st': '核对是否未录入/未评估'})
     C.KZeff = {'metrics': [{k: v for k, v in m.items() if k not in ('src', 'derive', 'baseVisit')} | {'note': m.get('note', '')} for m in M],
-               'data': list(data.values()), 'anomalies': anomalies, 'rulesText': C.A.get('effRulesText', '')}
+               'data': list(data.values()), 'anomalies': anomalies, 'rulesText': C.A.get('effRulesText', ''),
+               'notes': C.A.get('effNotes') or []}   # mm4：未生成/未对上的原因（宿主按方案终点×listing 生成）
 
 
 # ----------------------------------------------------------------------------- subject files

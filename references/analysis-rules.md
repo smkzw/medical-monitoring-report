@@ -30,8 +30,10 @@
 | AE | 已关联 AE | 1 | 仅核对 AE 等级一致性（见 §5） |
 | NCS | NCS 且 <2 级 | 1 | 不发 query |
 
-| **DISW** | 判 CS、研究者原因选「研究疾病」、无关联，但给药后较基线加重 | 3 | query：按 AE 定义（不论因果）评估是否记录 AE（D21） |
-| DIS | 判 CS 且归因研究疾病，未较基线加重；或判 CS、未关联未填原因，但指标属方案/IB 列出的研究疾病表现（`indicationBackground`，如特应性皮炎的嗜酸性粒细胞增多）且较基线未进一步加重 | 1 | 不作为风险：不发 query、不进潜在 PD，可见（背景标「研究疾病表现·未加重」） |
+| **DISW** | 判 CS、研究者原因选「研究疾病」、无关联，给药后较基线明显加重（下方加重口径），且同期（±`aeExWindow`，默认 14 天）没有「研究疾病加重」类 AE | 3 | query：按 AE 定义（不论因果）评估是否记录 AE（D21） |
+| DIS | 判 CS 且归因研究疾病，未较基线加重，或已加重但同期已记录研究疾病加重类 AE（提示关联，不发 query）；或判 CS、未关联未填原因，但指标属方案/IB 列出的研究疾病表现（`indicationBackground`，如特应性皮炎的嗜酸性粒细胞增多）且较基线未进一步加重 | 1 | 不作为风险：不发 query、不进潜在 PD，可见（背景标「研究疾病表现·未加重」） |
+
+**研究疾病相关 CS（用户 2026-10-27）**：研究者原因选「研究疾病」或指标属研究疾病表现，不算「CS 未关联」。只有「较基线明显加重＋仍归因研究疾病＋同期没有研究疾病加重类 AE」才是风险（DISW / CSX_DIS / CSW）；其余只作提示。「研究疾病加重类 AE」= 起始日在该组 CS 结果日期 ±`aeExWindow` 天内、术语命中研究疾病关键词（方案适应症＋`indicationBackground` 名称，`ext_rules.disease_kw`）或命中该指标的 `aeMatch`（`ext_rules.disease_ae`）。关联到研究疾病病史且已有研究疾病加重类 AE → 提示关联，不发「MH 加重」query。
 
 **较基线加重（D14/D19，全报告同一口径）**：①分级升高——基线已 ≥1 级后再升级，或升到 ≥2 级；**0 级 → 1 级不单独算**（用户 2026-10-27 确认，避免略超上限即判加重）；②超出参考范围且同向较基线变化 ≥T_base（默认 30%）。二者满足其一即加重；仅临床意义由 NCS 变 CS（判定波动）不算加重。实现：skill `ext_rules.grade_up`、`mm_build.worse_vs_base`，工作台 `review/csb.py::deterministic_worsening`，三处同口径。
 
@@ -122,10 +124,10 @@
   关联对象不存在 → **LINK** query（pr3）；关联对应性优先用宿主预判 `analysis.linkVerdicts`（`{"wb:sheet|行号": {v: implausible|plausible|unknown, why}}`，
   工作台以 MedDRA SOC＋指标器官系统、方向、时间等正面证据生成）：implausible → LINK，plausible → 视同对应，unknown → 步骤 5；
   无预判时词表命中 → 对应、**词表未命中 → 步骤 5（词表未覆盖≠关联错误）**，仅 `linkStrict: true` 沿用旧口径；
-  研究者原因为「研究疾病」且无关联：给药前或未恶化 → 通过，给药后恶化 → DISW（M01）；关联 AE 对应 → 通过（等级一致性 M07）；
-  关联/匹配（`mhMatch` 时段覆盖）病史：给药前或未恶化 → 通过，给药后恶化 → **MH 加重** query（pr3）；
-  同期匹配 AE（`aeMatch`）→ **CSX_AE**（pr4，不自动关联）；指标属方案/IB 列出的研究疾病表现（`indicationBackground`）：较基线未进一步加重 → **DIS**（不作为风险）；较基线进一步加重（上方加重口径）→ **CSX_DIS**（pr4，请评估是否给药后加重应记 AE，或注明属疾病自然波动）；基线缺失 → 仍按 CSX；给药后确定性恶化（等级升高/CS 新出现/超范围且同向较基线 ≥T_base/
-  基线缺失按新发；T_base 取 `cfg.thresholds.base`）→ 基线异常 **CSW**（pr4）/ 基线正常或缺失 **CSX**（pr4），不调模型（D19）；
+  研究者原因为「研究疾病」且无关联：给药前或未恶化 → 通过，给药后恶化但同期已有研究疾病加重类 AE → 通过，否则 → CSW（M01）；关联 AE 对应 → 通过（等级一致性 M07）；
+  关联/匹配（`mhMatch` 时段覆盖）病史：给药前或未恶化 → 通过，研究疾病病史且同期已有研究疾病加重类 AE → 通过，其余给药后恶化 → **MH 加重** query（pr3）；
+  同期匹配 AE（`aeMatch`）→ **CSX_AE**（pr4，不自动关联）；指标属方案/IB 列出的研究疾病表现（`indicationBackground`）：较基线未进一步加重 → **DIS**（不作为风险）；较基线进一步加重且同期无研究疾病加重类 AE → **CSX_DIS**（pr4，有则 DIS 提示；请评估是否给药后加重应记 AE，或注明属疾病自然波动）；基线缺失 → 仍按 CSX；给药后确定性恶化（等级升高/CS 新出现/超范围且同向较基线 ≥T_base/
+  基线缺失按新发；T_base 取 `cfg.thresholds.base`；只处理未关联的行）→ 基线异常 **CSW**（pr4）/ 基线正常或缺失 **CSX**（pr4），不调模型（D19）；
   方案进展条款已确认（`diseaseProgressionNotAE.confirmed`）且有研究疾病线索的确定性恶化 → 转候选交 A5R5（D21）；
   其余（给药前未绑定、给药后未恶化未绑定、词表无法判断、文本型恶化未知）→ **步骤 5 候选**导出
   `analysis/csb_candidates.json`（字段：ref/sid/domain/test/label/visit/date/post/value/unit/lo/hi/grade/gl/clin/desc/

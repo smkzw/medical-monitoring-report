@@ -75,7 +75,9 @@ mm4 新增：`calibers:[[主题, 采用口径, 状态, 规则id, 说明]]`（关
 - `pdCats`：`{信号类别: PD 关键词正则}`；`pdWindow`（45 天）：PD 逐事件匹配时间窗。
 
 **有效性**
-- `efficacy`：`[{id, label, unit, kind:continuous|ordinal|binary, src:"eff:<metric>", derive:chg|pct, baseVisit, visits, keyVisit, signed, refLines, categories, note, kpi}]`。
+- `efficacy`：`[{id, label, unit, kind:continuous|ordinal|binary, src:"eff:<metric>"|"lab:<test>"|"exam:<test>", derive:chg|pct, baseVisit, visits, keyVisit, signed, refLines, categories, note, kpi, agg:"max"}]`。
+  mm4 起由工作台确定性生成（`mm3/protocol/efficacy.py`：方案终点 × listing 量表/检验/检查指标），不再手填；`src` 可指向 lab/exam 指标（如 Hb、肌瘤体积）；`agg:"max"` 用于终点写「最大的…」时同访视多条记录取最大。
+- `effNotes`：`[文本]` 生成说明（未对上终点的量表、主要终点无 listing 数据等），有效性页页头显示；没有指标时页面显示「未生成有效性趋势」＋原因，不再是「未配置」。
 - `effRules`：`[{metric, op, v, label, cls, st, visits, qcat}]`；`effRulesText` 页面说明。
 
 **query 生成**

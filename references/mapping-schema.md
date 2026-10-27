@@ -27,7 +27,7 @@
 | cm | `sid`* `no` `term`* `start` `end` `ongoing` `dose` `freq` `route` `indication` `ind_kind` |
 | proc | `sid`* `no` `term`* `start` `end` |
 | findings | `sid`* `visit` `date` `time` `tpt` `test`* `value`* `unit` `lo` `hi` `clin` `desc` `link` `link_mh` `link_ae`（按类型分列的关联编号列，取值如「003>窦性心动过缓>2026-07-07」）`done`；spec 级 `domain`(lab/vs/ecg/img/pe/exam/pk/ada…；lab/vs/ecg 以外的域自动成为个例页通用「专项检查」组，如妇科超声、眼科、影像) `group` `layout`(long/wide) `tests`(宽表) |
-| efficacy | `sid`* `visit` `date` `metric`* `value`* |
+| efficacy | `sid`* `visit` `date` `metric`* `value`* ＋mm4：量表宽表（一行一次评分，如 EASI 各部位＋总分）每个汇总列一条 spec，`const: {metric: "EASI得分"}`，有总分时只取总分；只有「是否评估/日期」没有得分的表不生成 spec，预检提示 |
 | pd | `sid`* `cat` `desc` `date` ＋`sub`（子类）`grade`（严重程度原文）`status` |
 | icf（mm4） | `sid`* `ver` `date`* |
 | sample（mm4） | `sid`* `visit` `tpt`（计划时间点）`date`* `time` `dose_date` `dose_time` `done` |

@@ -423,6 +423,56 @@ def grade_up(bg, cg):
     return (cg or 0) > (bg or 0) and ((bg or 0) >= 1 or (cg or 0) >= 2)
 
 
+def worse_vs_base(r, b, t_base):
+    """D14/D19 较基线加重：分级升高（0→1 级不单独算，见 grade_up），或超出范围且同向较基线变化 ≥T_base。
+    返回说明文本或 None；仅临床意义 NCS→CS 的判定波动不算加重。"""
+    if grade_up((b or {}).get('grade'), r.get('grade')):
+        return f"等级 {(b or {}).get('grade') or 0}→{r.get('grade')} 级"
+    v, bv = r.get('value'), (b or {}).get('value')
+    if v is None or bv in (None, 0) or not r.get('oor'):
+        return None
+    pct = (v - bv) / abs(bv)
+    if r.get('hi') is not None and v > r['hi'] and pct >= t_base:
+        return f"较基线升高 {pct * 100:.0f}%"
+    if r.get('lo') is not None and v < r['lo'] and -pct >= t_base:
+        return f"较基线降低 {-pct * 100:.0f}%"
+    return None
+
+
+def disease_kw(C):
+    """研究疾病及其表现的关键词（方案适应症＋indicationBackground 名称），用于识别「研究疾病加重」类 AE 与研究疾病病史。"""
+    kws = set()
+    for _, b in C.A.get('indicationBackground') or []:
+        nm = re.sub(r'[（(].*?[)）]|[↑↓]|（医学常识）', '', str(b).split('：')[0]).strip()
+        nm = re.sub(r'^(外周血|血清|血)|(增多|升高|降低|减少|异常)$', '', nm)
+        if len(nm) >= 2:
+            kws.add(nm)
+    ind = next((f[1] for f in ((C.S.get('study') or {}).get('design') or {}).get('facts') or [] if f[0] == '适应症'), '')
+    for part in re.split(r'[^\u4e00-\u9fff]+', re.sub(r'中度至重度|轻度|中度|重度|中重度|患者|伴有|成人|儿童|青少年|的|和|及', ' ', str(ind))):
+        if len(part) >= 3:
+            kws.add(part)
+    return re.compile('|'.join(sorted(map(re.escape, kws), key=len, reverse=True))) if kws else None
+
+
+def disease_ae(C, sid, mid, pts, dz=None):
+    """同期（±aeExWindow 天，默认 14）已记录的研究疾病加重类 AE：术语含研究疾病/表现关键词，或命中该指标的 aeMatch。"""
+    dz = dz if dz is not None else disease_kw(C)
+    aew = int(C.A.get('aeExWindow', 14))
+    ds = [r['date'] for r in pts if is_full_date(r.get('date'))]
+    if not ds:
+        return []
+    lo_, hi_ = min(ds), max(ds)
+    match = [(re.compile(a), re.compile(b)) for a, b, *_ in C.A.get('aeMatch', [])]
+    hit = []
+    for a in C.ae_by[sid]:
+        s0 = a.get('s')
+        if not is_full_date(s0) or a.get('pre') or (days(s0, lo_) or 0) < -aew or (days(s0, hi_) or 0) > aew:
+            continue
+        if (dz and dz.search(a['t'])) or any(mr.search(mid) and ar.search(a['t']) for mr, ar in match):
+            hit.append(a)
+    return hit
+
+
 def _worsening(r, t_base):
     """步骤 4 确定性恶化（与 review/csb.py deterministic_worsening 同口径）。返回 (known, value, flags)。"""
     if not r['post']:
@@ -486,13 +536,16 @@ def m23_csb(C):
             emit = None                                  # ('LINK'|'CSX_AE'|'MH'|'CSW'|'CSX', rec, extra)
             link = next((l for l in (r.get('links') or [])), None)
             if not link and 'disease' in (r.get('reason') or ''):
-                # mm4：研究者归因研究疾病——给药前或未恶化即视为已有临床解释；给药后恶化由 M01 DISW 发 query
-                # （已在 handled 中）；方案进展条款已确认时交步骤 5 候选（D21）
-                if not (r['post'] and known and worse):
+                # 用户 2026-10-27：归因研究疾病不算「未关联」。只有较基线明显加重（D14/D19，判定波动不算）且同期未见
+                # 「研究疾病加重」类 AE 才作为风险；其余只作提示。方案进展条款已确认时交步骤 5 候选（D21）。
+                wf = worse_vs_base(r, r.get('base'), t_base) if r['post'] and r.get('base') else None
+                if not wf or disease_ae(C, sid, mid, [r]):
                     continue
                 if exempt:
                     candidates.append(_candidate(C, r, binding, known, worse, flags, disease_hint(C, mid) or '研究者归因研究疾病'))
                     continue
+                _csb_query(C, r, 'CSW', None, f"；研究者归因研究疾病，但较基线明显加重（{wf}），同期未见研究疾病加重类不良事件", flags)
+                continue
             if link:
                 pool = C.ae_by[sid] if link[0] == 'AE' else C.mh_by[sid]
                 ev = next((x for x in pool if str(x['n']) == str(link[3])), None)
@@ -527,7 +580,10 @@ def m23_csb(C):
                             continue                     # 步骤 1：关联 AE → 通过（等级一致性 M07 核）
                         if not r['post'] or (known and not worse):
                             continue                     # 关联病史、给药前或未恶化 → 通过
-                        if known and worse:              # 给药后恶化 → MH 加重 query
+                        if known and worse:              # 给药后恶化 → MH 加重 query（研究疾病病史且已记录研究疾病加重 AE → 提示）
+                            dz = disease_kw(C)
+                            if dz and dz.search(ev.get('t') or '') and disease_ae(C, sid, mid, [r], dz):
+                                continue
                             emit = ('MH', ev, None)
             if emit is None and not link:
                 maes = []
@@ -557,8 +613,9 @@ def m23_csb(C):
                         if known and worse:
                             emit = ('CSW', mmhs[0], f"；病史 {mmhs[0]['no']}「{mmhs[0]['term']}」存在，但给药后较基线恶化")
             dh = disease_hint(C, mid)
-            if emit is None and r['post'] and known and worse and not (exempt and dh):
+            if emit is None and not link and r['post'] and known and worse and not (exempt and dh):
                 emit = ('CSW' if _base_abn(r) else 'CSX', None, None)   # 步骤 4：确定性恶化直接 query（D19/D21）
+            # 已关联且对象存在、对应性无法确定 → 步骤 5 候选（三问 Q3），不按「未关联」发 query（D002 QC：超声「其他异常」已关联病史/AE 曾被报 CS 未关联）
             if emit is not None:
                 _csb_query(C, r, emit[0], emit[1], emit[2], flags)
             else:

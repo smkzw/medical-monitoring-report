@@ -18,14 +18,15 @@ const funnelOf=(m,v)=>{const cl=clipOf(m);return K.funnel(D.centers.filter(c=>c.
 const kp=(M.filter(m=>m[4].kpi).length?M.filter(m=>m[4].kpi):M).slice(0,6);
 const fmtM=(m,x)=>x==null?'—':m[4].signed?(x>0?'+':'')+K.fmt(x):m[2]==='%'?K.pct(x):K.fmt(x);
 app.innerHTML=`<div class="flex mb"><h1 style="font-size:18px">有效性趋势</h1><span class="muted small">${M.map(m=>K.esc(m[1])).join(' · ')}</span><span class="sp"></span>${BLD.on?K.p('盲态汇总 · 不分组','blu'):''}${(BLD.hidden||[]).length?K.p(BLD.hidden.map(K.esc).join(' / ')+' 按约定不展示','line'):''}</div>
-<div class="kpis mb" id="kp"></div>
+${(EF.notes||[]).length&&M.length?`<div class="small muted mb">${(EF.notes||[]).map(K.esc).join('；')}</div>`:''}<div class="kpis mb" id="kp"></div>
 <div class="card mb"><div class="tbar"><div class="chips" id="mc"></div><span class="sp"></span><span class="small muted">选择中心</span><select class="s" id="cs"><option value="">全部中心（整体）</option>${D.centers.filter(c=>c.dosed).map(c=>`<option value="${c.site}">${c.site} ${K.esc(c.name)}</option>`).join('')}</select></div>
  <div class="dev" id="dv"></div>
  <div class="grid g12"><div><div class="xs muted" id="t1"></div><div class="chart" id="c1" style="height:310px"></div></div><div><div class="xs muted" id="t2"></div><div class="chart" id="c2" style="height:310px"></div></div></div>
  <div id="w3"><div class="xs muted mt" id="t3"></div><div class="chart" id="c3" style="height:260px"></div></div></div>
 <div class="card"><div class="sec-t" style="margin-top:0"><h2>受试者层面异常</h2><span class="muted small">${K.esc(EF.rulesText||'规则见「审阅要点」')}</span></div><div class="tbar"><div class="chips" id="ac"></div></div><div id="at"></div></div>`;
 let cur=M.find(m=>m[0]===H.m)||M[0],hc=H.c||'';
-if(!M.length){document.getElementById('kp').innerHTML='<div class="card empty">未配置有效性指标</div>';return}
+if(!M.length){const eps=((D.study||{}).endpoints||[]).filter(e=>!/安全|探索/.test(e[0]));const nt=EF.notes||[];
+ document.getElementById('kp').innerHTML=`<div class="card"><div class="sec-t" style="margin-top:0"><h2>未生成有效性趋势</h2></div>${nt.length?nt.map(n=>`<div class="small" style="margin:4px 0">${K.esc(n)}</div>`).join(''):'<div class="small muted">study.json 未配置 analysis.efficacy，且未提供方案终点与 listing 量表的对应</div>'}${eps.length?`<div class="xs muted mt" style="margin-top:8px">方案终点</div>${eps.map(e=>`<div class="small">${K.p(e[0],/主要/.test(e[0])?'org':'line')} ${K.esc(e[1])}</div>`).join('')}`:''}</div>`;return}
 const csel=document.getElementById('cs');
 const pick=s=>{hc=hc===s?'':s;csel.value=hc;draw()};
 K.chips(document.getElementById('mc'),M.map(m=>[m[0],m[1]]),v=>{cur=M.find(m=>m[0]===v)||M[0];draw()},{all:null,value:cur[0]});

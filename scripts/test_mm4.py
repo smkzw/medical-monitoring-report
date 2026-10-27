@@ -65,6 +65,22 @@ class WorseningRule(unittest.TestCase):
         self.assertIsNone(worse_vs_base({'grade': 0, 'value': 0.9, 'hi': 0.52, 'oor': True}, {'grade': 0, 'value': 0.8}, 0.3))  # 基线已高、+12%
 
 
+class DiseaseRelatedCS(unittest.TestCase):
+    """用户 2026-10-27：归因研究疾病的 CS，只有较基线明显加重且同期没有「研究疾病加重」AE 才是风险。"""
+    def test_disease_ae_window_and_terms(self):
+        from types import SimpleNamespace
+        from ext_rules import disease_ae, disease_kw
+        C = SimpleNamespace(A={'indicationBackground': [['EOS', '嗜酸性粒细胞升高：特应性皮炎常见表现']]},
+                            S={'study': {'design': {'facts': [['适应症', '中重度特应性皮炎']]}}},
+                            ae_by={'S1': [{'t': '特应性皮炎加重', 's': '2026-05-20'}, {'t': '头痛', 's': '2026-05-18'},
+                                          {'t': '特应性皮炎', 's': '2026-07-30'}]})
+        dz = disease_kw(C)
+        self.assertTrue(dz.search('特应性皮炎加重') and dz.search('嗜酸性粒细胞增多'))
+        hit = disease_ae(C, 'S1', '嗜酸性粒细胞', [{'date': '2026-05-15'}])
+        self.assertEqual([a['t'] for a in hit], ['特应性皮炎加重'])                 # 头痛不算；窗口外（±14 天）不算
+        self.assertEqual(disease_ae(C, 'S1', '嗜酸性粒细胞', [{'date': '2026-06-30'}]), [])
+
+
 class QualLevel(unittest.TestCase):
     def test_plus_minus_spellings_are_weak(self):
         from ext_rules import qual_level

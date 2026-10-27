@@ -28,11 +28,11 @@ DOMAIN_RE = [  # (domain, sheet-name/label regex)
     ('ae', r'^(AE|不良事件)'), ('mh', r'^(MH|病史|既往史|现病史)'), ('cm', r'^(CM|合并用药|既往用药|伴随用药)'), ('proc', r'^(PR|手术|操作|非药物治疗)'),
     ('findings:lab', r'^(LB|血常规|血生化|生化|尿常规|凝血|实验室|甲功|血脂|肝功|肾功|电解质|妊娠|HEMA|CHEM|URIN|COAG)'),
     ('findings:vs', r'^(VS|生命体征)'),
-    ('efficacy', r'^(QS|EFF|RS|TU|TR|量表|评分|疗效|有效性|问卷|日记)'), ('pd', r'^(DV|PD|方案偏离|偏离|违背)'), ('extq', r'(质疑|QUERY|Query|query|^CROQ|^DCF|^EDCQ)'),
+    ('efficacy', r'^(QS|EFF|RS|TU|TR|量表|评分|疗效|有效性|问卷|日记)|量表|问卷|评定|生活质量|印象变化|PGI|NRS|VAS|QO-?L'), ('pd', r'^(DV|PD|方案偏离|偏离|违背)'), ('extq', r'(质疑|QUERY|Query|query|^CROQ|^DCF|^EDCQ)'),
     ('pk', r'^(PK|PC|药代|血药浓度|采样)'), ('ada', r'^(ADA|IS|免疫原性|抗药抗体)'),
 ]
 FIELD_SYN = {  # normalized field → variable/label patterns (first match wins)
-    'sid': [r'^(SUBJID|USUBJID|SUBJECT|受试者(编号|号|代码)?|筛选号|病例号)$'], 'site': [r'^(SITEID|SITENO|中心(编号|号)?)$'], 'center': [r'^(SITENAME|中心名称|研究中心)$'],
+    'sid': [r'^(SUBJID|USUBJID|SUBJECT|受试者(编号|号|代码)?|参与者(编号|号)|筛选号|病例号|Participant ID|Subject ID)$'], 'site': [r'^(SITEID|SITENO|中心(编号|号)?)$'], 'center': [r'^(SITENAME|中心名称|研究中心)$'],
     'visit': [r'^(VISIT|VISITNAME|FOLDERNAME|访视(名称)?|访视阶段)$', r'^(数据节|FOLDER)$'], 'date': [r'(DAT|DTC|日期)$'], 'tpt': [r'(TPT|时间点)$'],
     'time': [r'(TIM|TIME|时间)$'],
     'icf': [r'^(DSICDAT|ICFDAT)$', r'知情同意书?签署日期'], 'rescreen': [r'(RSCRYN|是否.{0,3}重复筛选|是否.{0,3}重新筛选)'], 'prev_sid': [r'(首次筛选.{0,6}编号|DSSUBJID)'], 'eot_d': [r'(EOTDAT|末次(给药|服药)日期|治疗结束.*日期|终止治疗.*日期)'], 'eot_why': [r'(EOTREAS|终止治疗.*原因|治疗结束.*原因)', r'(DSDECOD|DSTERM|退出原因|终止原因|未完成原因)'],
