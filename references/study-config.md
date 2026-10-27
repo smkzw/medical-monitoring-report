@@ -30,7 +30,10 @@
 | `timeline` | `{preDays:30}` 时间线向 ICF 前延伸天数（CM/MH 条带截断） |
 | `taxonomy` | 可选；`{domains:[...]}` 信号分类分组，缺省按类别自动生成 |
 
-## study（研究要点页）
+## study（研究依据页）
+mm4 新增：`calibers:[[主题, 采用口径, 状态, 规则id, 说明]]`（关键口径；缺省由配置推导，状态 方案规定/口径裁定/待确认/项目配置/默认采用）·
+`criteria:[{no, kind, text, check:data|partial|judgment, rule}]`（入排逐条与可核查性）· `endpoints:[[类型, 文本, 规则id]]` · `design.facts:[[要素, 值, 规则id]]`。
+
 `design{sub, refs, flow:[{n,b,x}], arms, baselines}` · `soaNote` · `soaRefs` · `consensus:[[主题, 冲突, 采用口径, 色, 规则id]]` ·
 `thresholds:[{t, c, rows:[[条件, 色, 处理]]}]` · `ib{notes:{分类:[说明, 规则id]}}` · `prohibited{groups:[[名称, 色, [药名]]], note, refs}` ·
 `eligibility:[[项目, 标准, 规则id]]` · `eligCats` · `ruleGroups:[[组名, 规则id正则]]`。
@@ -39,8 +42,8 @@
 **人群与时间**
 - `population`（`dosed`）：`dosed` | `randomized` | `all`。
 - `postTptRe`（`后`）：首剂当日时间点匹配则视为给药后。
-- `visitWindows`：`{访视: [目标研究日, 前窗, 后窗]}`（锚点首剂，研究日 = 访视日 − 首剂日 + 1）或 `{访视: {target, minus, plus, anchor:"fd"|"rand"|"icf"|"<前一访视代码>"}}`（非首剂锚点时 target = 距锚点天数）。
-- `aePeriod`：`{ref:"ld"|"fd"|"eos_d", days}` AE 收集期终点（如末次给药后 28 天）；之后的检验异常不再生成漏报 AE 风险。
+- `visitWindows`：`{访视: [目标研究日, 前窗, 后窗]}`（锚点首剂，研究日 = 访视日 − 首剂日 + 1）或 `{访视: {target, minus, plus, anchor:"fd"|"rand"|"icf"|"<前一访视代码>"}}`（非首剂锚点时 target = 距锚点天数）。访视代码与 listing 写法不同（如方案「V6/W4/D29」、EDC「W4/D29V6」）时，构建按访视标记集合（字母＋数字）自动对齐到 listing 写法（同组唯一、其次唯一超集）；visits.order/d1/unsched/early、soa、pd 关键访视同样对齐。
+- `aePeriod`：`{ref:"ld"|"fd"|"eos_d", days}` AE 收集期终点（如末次给药后 28 天）；之后的检验异常不再生成漏报 AE 风险。`eos_d` 锚点而受试者仍在研 → 收集期开放（不回退到末次给药）。
 - `teae`：`{ref, days}` TEAE 定义（首剂后起至 ref+days）；AE 汇总与受试者计数按 TEAE 口径。
 - `soa`：`[{name, sheet, visits:[...], cond}]` 自定义 SoA 完成度；缺省从 findings/visits 推断。
 
@@ -65,7 +68,10 @@
 - `comboRules`：多指标组合（如 Hy’s law）`[{id, name, all:[{metric, on:val|uln|lln|chg|pct|grade, op, v}], none:[…], window:0(同日), aesi, expectAE, aeWindow(30), pr, cat, sum, ask, once}]`。
 - `prohibited`：`[{name, re, daysBefore, daysAfter, pr(4), cat, note}]` 与首剂前 N 天至末次给药后 M 天重叠。
 - `washout`：`[{name, re, days, ref:"icf"|"fd", pr(3), cat}]`。
-- `eligibility`：`[{id, metric, visits, on:val|uln, op, v, text, pr, cat}]`（仅给药前记录）；`eligibilitySubject`：`[{field, op, v, label, text}]`。
+- `eligibility`：`[{id, metric, visits, on:val|uln|lln, op, v, text, pr, cat, pick:last|first|any, window, kind:inclusion|exclusion}]`（受试者×标准一条，判定值见 analysis-rules §8）；`eligibilitySubject`：`[{field, op, v, label, text}]`。
+- `prohibited[].important`：该禁用类别影响疗效评价或安全（潜在 PD 分级为重要）；`thresholdRules[].stop`：永久停药阈值（WD-01）。
+- `linkVerdicts`：`{"wb:sheet|行号": {v, why}}` CS 关联对应性预判（宿主生成）；`linkStrict`（false）：无预判时词表未命中是否直接 LINK。
+- `pd`：方案偏离参数（criticalVisits/criticalItems/preIcfAllowed/icfVersions/dosing/fasting/compliance/sample/order/rescue/requireRand/catMap/grades/window/enabled），见 protocol-deviation.md §6。
 - `pdCats`：`{信号类别: PD 关键词正则}`；`pdWindow`（45 天）：PD 逐事件匹配时间窗。
 
 **有效性**

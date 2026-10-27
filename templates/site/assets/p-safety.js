@@ -22,9 +22,9 @@ function tabLab(){
   K.onThr(()=>{rk.set(st.risk);draw();const b=document.getElementById('kz-rel-n');if(b)b.textContent=cnt('REL')});
   K.chips(document.getElementById('grp'),groups.map(g=>[g,g,lab.filter(x=>x.grp===g).length]),v=>{st.grp=v||'';draw()},{all:'全部分组'});
   document.getElementById('cat').onchange=e=>{st.cat=e.target.value;draw()};document.getElementById('site').onchange=e=>{st.site=e.target.value;draw()};document.getElementById('q').oninput=e=>{st.q=e.target.value.trim();draw()};
-  const order={CSX:0,MH:1,NCS2:2,AE:3,NCS:4,REL:5};
+  const order={CSX:0,DISW:1,MH:2,NCS2:3,AE:4,DIS:5,NCS:6,REL:7};
   const tb=K.table(document.getElementById('tb'),{rows:[],h:'640px',pageSize:80,cols:[
-    {k:'risk',t:'风险',s:r=>-order[r.risk],f:r=>K.risk(r.risk)},
+    {k:'risk',t:'风险',s:r=>-order[r.risk],f:r=>K.risk(r.risk)+(r.pdId?' '+K.pdPill(r.pdId):'')},
     {k:'sid',t:'受试者',f:r=>K.sid(r.sid)+` <span class="xs faint">${r.site}</span>`},
     {k:'test',t:'指标',f:r=>{if(r.risk!=='REL')return `<b style="color:var(--ink)">${K.esc(r.test)}</b>`;const t=K.thrOf(r.mid||('lab:'+r.test));return `<b style="color:var(--ink)">${K.esc(r.test)}</b> ${K.p('偏离≥'+Math.round(t.dev*100)+'% Δ≥'+Math.round(t.base*100)+'%','line sq','双阈值 T_dev/T_base'+(t.ov?'（per_metric 覆盖）':'')+(t.tight?'（项目收紧后有效值）':''))}`}},
     {k:'base',t:'基线',ns:1,f:r=>r.base?`<span class="vchip ${r.base[3]===2?'cs':r.base[3]===1?'ncs':'n'}"><i>${r.base[0]}</i>${K.esc(r.base[1]??'—')}</span>`:'—'},
@@ -60,7 +60,7 @@ function tabOth(){
   document.getElementById('site').onchange=e=>{st.site=e.target.value;draw()};document.getElementById('q').oninput=e=>{st.q=e.target.value.trim();draw()};
   const ord=c=>{const i=K.DOM.findIndex(d=>d[1].includes(c));return i*100+(K.DOM[i]?.[1].indexOf(c)||0)};
   const tb=K.table(document.getElementById('tb'),{rows:[],h:'680px',pageSize:200,group:r=>r.cat,groupHead:(g)=>{const n=oth.filter(o=>o.cat===g);const d=K.DOM.find(d=>d[1].includes(g));return `${K.p(d?d[0]:'其他',d?d[2]:'')} ${g} <span class="muted small">${n.length} 条 · 质疑 ${D.queries.filter(q=>q.cat===g).length}</span>`},
-    cols:[{k:'pr',t:'优先级',f:r=>K.pri(r.pr)},{k:'sid',t:'受试者',f:r=>K.sid(r.sid)},{k:'v',t:'访视',f:r=>`${K.p(r.v||'—','blu')} <span class="xs faint">${r.d||''}</span>`},
+    cols:[{k:'pr',t:'优先级',f:r=>K.pri(r.pr)+(r.pdId?' '+K.pdPill(r.pdId):'')},{k:'sid',t:'受试者',f:r=>K.sid(r.sid)},{k:'v',t:'访视',f:r=>`${K.p(r.v||'—','blu')} <span class="xs faint">${r.d||''}</span>`},
       {k:'sum',t:'信号',ns:1,f:r=>`<span>${K.hlNum(r.sum)}</span>`},{k:'rel',t:'已关联',ns:1,f:r=>r.rel.slice(0,3).map(x=>K.p(x[0]+' '+K.esc(x[1]),x[0]==='AE'?'grn':'org')).join(' ')},
       {k:'ctx',t:'背景',ns:1,f:r=>K.ctxTags(r.ctx)+(r.cro?K.p(((K.cfg().query||{}).extShort||'外部')+'已覆盖','line'):'')},{k:'q',t:'质疑',f:r=>r.q.map(K.qPill).join('')||(r.cro?'':'<span class="faint xs">未发</span>')}],
     onRow:r=>{if(r.q.length)K.showQ(r.q[0]);else K.drawer(`${r.sid} · ${r.cat}`,`<div class="box">${K.hlNum(r.sum)}</div><div class="mt">${(r.ctx||[]).map(c=>`<div class="note">· ${K.esc(c)}</div>`).join('')}</div><div class="mt">${K.p(r.sh+' 行'+r.row,'sq mono')} <a href="subjects.html#s=${r.sid}">参与者资料 ›</a></div>`)}});

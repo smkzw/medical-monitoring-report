@@ -600,7 +600,9 @@
     "expectAE": "QT",
     "window": 7,
     "sum": "QTcF {value} ms（{visit} {date}）≥500 ms，符合 AESI 定义",
-    "ask": "请确认是否已按 AESI 记录并在 24 小时内报告。"
+    "ask": "请确认是否已按 AESI 记录并在 24 小时内报告。",
+    "stop": true,
+    "note": "R-AESI-01：QTcF ≥500 ms 永久停药"
    },
    {
     "id": "T-ALT",
@@ -808,6 +810,102 @@
     "cls": "red"
    }
   ],
-  "effRulesText": "症状评分 0–40；超范围、关键访视缺失、个体轨迹异常跳变需核对。"
+  "effRulesText": "症状评分 0–40；超范围、关键访视缺失、个体轨迹异常跳变需核对。",
+  "pd": {
+   "criticalVisits": [
+    "W12"
+   ],
+   "criticalItems": "症状评分",
+   "icfVersions": [
+    {
+     "ver": "2.0",
+     "effective": "2026-04-15",
+     "reconsent": true
+    }
+   ],
+   "dosing": {
+    "route": "口服",
+    "routeLabel": "口服"
+   },
+   "fasting": true,
+   "compliance": {
+    "perDay": 1,
+    "lo": 80,
+    "hi": 120,
+    "minDays": 14
+   },
+   "sample": {
+    "preRe": "给药前",
+    "windowMin": {
+     "default": 15
+    }
+   },
+   "order": [
+    {
+     "before": "生命体征",
+     "tptRe": "给药前",
+     "visits": [
+      "D1"
+     ],
+     "label": "给药前生命体征须在首剂给药前完成"
+    }
+   ],
+   "rescue": {
+    "re": "补救",
+    "earliestDay": 29
+   },
+   "requireRand": true
+  },
+  "soa": [
+   {
+    "name": "实验室检查",
+    "sheet": "实验室检查",
+    "visits": [
+     "V1",
+     "D1",
+     "W2",
+     "W4",
+     "W8",
+     "W12",
+     "FU"
+    ]
+   },
+   {
+    "name": "生命体征",
+    "sheet": "生命体征",
+    "visits": [
+     "V1",
+     "D1",
+     "W2",
+     "W4",
+     "W8",
+     "W12",
+     "FU"
+    ]
+   },
+   {
+    "name": "12导联心电图",
+    "sheet": "12导联心电图",
+    "visits": [
+     "V1",
+     "D1",
+     "W2",
+     "W4",
+     "W8",
+     "W12",
+     "FU"
+    ]
+   },
+   {
+    "name": "症状评分",
+    "sheet": "EFF",
+    "visits": [
+     "D1",
+     "W4",
+     "W8",
+     "W12"
+    ]
+   }
+  ]
  }
 }

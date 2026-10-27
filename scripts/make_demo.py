@@ -13,7 +13,8 @@ from pathlib import Path
 import openpyxl
 
 R = random.Random(20260101)
-SIGNAL = {'01002', '01003', '01004', '01005', '01006', '01007', '01008', '02002', '02003', '02004', '02005', '03001', '03002', '03003', '03004', '04001', '04002', '04003', '05001', '05002'}
+SIGNAL = {'01002', '01003', '01004', '01005', '01006', '01007', '01008', '02002', '02003', '02004', '02005', '03001', '03002', '03003', '03004', '04001', '04002', '04003', '05001', '05002',
+          '01001', '02001', '02006', '02007', '03005', '03006', '03007', '04004', '04005'}   # mm4：执行层面 PD 演示用例
 SITES = [('01', '示例医院A'), ('02', '示例医院B'), ('03', '示例医院C'), ('04', '示例医院D'), ('05', '示例医院E')]
 VIS = [('V1', '筛选期', -14), ('D1', '第1天', 0), ('W2', '第2周', 14), ('W4', '第4周', 28), ('W8', '第8周', 56), ('W12', '第12周', 84), ('FU', '安全随访', 112)]
 LABS = [  # test, unit, lo, hi, mean, sd, sheet-group
@@ -44,7 +45,8 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
-    DM, DS, SV, EC, AE, MH, CM, LB, VS, EG, EF, PD, CQ = ([] for _ in range(13))
+    DM, DS, SV, EC, AE, MH, CM, LB, VS, EG, EF, PD, CQ, IC, PC = ([] for _ in range(15))
+    ICF2 = dt.date(2026, 4, 15)   # mm4 演示：知情同意 2.0 版生效（要求在研受试者再签）
     subjects = []
     for si, (site, name) in enumerate(SITES):
         for k in range(1, 9 if si < 4 else 4):
@@ -65,7 +67,11 @@ def main():
                    '' if sf else ('是' if R.random() < .3 else '否')])
         fd = icf + dt.timedelta(days=14)
         ncomp = 6 if R.random() > 0.12 else R.randint(2, 5)
+        if sid in ('03006', '01007', '05002', '02007', '04004', '04005', '01001', '03007', '01005', '03005', '02006'):
+            ncomp = 6                     # mm4 演示：执行层面 PD 用例需完整访视
         vis = VIS[:1] if sf else VIS[:ncomp + 1]
+        if sid == '03006':
+            vis = [x for x in vis if x[0] != 'W8']   # 计划访视缺失（VIS-02）
         if not sf and sid in ('01002', '03004'):
             vis = vis + [('USV', '计划外访视', 40)]
         dates = {}
@@ -74,6 +80,8 @@ def main():
             if sid == '04002' and v == 'W4':
                 jitter = 9  # window signal
             dd = fd + dt.timedelta(days=day + jitter) if v != 'V1' else icf + dt.timedelta(days=1)
+            if sid == '02006' and v == 'V1':
+                dd = icf - dt.timedelta(days=3)      # 筛选检查早于知情同意（ICF-01）
             dates[v] = dd
             SV.append([sid, lab, d(dd)])
         if sf:
@@ -82,8 +90,21 @@ def main():
         last = max(dates.values())
         ld = min(last, fd + dt.timedelta(days=84))
         early = ncomp < 6
-        EC.append([sid, '第1天', d(fd), d(ld), '10 mg QD', ''])
-        DS.append([sid, d(ld), '提前停药：受试者撤回' if early else '完成治疗', d(last), '否' if early else '是', '受试者撤回知情同意' if early else ''])
+        ndays = (ld - fd).days + 1
+        qty = ndays if sid != '02007' else round(ndays * 0.6)          # 依从性 60%（IP-03）
+        EC.append([sid, '第1天', d(fd), '09:00', d(ld), '10 mg QD', '', '口服', '否' if sid == '04004' else '是', qty])
+        eot = fd + dt.timedelta(days=56) if sid == '03005' else ld    # 治疗结束后仍有给药（IP-02）
+        DS.append([sid, d(eot), '提前停药：受试者撤回' if early else ('研究者决定停药' if sid == '03005' else '完成治疗'), d(last), '否' if early else '是', '受试者撤回知情同意' if early else ''])
+        IC.append([sid, '1.0', d(icf)])
+        if last > ICF2 and icf < ICF2 and sid != '01005':                # 01005：2.0 版生效后未再签（ICF-02）
+            nxt = min([x for x in dates.values() if x >= ICF2] or [last])
+            IC.append([sid, '2.0', d(nxt)])
+        for v, dd in dates.items():                                     # PK：D1/W4 给药前与给药后 2h
+            if v in ('D1', 'W4'):
+                pre = '08:40' if not (sid == '01001' and v == 'D1') else '09:40'   # 给药前样本晚于给药（SAMP-01）
+                post = '11:05' if not (sid == '03007' and v == 'W4') else '12:10'  # 给药后 2h 实际 3h10（SAMP-02）
+                PC.append([sid, dict((a, b) for a, b, _ in VIS)[v], '给药前', d(dd), pre, d(dd), '09:00'])
+                PC.append([sid, dict((a, b) for a, b, _ in VIS)[v], '给药后2h', d(dd), post, d(dd), '09:00'])
         # MH
         mh = []
         if R.random() < .35:
@@ -124,6 +145,8 @@ def main():
             cms.append(['克拉霉素', d(fd + dt.timedelta(days=30)), d(fd + dt.timedelta(days=37)), '否', '250 mg', 'BID', '口服', '肺部感染'])
         if sid == '05001':
             cms.append(['泼尼松', d(fd - dt.timedelta(days=20)), d(fd - dt.timedelta(days=10)), '否', '10 mg', 'QD', '口服', '关节痛'])
+        if sid == '04005':
+            cms.append(['对乙酰氨基酚', d(fd + dt.timedelta(days=9)), d(fd + dt.timedelta(days=12)), '否', '500 mg', 'PRN', '口服', '补救治疗'])  # 补救早于 D29（CM-02）
         for i, x in enumerate(cms, 1):
             CM.append([sid, i] + x)
         # labs
@@ -167,7 +190,12 @@ def main():
                     qt = 474
                 if sid == '04003' and v == 'W12':
                     sbp = 168
-                VS.append([sid, dict((a, b) for a, b, _ in VIS).get(v, '计划外访视'), d(dd), tpt, sbp, '正常' if sbp < 140 else '异常无临床意义', dbp, '正常', hr, '正常', wt + R.randint(-2, 2)])
+                tim = {'给药前': '08:30', '给药后2h': '11:00'}.get(tpt, '09:30')
+                if sid == '05002' and v == 'D1' and tpt == '给药前':
+                    tim = '09:25'                 # 给药前生命体征记录时刻晚于首剂（ASMT-03）
+                VS.append([sid, dict((a, b) for a, b, _ in VIS).get(v, '计划外访视'), d(dd), tpt, tim, sbp, '正常' if sbp < 140 else '异常无临床意义', dbp, '正常', hr, '正常', wt + R.randint(-2, 2)])
+                if sid == '01007' and v == 'W4':
+                    continue                      # 已到访视但心电图缺失（ASMT-01）
                 EG.append([sid, dict((a, b) for a, b, _ in VIS).get(v, '计划外访视'), d(dd), tpt, hr, qt, '正常' if qt < 450 else '异常有临床意义' if qt > 500 else '异常无临床意义'])
         # efficacy: symptom score 0-40 (lower better), PGI-C at W12
         b = R.randint(18, 32)
@@ -181,14 +209,24 @@ def main():
                 if v == 'W12':
                     EF.append([sid, '第12周', d(dd), 'PGI-C', R.choice([1, 2, 2, 3, 3, 4, 5])])
         if sid == '01006':
-            PD.append([sid, '合并用药', '治疗期使用强效CYP3A抑制剂克拉霉素', d(fd + dt.timedelta(days=31))])
+            PD.append([sid, '合并用药', '治疗期使用强效CYP3A抑制剂克拉霉素', d(fd + dt.timedelta(days=31)), '根据实际情况判定'])
+        if sid == '04002':
+            PD.append([sid, '访视计划', '第4周访视超出时间窗', d(dates['W4']), '轻微'])
+        if sid == '02007':
+            PD.append([sid, '试验用药物', '依从性低于80%', d(ld), '严重'])
+        if sid == '02001':
+            PD.append([sid, '知情同意', '签署了未更新的知情同意书版本（中心自查发现）', d(icf + dt.timedelta(days=40)), '严重'])
         if sid == '04001':
             CQ.append(['实验室检查', 0, sid, '第8周', '请确认 ALT 88 U/L 判定为异常有临床意义，是否需要记录不良事件'])
     sheet(wb, 'DM', ['受试者编号', '中心编号', '中心名称', '知情同意日期', '年龄', '性别', '身高(cm)', '体重(kg)', 'BMI', '民族', '随机号', '分层因素'],
           ['SUBJID', 'SITEID', 'SITENAME', 'ICFDAT', 'AGE', 'SEX', 'HEIGHT', 'WEIGHT', 'BMI', 'ETHNIC', 'RANDNO', 'STRAT'], DM)
     sheet(wb, 'DS', ['受试者编号', '末次给药日期', '治疗结束原因', '研究结束日期', '是否完成研究', '提前退出原因'], ['SUBJID', 'EOTDAT', 'EOTREAS', 'EOSDAT', 'EOSCOMP', 'EOSREAS'], DS)
     sheet(wb, 'SV', ['受试者编号', '访视名称', '访视日期'], ['SUBJID', 'VISIT', 'SVDAT'], SV)
-    sheet(wb, 'EC', ['受试者编号', '访视名称', '首次给药日期', '末次给药日期', '剂量', '暂停'], ['SUBJID', 'VISIT', 'ECSTDAT', 'ECENDAT', 'ECDOSE', 'ECPAUSE'], EC)
+    sheet(wb, 'EC', ['受试者编号', '访视名称', '首次给药日期', '首次给药时间', '末次给药日期', '剂量', '暂停', '给药途径', '是否空腹', '实际服药量（粒）'],
+          ['SUBJID', 'VISIT', 'ECSTDAT', 'ECSTTIM', 'ECENDAT', 'ECDOSE', 'ECPAUSE', 'ECROUTE', 'ECFAST', 'ECQTY'], EC)
+    sheet(wb, 'IC', ['受试者编号', '知情同意书版本', '签署日期'], ['SUBJID', 'ICVER', 'ICDAT'], IC)
+    sheet(wb, 'PC', ['受试者编号', '访视名称', '计划时间点', '采血日期', '采血时间', '最近给药日期', '最近给药时间'],
+          ['SUBJID', 'VISIT', 'PCTPT', 'PCDAT', 'PCTIM', 'EXDAT', 'EXTIM'], PC)
     sheet(wb, 'AE', ['受试者编号', 'AE编号', '不良事件名称', '开始日期', '结束日期', '严重程度', '是否SAE', '是否AESI', '与研究药物关系', '采取措施', '转归', '是否有合并用药'],
           ['SUBJID', 'AENO', 'AETERM', 'AESTDAT', 'AEENDAT', 'AETOXGR', 'AESER', 'AESI', 'AEREL', 'AEACN', 'AEOUT', 'AECM'], AE)
     sheet(wb, 'MH', ['受试者编号', '病史编号', '病史名称', '开始日期', '结束日期', '是否持续'], ['SUBJID', 'MHNO', 'MHTERM', 'MHSTDAT', 'MHENDAT', 'MHONGO'], MH)
@@ -196,15 +234,15 @@ def main():
           ['SUBJID', 'CMNO', 'CMTRT', 'CMSTDAT', 'CMENDAT', 'CMONGO', 'CMDOSE', 'CMFREQ', 'CMROUTE', 'CMINDC'], CM)
     sheet(wb, 'LB', ['受试者编号', '访视名称', '采样日期', '检查项', '结果', '单位', '参考范围下限', '参考范围上限', '临床意义评价', '异常描述', '病史/不良事件请选择'],
           ['SUBJID', 'VISIT', 'LBDAT', 'LBTEST', 'LBORRES', 'LBORRESU', 'LBORNRLO', 'LBORNRHI', 'LBCLSIG', 'LBDESC', 'LBLINK'], LB)
-    sheet(wb, 'VS', ['受试者编号', '访视名称', '检查日期', '时间点', '收缩压', '收缩压临床意义', '舒张压', '舒张压临床意义', '脉搏', '脉搏临床意义', '体重'],
-          ['SUBJID', 'VISIT', 'VSDAT', 'VSTPT', 'SYSBP', 'SYSCS', 'DIABP', 'DIACS', 'PULSE', 'PULSECS', 'WEIGHT'], VS)
+    sheet(wb, 'VS', ['受试者编号', '访视名称', '检查日期', '时间点', '检查时间', '收缩压', '收缩压临床意义', '舒张压', '舒张压临床意义', '脉搏', '脉搏临床意义', '体重'],
+          ['SUBJID', 'VISIT', 'VSDAT', 'VSTPT', 'VSTIM', 'SYSBP', 'SYSCS', 'DIABP', 'DIACS', 'PULSE', 'PULSECS', 'WEIGHT'], VS)
     sheet(wb, 'EG', ['受试者编号', '访视名称', '检查日期', '时间点', '心率', 'QTcF', '心电图临床意义'], ['SUBJID', 'VISIT', 'EGDAT', 'EGTPT', 'EGHR', 'QTCF', 'EGCLSIG'], EG)
     sheet(wb, 'EFF', ['受试者编号', '访视名称', '评估日期', '量表', '得分'], ['SUBJID', 'VISIT', 'QSDAT', 'QSTEST', 'QSORRES'], EF)
     p = out / 'DEMO_EDC_listing.xlsx'
     wb.save(p)
     w2 = openpyxl.Workbook()
     w2.remove(w2.active)
-    sheet(w2, 'PD', ['受试者编号', '偏离类别', '偏离描述', '发生日期'], ['SUBJID', 'DVCAT', 'DVTERM', 'DVDAT'], PD)
+    sheet(w2, 'PD', ['受试者编号', '偏离类别', '偏离描述', '发生日期', '严重程度'], ['SUBJID', 'DVCAT', 'DVTERM', 'DVDAT', 'DVGRADE'], PD)
     sheet(w2, 'CROQ', ['表单', '行', '受试者编号', '访视', '质疑内容'], ['FORM', 'ROW', 'SUBJID', 'VISIT', 'TEXT'], CQ)
     w2.save(out / 'DEMO_PD_and_CRO_queries.xlsx')
     print('wrote', p, len(subjects), 'subjects')

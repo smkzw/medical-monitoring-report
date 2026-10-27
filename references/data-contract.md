@@ -18,6 +18,8 @@
 | `rules` / `methods` / `study` | list / list / dict | 规则溯源、方法学、研究要点 |
 | `eff` | dict | 有效性：metrics, data, anomalies, rulesText |
 | `review` / `todo` / `unres` | list | 审阅流程、待办、未决 |
+| `pd` | dict | mm4 方案偏离：`taxonomy[[码,名称,层面,说明,DVCAT]]`、`potential[{id,sid,site,cat,layer,rule,title,dv,fact,date,visit,grade,why,action,src[[sheet,row,标签]],sig[类型,索引,qkey],ctx,status,matched}]`、`confirmed[{id,sid,site,cat,layer,rawCat,sub,desc,date,grade,rawGrade,status,src,matched[规则]}]`、`rules[{id,cat,title,grade,action,dv,logic,cfg,data,state,n}]`、`notDetectable`、`cutoff`、`hasListing`、`sites`、`critical`；signal 回链：`others[i].pdId`/`labrows[i].pdId` |
+| `basis` | dict | mm4 研究依据页只读视图（visitWindows/eligibility*/prohibited/washout/aesi/reportRules/thresholdRules/comboRules/indicationBackground/cmProtocolRequired/pd/effRulesText） |
 
 `qkey`（labrows / others / queries 各自带，PR-2）：跨快照稳定的业务键，格式 `lab|<sid>|<risk>|<wb>:<sheet>|<mid>|<主访视>`、
 `oth|<sid>|<规则id或cat>|<wb>:<sheet>|<记录业务键>`（关联记录优先用 AE/CM 编号，无编号回退「术语＋开始日期」；检验类规则用「指标|访视|日期」）、
@@ -28,7 +30,9 @@ queries 取其主源（首源，合并格同此）的 qkey，手写 query（`stu
 `meta.visits`、`subjects`、`centers`、`metrics[{id,label,unit,lo,hi,dom,grp,…}]`、`obs{metricId: [...]}`（每个 metric 必须在 obs 中有键）。
 
 ## data/extra.js → `window.KZX`
-`soa`（SoA 完成度矩阵）、`soacols`、`ex{queryId: {rows:[{sh,row,f:{列:值},hl}], cro:[...]}}`（query 抽屉中的源行原文）。
+`soa`（SoA 完成度矩阵）、`soacols`、`ex{queryId: {rows:[{sh,row,f:{列:值},hl}], cro:[...]}}`（query 抽屉中的源行原文）、
+`pdex{pdId: [{sh,row,lab,f,hl}]}`（mm4 方案偏离抽屉的源行原文）。
+labrows `pts` 行：`[visit,date,raw,unit,grade,clin,pct,sheet,row,desc,dev,wb]`——`pts[10]` 为偏离比例（仅 REL/MHX-T 填值），`pts[11]` 为归属工作簿（mm4 修正 PR-8 的位冲突）。
 
 ## data/grading.js → `window.KZG`
 `{label, system, version, source, items{代码:[criteria]}, map{metricId: 代码}, fac{metricId: {单位: 系数}}}`——由 `cfg.grading` 加载的分级表（含 overrides）与本研究指标映射；

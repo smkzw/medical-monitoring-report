@@ -120,7 +120,37 @@ def main():
             if m['id'] not in KZT.get('obs', {}):
                 ERR.append(f"KZT.obs missing metric {m['id']}")
     if KZX is not None and 'soa' not in KZX:
-        WARN.append('KZX.soa missing (研究依据 SoA heatmap empty)')
+        WARN.append('KZX.soa missing (方案偏离 SoA 完成度为空)')
+    # mm4 方案偏离数据面：分类/分级/状态合法、受试者存在、证据 sheet 可回查、信号回链有效
+    P = KZ.get('pd')
+    if P:
+        tax = {x[0] for x in P.get('taxonomy') or []}
+        sids = {s[0] for s in KZ.get('subs', [])}
+        ids = [x.get('id') for x in (P.get('potential') or []) + (P.get('confirmed') or [])]
+        if len(ids) != len(set(ids)):
+            ERR.append('KZ.pd: duplicate ids')
+        for x in P.get('potential') or []:
+            if x.get('cat') not in tax:
+                ERR.append(f"pd {x.get('id')}: unknown category {x.get('cat')}")
+            if x.get('grade') not in ('重要', '一般', '待判定'):
+                ERR.append(f"pd {x.get('id')}: bad grade {x.get('grade')}")
+            if x.get('sid') not in sids:
+                ERR.append(f"pd {x.get('id')}: unknown subject {x.get('sid')}")
+            if x.get('status') not in ('已记录', '未见记录', '无 PD 记录可比对'):
+                ERR.append(f"pd {x.get('id')}: bad status {x.get('status')}")
+            sig = x.get('sig')
+            if sig:
+                coll = KZ.get('others' if sig[0] == 'oth' else 'labrows') or []
+                if not (isinstance(sig[1], int) and sig[1] < len(coll) and coll[sig[1]].get('pdId') == x.get('id')):
+                    ERR.append(f"pd {x.get('id')}: signal back-link broken {sig[:2]}")
+            for e in x.get('src') or []:
+                if e and e[0] and sheets and e[0] not in sheets and e[0] not in ((run.get('source') or {}).get('sheets_by_name') or {}):
+                    WARN.append(f"pd {x.get('id')}: evidence sheet {e[0]} not in _source sheets")
+        for x in P.get('confirmed') or []:
+            if x.get('cat') not in tax:
+                ERR.append(f"pd {x.get('id')}: unknown category {x.get('cat')}")
+        if KZX is not None and P.get('potential') and 'pdex' not in KZX:
+            WARN.append('KZX.pdex missing (方案偏离抽屉无源行原文)')
     if KZ.get('cfg', {}).get('blind', {}).get('on'):
         blob = json.dumps({k: KZ.get(k) for k in ('subs', 'aes', 'eff')}, ensure_ascii=False)
         if re.search(r'"(arm|ARM|trt|TRT01P|ACTARM)"', blob):

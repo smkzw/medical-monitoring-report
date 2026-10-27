@@ -19,7 +19,7 @@ K.studyDay=(d,fd)=>{const x=K.days(d,fd);return x==null?'':(x>=0?'D'+(x+1):'D'+x
 K.clin=c=>c===2?K.p('CS','red'):c===1?K.p('NCS','yel'):c===0?K.p('正常','grn'):'';
 K.PRI={4:['优先核实','red'],3:['需核实','org'],2:['结合临床','yel'],1:['筛查提示','']};
 K.pri=n=>K.p(K.PRI[n]?.[0]||'—',K.PRI[n]?.[1]||'');
-K.RISK={CSX:['CS·未关联AE/MH','solid-red','判CS但未关联AE或病史：漏报AE风险最高'],MH:['CS·仅关联MH','org','判CS且仅关联既往病史：需判断是否给药后加重'],NCS2:['NCS·≥2级','yel','数值落入'+((window.KZ||{}).cfg||{}).ctcaeVersion+'≥2级但判NCS'],NA2:['未评价·≥2级','yel','数值达≥2级但未见研究者临床意义评价'],AE:['已关联AE','grn','已有对应AE记录'],NCS:['NCS','','异常无临床意义'],REL:['较基线显著变化','yel','给药后超出参考范围且偏离≥T_dev、同向较基线变化≥T_base（双阈值，按当前所选档位即时重分类）'],'MHX-T':['疑似病史漏记·首剂前','org','首剂前判NCS/未评价且偏离≥T_dev（或≥2级）且病史未记录（按当前所选档位即时重分类）']};
+K.RISK={CSX:['CS·未关联AE/MH','solid-red','判CS但未关联AE或病史：漏报AE风险最高'],MH:['CS·仅关联MH','org','判CS且仅关联既往病史：需判断是否给药后加重'],NCS2:['NCS·≥2级','yel','数值落入'+((window.KZ||{}).cfg||{}).ctcaeVersion+'≥2级但判NCS'],NA2:['未评价·≥2级','yel','数值达≥2级但未见研究者临床意义评价'],AE:['已关联AE','grn','已有对应AE记录'],NA:['超范围·未评价','yel','给药后超出参考范围但未见研究者临床意义评价'],DIS:['CS·归因研究疾病','grn','研究者判CS并归因研究疾病，给药后未较基线加重'],DISW:['CS·研究疾病·加重','org','研究者归因研究疾病，但给药后较基线加重：按AE定义评估'],NCS:['NCS','','异常无临床意义'],REL:['较基线显著变化','yel','给药后超出参考范围且偏离≥T_dev、同向较基线变化≥T_base（双阈值，按当前所选档位即时重分类）'],'MHX-T':['疑似病史漏记·首剂前','org','首剂前判NCS/未评价且偏离≥T_dev（或≥2级）且病史未记录（按当前所选档位即时重分类）']};
 K.risk=r=>K.p(K.RISK[r]?.[0]||r,K.RISK[r]?.[1]||'',K.RISK[r]?.[2]);
 /* ---- 双阈值（T_dev/T_base，PR-4）：状态读取 + REL 即时重分类 + 变更监听 ----
  * 档位来源：系统层 KZS.thresholds（选择器写入）＞ cfg.thresholds（构建配置，默认 30%/30%）。
@@ -49,7 +49,8 @@ K.subBy=id=>{K.subs();return K._subsBy[id]};
 K.STC=Object.assign({'完成试验':'grn','已入组':'blu','治疗结束':'brn','提前退出':'red','筛选失败':'','筛选中':'yel'},(((window.KZ||{}).cfg||{}).statusColors)||{});
 K.status=s=>K.p(s,K.STC[s]??'');
 /* header */
-K.PAGES=[['index.html','总览'],['study.html','研究依据'],['subjects.html','参与者资料'],['timeline.html','时间线'],['safety.html','AE/MH风险'],['efficacy.html','有效性趋势'],['objective.html','检验检查趋势'],['queries.html','医学质疑'],['methods.html','审阅要点']];
+/* mm4：「方案偏离」进入主导航；「审阅要点」降为总览底部折叠区（methods.html 仍可直达） */
+K.PAGES=[['index.html','总览'],['study.html','研究依据'],['subjects.html','参与者资料'],['timeline.html','时间线'],['safety.html','AE/MH风险'],['deviations.html','方案偏离'],['efficacy.html','有效性趋势'],['objective.html','检验检查趋势'],['queries.html','医学质疑']];
 K.header=()=>{
   const cur=location.pathname.split('/').pop()||'index.html';const m=D().meta,c=C0(),st=c.study||{},br=c.brand||{};
   document.title=(document.title.split(' · ')[0]||'')+' · '+(st.short||st.code||'医学监察');
@@ -127,13 +128,61 @@ document.addEventListener('click',e=>{const q=e.target.closest('[data-q]');if(q)
 K.CTX=((((window.KZ||{}).cfg||{}).taxonomy||{}).ctx||[['无CTCAE条目|不能仅凭数值','无CTCAE数值条目',''],['症状/处置型','需结合症状/处置',''],['单位|换算','单位待核','org'],['基线.*(回退|替代)|替代基线|改用首次','替代基线','blu']]).map(([re,l,c])=>[new RegExp(re),l,c]);
 K.ctxTags=arr=>{const out=[];(arr||[]).forEach(t=>{const m=K.CTX.find(([re])=>re.test(t));if(m&&!out.some(o=>o[0]===m[1]))out.push([m[1],m[2],t])});return out.map(([l,c,t])=>K.p(l,c,t)).join('')};
 K.init=fn=>document.addEventListener('DOMContentLoaded',()=>{K.header();fn()});
+/* SoA 完成度矩阵（访视流程表 × 实际完成）：mm4 起位于「方案偏离」执行层面；研究依据页只陈述方案本身 */
+K.soaView=el=>{
+const ST=(window.KZ||{}).study||{},X=window.KZX||{};const COND=new Set(ST.soaCond||[]);const SX=ST.soaExclude?new RegExp(ST.soaExclude):null;
+const soa=(X.soa||[]).filter(r=>!SX||!SX.test(r.sheet));const cols=X.soacols;
+const vn=v=>{const r=soa.find(r=>r.cells[v]);return r?r.cells[v][0]:''};
+const cell=(r,v,ri)=>{const c=r.cells[v];if(!c)return '<td class="h faint">·</td>';const [n,done,no,miss,,,ex]=c;
+ if(ex)return `<td class="h"><span class="p click" data-c="${ri}|${v}" title="非计划访视记录">+${done}</span></td>`;
+ const cond=COND.has(r.name);let t;
+ if(miss)t=K.p('缺 '+miss,'red click');else if(no)t=K.p((cond?'否 ':'否 ')+no,(cond?'line':'yel')+' click');else t=K.p('✓','grn');
+ return `<td class="h" data-c="${ri}|${v}" style="cursor:${miss||no?'pointer':'default'};padding:3px 4px" title="完成 ${done}/${n}">${t}</td>`};
+el.innerHTML=`<div class="tw"><table class="t heat"><thead><tr><th>项目</th>${cols.map(v=>`<th class="h" style="text-align:center">${v}<div class="xs faint" style="font-weight:400">n=${vn(v)}</div></th>`).join('')}</tr></thead><tbody>${soa.map((r,ri)=>`<tr><td class="nowrap" style="padding:3px 8px" title="${r.sheet}">${K.esc(r.name)} ${COND.has(r.name)?K.p('条件','line'):''}</td>${cols.map(v=>cell(r,v,ri)).join('')}</tr>`).join('')}</tbody></table></div>`;
+el.onclick=e=>{const td=e.target.closest('[data-c]');if(!td)return;const [ri,v]=td.dataset.c.split('|');const r=soa[+ri],c=r.cells[v];if(!c||(!c[3]&&!c[2]&&!c[6]))return;
+ K.drawer(`${r.name} · ${v}`,`<div class="flex wrap mb">${K.p('访视人数 '+c[0],'line')}${K.p('完成 '+c[1],'grn')}${c[3]?K.p('无记录 '+c[3],'red'):''}${c[2]?K.p('记录“否” '+c[2],'yel'):''}${COND.has(r.name)?K.p('条件性项目','line'):''}</div>
+ ${c[6]?`<div class="box small">${v} 不在流程表计划内，但有 ${c[1]} 例记录（计划外/补充检查）。</div>`:''}
+ ${c[4].length?`<h3 class="mt">无记录</h3><div class="flex wrap mt">${c[4].map(s=>K.sid(s)).join(' ')}</div>`:''}
+ ${c[5].length?`<h3 class="mt">记录“未做”</h3><div class="flex wrap mt">${c[5].map(s=>K.sid(s)).join(' ')}</div>`:''}
+ <div class="note mt">名单来自 ${r.sheet} 页“是否进行”字段与访视页（SV）比对；${COND.has(r.name)?'条件性项目的“否”可能为允许豁免，结合原因字段判断，不直接发质疑。':'计划项无记录时先核对访视是否实际发生、是否已录入，再决定是否质疑。'}</div>`,K.p(r.sheet,'sq mono'))};};
+/* ---- 方案偏离（mm4）：分级/类别标签、详情抽屉（总览、方案偏离、AE/MH 风险共用）---- */
+K.PDG={'重要':'solid-red','待判定':'yel','一般':'line'};
+K.pdGrade=g=>K.p(g||'—',K.PDG[g]||'line',g==='重要'?'可能显著影响受试者权益/安全/福祉，或关键数据完整性/准确性/可靠性（ICH E3 Q&A R1；E6(R3)）':g==='待判定'?'需结合原因、源文件或医学判断确定分级':'不满足重要偏离标准');
+K.PDS={'已记录':'grn','未见记录':'org','无 PD 记录可比对':'line'};
+K.pdStatus=s=>s?K.p(s,K.PDS[s]||'line',s==='未见记录'?'PD listing 中未见同受试者、同类别、时间相近的记录':s==='已记录'?'PD listing 已有对应记录':'未提供 PD listing'):'';
+K.PDA={'发 query':'blu','CRA 核实':'brn','录入 PD':'red'};
+K.pdAct=a=>a?K.p(a,K.PDA[a]||'line'):'';
+K.pdTax=()=>Object.fromEntries((((window.KZ||{}).pd||{}).taxonomy||[]).map(t=>[t[0],t]));
+K.pdCat=c=>{const t=K.pdTax()[c];return t?K.p(t[1],t[2]==='执行'?'blu':t[2]==='科学'?'org':'line',t[3]+(t[4]?' · CDISC DVCAT '+t[4]:'')):K.p(c||'—','line')};
+K.pdBy=id=>{const P=(window.KZ||{}).pd||{};return (P.potential||[]).find(x=>x.id===id)||(P.confirmed||[]).find(x=>x.id===id)};
+K.pdPill=id=>id?`<span class="p sq mono click red" data-pd="${id}" title="潜在方案偏离，点击查看">潜在PD</span>`:'';
+K.PDACT={'发 query':'数据层面可澄清：经 EDC query 请研究者核实或更正；核实属实后录入 PD log。','CRA 核实':'需源文件或现场核实，数据本身不足以确认：交 CRA 核实；属实则录入 PD log 并按分级报告。','录入 PD':'数据已足以确认偏离事实：请 CRA 与研究者确认后录入 PD log；重要偏离按方案与伦理要求报告。'};
+K.showPD=id=>{const it=K.pdBy(id);if(!it)return;const P=KZ.pd,X=window.KZX||{},conf=!it.rule;
+  const rule=(P.rules||[]).find(r=>r.id===it.rule)||{};const m=conf?null:(P.confirmed||[]).find(c=>c.id===it.matched);
+  const sig=it.sig?(it.sig[0]==='oth'?KZ.others[it.sig[1]]:KZ.labrows[it.sig[1]]):null;
+  const ev=(X.pdex||{})[it.id];
+  const refs=[...new Set(((sig&&sig.ctx)||[]).concat(it.ctx||[]).join(' ').match(/R-[A-Z]+-\d+/g)||[])];
+  const related=conf?(P.potential||[]).filter(x=>x.matched===it.id):[];
+  K.drawer(`${it.id} · ${K.esc(conf?(it.rawCat||'已记录方案偏离'):it.title)}`,`
+  <div class="flex wrap mb">${K.sid(it.sid)}${K.p(K.center(it.site),'line')}${it.visit?K.p(it.visit,'blu'):''}${it.date?K.p(it.date,'line'):''}${K.pdGrade(it.grade)}${conf?(it.rawGrade?K.p('原文：'+it.rawGrade,'line'):''):K.pdStatus(it.status)}${conf?'':K.pdAct(it.action)}</div>
+  <div class="box ${it.grade==='重要'?'red':'org'}" style="font-size:13px;line-height:1.7">${K.hlNum(conf?it.desc:it.fact)}</div>
+  ${conf?'':`<div class="sec-t"><h2>分级与依据</h2></div><div class="flex small" style="align-items:flex-start;line-height:1.7">${K.pdGrade(it.grade)}<span>${K.esc(it.why)}</span></div>
+  <div class="xs muted mt" style="line-height:1.7">重要偏离：可能显著影响受试者权益、安全或福祉，或显著影响关键数据的完整性、准确性、可靠性（ICH E3 Q&A R1；ICH E6(R3)）。潜在 PD 由数据推断，核实属实前不计入 PD 率。</div>`}
+  <div class="sec-t"><h2>源数据</h2><span class="muted small">${ev?ev.length+' 行':'未取得原始行'}</span></div>${ev?K.listing(ev):(it.src||[]).length?`<table class="t"><tbody>${it.src.map(s=>`<tr><td>${K.p(s[0],'sq mono')}</td><td>行 ${s[1]??'—'}</td><td>${K.esc(s[2]||'')}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">该条为按方案计划推断的缺失（无源行）</div>'}
+  ${conf?`<div class="sec-t"><h2>归类</h2></div><div class="kv"><dt>系统归类</dt><dd>${K.pdCat(it.cat)} ${K.p(it.layer||'—','line')}</dd><dt>原文类别</dt><dd>${K.esc(it.rawCat||'—')} ${K.esc(it.sub||'')}</dd><dt>数据比对</dt><dd>${related.length?related.map(r=>`<span class="p sq mono click line" data-pd="${r.id}">${r.id}</span> ${K.esc(r.title)}`).join('<br>'):'<span class="muted">数据规则未覆盖（多为需现场核查的偏离）</span>'}</dd></div>`
+  :`<div class="sec-t"><h2>判定规则</h2>${refs.map(r=>K.rp(r)).join('')}</div><div class="kv"><dt>规则</dt><dd>${K.p(it.rule,'sq mono line')} ${K.esc(rule.title||'')}</dd><dt>逻辑</dt><dd>${K.esc(rule.logic||'')}</dd><dt>所需数据</dt><dd>${K.esc(rule.data||'')}</dd><dt>CDISC</dt><dd class="mono xs">${K.esc(it.dv||'')}</dd></div>
+  <div class="sec-t"><h2>与已记录 PD 比对</h2></div>${m?`<div class="box grn small"><b>${m.id}</b> ${K.esc(m.date)} · ${K.esc(m.rawCat)}：${K.esc(m.desc)}${m.rawGrade?' （'+K.esc(m.rawGrade)+'）':''}</div>`:`<div class="box small">${it.status==='无 PD 记录可比对'?'未提供 PD listing，无法比对。':'PD listing 中未见同受试者、同类别、时间相近的记录。'}</div>`}
+  ${sig?`<div class="sec-t"><h2>关联信号与质疑</h2></div><div class="flex wrap">${it.sig[0]==='lab'?`<a href="safety.html#tab=lab&risk=${sig.risk}">${K.risk(sig.risk)}</a>`:`<a href="safety.html#tab=oth&cat=${encodeURIComponent(sig.cat)}">${K.p(sig.cat,'line')}</a>`}${(sig.q||[]).map(K.qPill).join('')}${K.ctxTags(sig.ctx)}</div>`:''}
+  <div class="sec-t"><h2>处理建议</h2>${K.pdAct(it.action)}</div><div class="small" style="line-height:1.7">${K.esc(K.PDACT[it.action]||'')}</div>`}
+  <div class="mt"><a class="small" href="timeline.html#s=${it.sid}">查看 ${it.sid} 时间线 ›</a>　<a class="small" href="deviations.html#id=${it.id}">在方案偏离页定位 ›</a></div>`,conf?K.pdCat(it.cat):`${K.pdCat(it.cat)}${K.p(it.layer+'层面','line')}`)};
+document.addEventListener('click',e=>{const a=e.target.closest('[data-pd]');if(a){e.preventDefault();K.showPD(a.dataset.pd)}});
 })();
 K.DOM=(((window.KZ||{}).cfg||{}).taxonomy||{}).domains||[];
 K.domOf=cat=>{const d=K.DOM.find(d=>d[1].includes(cat));return d?d[0]:'其他'};
 K.IBC=Object.assign({'IB已识别风险':'red','IB潜在风险':'org','方案AESI':'solid-red','类效应·预期':'blu','疾病相关':'','同类常见':''},(((window.KZ||{}).cfg||{}).taxonomy||{}).ibColors||{});
 K.ibTags=cat=>((window.KZ.ibtag||{})[cat]||[]).map(t=>K.p(t,K.IBC[t]||'')).join('');
 /* protocol/IB rule pills + drawer */
-K.SRC=Object.assign({protocol_operative:['方案原文','org'],protocol_footnote:['方案脚注','blu'],protocol_amendment_history:['修订史',''],user_confirmed_monitoring:['项目确认','grn'],ib_classification:['IB 风险分类','red'],ib_text:['IB 原文','red'],class_effect_cited:['同类药物（IB引用）','brn']},(((window.KZ||{}).cfg||{}).taxonomy||{}).sources||{});
+K.SRC=Object.assign({protocol_soa:['方案 SoA','blu'],protocol_appendix:['方案附录','blu'],sap:['SAP','grn'],ib:['IB','red'],user_confirmed:['用户确认','grn'],protocol_operative:['方案原文','org'],protocol_footnote:['方案脚注','blu'],protocol_amendment_history:['修订史',''],user_confirmed_monitoring:['项目确认','grn'],ib_classification:['IB 风险分类','red'],ib_text:['IB 原文','red'],class_effect_cited:['同类药物（IB引用）','brn']},(((window.KZ||{}).cfg||{}).taxonomy||{}).sources||{});
 K.ruleBy=id=>(window.KZ.rules||[]).find(r=>r.id===id);
 K.rp=(id,c='')=>`<span class="p sq mono click ${c||'line'}" data-r="${id}" title="${K.esc((K.ruleBy(id)||{}).st||'')}">${id}</span>`;
 K.showRule=id=>{const r=K.ruleBy(id);if(!r)return;const un=(window.KZ.unres||[]).find(u=>u.startsWith(id+' '));

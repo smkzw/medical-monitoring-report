@@ -49,7 +49,7 @@ def dev_of(r):
     return 0.0
 
 
-_WEAK = re.compile(r'^[±]|弱阳|微量|trace', re.I)
+_WEAK = re.compile(r'±|\+\s*/?\s*-|弱阳|微量|trace', re.I)      # mm4：「+-」「+/-」「10（+-）」也是 ±
 _POS = re.compile(r'阳|[＋+]')
 
 
@@ -173,7 +173,7 @@ def m13_mhx_t(C):
             'base': [b.get('visit'), b.get('raw'), b.get('unit') or '', b.get('clin')] if b else None,
             'pts': [[r.get('visit'), r.get('date'), r.get('raw'), r.get('unit') or '', r.get('grade'), r.get('clin'),
                      None if r.get('pct') is None else round(r['pct'], 1), r['sheet'], r['row'], r.get('desc') or '',
-                     None if r.get('dev') is None else round(r['dev'], 4)] for r in pre],
+                     None if r.get('dev') is None else round(r['dev'], 4), r.get('wb') or ''] for r in pre],
             'rel': [], 'ctx': ctx or ['首剂前偏离且病史未记录；CS 部分由 M23 核查绑定'],
             'q': [], 'fid': [], 'cro': '', 'mg': max([r.get('grade') or 0 for r in pre] + [0]), 'risk': 'MHX-T',
             'qkey': f"lab|{sid}|MHX-T|{wbs}|{mid}|{worst.get('visit') or ''}"})
@@ -203,10 +203,13 @@ def m16_qual(C):
                         ctx=['弱阳性最高提示（pr1）；研究者判 CS 者走 M01'],
                         rule={'ask': '请结合复测与临床判断是否需关注。'}, bkey=f"{mid}|{r.get('visit')}|{r.get('date')}", wb=r.get('wb') or '')
             elif lv == 2 and base_lv == 0 and (r.get('clin') or 0) != 2:
-                add_ext(C, sid, '定性结果核对', 'M16-NEW', 3,
+                # 研究者判定优先：已评价为正常/NCS 的新发定性异常只作提示（pr1，不发 query）；未评价才请研究者评价（pr3）
+                assessed = r.get('clin') in (0, 1)
+                add_ext(C, sid, '定性结果核对', 'M16-NEW', 1 if assessed else 3,
                         f"{r.get('visit')}（{r.get('date')}）{test}「{r.get('raw')}」，该指标基线（首剂前最近一次）为阴性",
                         r.get('visit'), r.get('date'), r['sheet'], r['row'], test,
-                        ctx=['定性新发异常（基线阴性 → ≥+）；判 CS 者由 M01/M23 分层'],
+                        ctx=['定性新发异常（基线阴性 → ≥+）；判 CS 者由 M01/M23 分层'] +
+                            (['研究者已评价为' + ('正常' if r.get('clin') == 0 else '异常无临床意义') + '（研究者判定优先，仅提示）'] if assessed else []),
                         rule={'ask': '请评估该新发定性异常的临床意义，必要时复测。'}, bkey=f"{mid}|{r.get('visit')}|{r.get('date')}", wb=r.get('wb') or '')
 
 
@@ -456,7 +459,7 @@ def m23_csb(C):
     exempt = dp.get('confirmed') is True and str(dp.get('quote') or '').strip()
     handled = set()                                      # M01/M02 已产 query 或已判通过的 CS 行
     for g in C.labrows:
-        if g['risk'] in ('CSX', 'MH', 'CSX_AE', 'AE'):
+        if g['risk'] in ('CSX', 'MH', 'CSX_AE', 'AE', 'DIS', 'DISW'):
             for p in g['pts']:
                 handled.add((g['sid'], p[7], p[8]))
     candidates, seen = [], set()
@@ -471,6 +474,14 @@ def m23_csb(C):
             binding = {'link': None, 'matched_ae': [], 'matched_mh': []}
             emit = None                                  # ('LINK'|'CSX_AE'|'MH'|'CSW'|'CSX', rec, extra)
             link = next((l for l in (r.get('links') or [])), None)
+            if not link and 'disease' in (r.get('reason') or ''):
+                # mm4：研究者归因研究疾病——给药前或未恶化即视为已有临床解释；给药后恶化由 M01 DISW 发 query
+                # （已在 handled 中）；方案进展条款已确认时交步骤 5 候选（D21）
+                if not (r['post'] and known and worse):
+                    continue
+                if exempt:
+                    candidates.append(_candidate(C, r, binding, known, worse, flags, disease_hint(C, mid) or '研究者归因研究疾病'))
+                    continue
             if link:
                 pool = C.ae_by[sid] if link[0] == 'AE' else C.mh_by[sid]
                 ev = next((x for x in pool if str(x['n']) == str(link[3])), None)
@@ -480,13 +491,23 @@ def m23_csb(C):
                     emit = ('LINK', {'type': link[0], 'no': link[3], 'term': link[1]},
                             f"，关联字段为 {link[3]}，{page}未见该编号记录")
                 else:
-                    # 对应性：词表有该指标的条目 → 术语是否在其中（True/False）；无条目 → None（无法判断，步骤 5 Q3）
-                    if link[0] == 'AE':
-                        terms = [re.compile(b) for a, b, w in (C.A.get('aeMatch') or []) if re.compile(a).search(mid)]
+                    # 对应性（noise 修正）：宿主预判 linkVerdicts（知识库：器官系统/方向/标本/时间）优先——
+                    # implausible＝有正面反证 → LINK；plausible → 视同对应；unknown → 步骤 5 Q3。
+                    # 无预判时词表命中 → 对应；词表未命中只说明词表未覆盖，不等于关联错误 → None（步骤 5），
+                    # 仅 analysis.linkStrict=true 时沿用旧口径（未命中即 LINK）。
+                    lv = (C.A.get('linkVerdicts') or {}).get(f"{r.get('wb') or ''}:{r['sheet']}|{r['row']}") or \
+                         (C.A.get('linkVerdicts') or {}).get(f"{r['sheet']}|{r['row']}")
+                    if lv:
+                        match = {'implausible': False, 'plausible': True}.get(lv.get('v'))
                     else:
-                        terms = [tre for mre, tre in C.mhMatch if mre.search(mid)]
-                    match = (any(t.search(ev.get('t') or '') for t in terms) if terms else None)
-                    binding['link'] = {'type': link[0], 'no': link[3], 'term': ev.get('t', ''), 'exists': True, 'match': match}
+                        if link[0] == 'AE':
+                            terms = [re.compile(b) for a, b, w in (C.A.get('aeMatch') or []) if re.compile(a).search(mid)]
+                        else:
+                            terms = [tre for mre, tre in C.mhMatch if mre.search(mid)]
+                        hit = any(t.search(ev.get('t') or '') for t in terms) if terms else None
+                        match = True if hit else (False if (hit is False and C.A.get('linkStrict')) else None)
+                    binding['link'] = {'type': link[0], 'no': link[3], 'term': ev.get('t', ''), 'exists': True, 'match': match,
+                                       'why': (lv or {}).get('why') or ''}
                     if match is False:                   # 词表确认不对应 → LINK
                         emit = ('LINK', {'type': link[0], 'no': link[3], 'term': ev.get('t', '')},
                                 f"，关联{'不良事件' if link[0] == 'AE' else '病史'} {link[3]}「{ev.get('t', '')}」")

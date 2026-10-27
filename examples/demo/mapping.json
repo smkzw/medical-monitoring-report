@@ -10,7 +10,10 @@
       {"wb": "edc", "sheet": "DS", "cols": {"sid": "SUBJID", "eot_d": "EOTDAT", "eot_why": "EOTREAS", "eos_d": "EOSDAT", "eos_done": "EOSCOMP", "eos_why": "EOSREAS"}}
     ],
     "visits": [{"wb": "edc", "sheet": "SV", "cols": {"sid": "SUBJID", "visit": "VISIT", "date": "SVDAT"}}],
-    "exposure": [{"wb": "edc", "sheet": "EC", "cols": {"sid": "SUBJID", "visit": "VISIT", "start": "ECSTDAT", "end": "ECENDAT", "dose": "ECDOSE", "pause": "ECPAUSE"}}],
+    "exposure": [{"wb": "edc", "sheet": "EC", "cols": {"sid": "SUBJID", "visit": "VISIT", "start": "ECSTDAT", "time": "ECSTTIM", "end": "ECENDAT", "dose": "ECDOSE", "pause": "ECPAUSE",
+                                                      "route": "ECROUTE", "fast": "ECFAST", "qty": "ECQTY"}}],
+    "icf": [{"wb": "edc", "sheet": "IC", "cols": {"sid": "SUBJID", "ver": "ICVER", "date": "ICDAT"}}],
+    "sample": [{"wb": "edc", "sheet": "PC", "cols": {"sid": "SUBJID", "visit": "VISIT", "tpt": "PCTPT", "date": "PCDAT", "time": "PCTIM", "dose_date": "EXDAT", "dose_time": "EXTIM"}}],
     "ae": [{"wb": "edc", "sheet": "AE", "cols": {"sid": "SUBJID", "no": "AENO", "term": "AETERM", "start": "AESTDAT", "end": "AEENDAT", "grade": "AETOXGR",
                                                "serious": "AESER", "aesi": "AESI", "rel": "AEREL", "action": "AEACN", "outcome": "AEOUT", "cm": "AECM"}}],
     "mh": [{"wb": "edc", "sheet": "MH", "cols": {"sid": "SUBJID", "no": "MHNO", "term": "MHTERM", "start": "MHSTDAT", "end": "MHENDAT", "ongoing": "MHONGO"}}],
@@ -21,7 +24,7 @@
        "cols": {"sid": "SUBJID", "visit": "VISIT", "date": "LBDAT", "test": "LBTEST", "value": "LBORRES", "unit": "LBORRESU",
                 "lo": "LBORNRLO", "hi": "LBORNRHI", "clin": "LBCLSIG", "desc": "LBDESC", "link": "LBLINK"}},
       {"wb": "edc", "sheet": "VS", "domain": "vs", "group": "生命体征", "layout": "wide",
-       "cols": {"sid": "SUBJID", "visit": "VISIT", "date": "VSDAT", "tpt": "VSTPT"},
+       "cols": {"sid": "SUBJID", "visit": "VISIT", "date": "VSDAT", "tpt": "VSTPT", "time": "VSTIM"},
        "tests": {"收缩压": {"value": "SYSBP", "unit": "mmHg", "clin": "SYSCS", "lo": 90, "hi": 139},
                  "舒张压": {"value": "DIABP", "unit": "mmHg", "clin": "DIACS", "lo": 60, "hi": 89},
                  "脉搏": {"value": "PULSE", "unit": "次/分", "clin": "PULSECS", "lo": 60, "hi": 100},
@@ -32,7 +35,7 @@
                  "心率": {"value": "EGHR", "unit": "次/分", "lo": 60, "hi": 100}}}
     ],
     "efficacy": [{"wb": "edc", "sheet": "EFF", "cols": {"sid": "SUBJID", "visit": "VISIT", "date": "QSDAT", "metric": "QSTEST", "value": "QSORRES"}}],
-    "pd": [{"wb": "pdq", "sheet": "PD", "cols": {"sid": "SUBJID", "cat": "DVCAT", "desc": "DVTERM", "date": "DVDAT"}}],
+    "pd": [{"wb": "pdq", "sheet": "PD", "cols": {"sid": "SUBJID", "cat": "DVCAT", "desc": "DVTERM", "date": "DVDAT", "grade": "DVGRADE"}}],
     "extq": [{"wb": "pdq", "sheet": "CROQ", "cols": {"form": "FORM", "row": "ROW", "sid": "SUBJID", "visit": "VISIT", "text": "TEXT"}}]
   }
 }

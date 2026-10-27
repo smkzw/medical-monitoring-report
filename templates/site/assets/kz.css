@@ -99,3 +99,12 @@ input.s,select.s{height:28px;border:1px solid var(--line);border-radius:7px;padd
 .kpi.sel{border-color:#F2B567}
 .dev{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px;color:var(--muted);margin:6px 0 2px}
 .dev b{color:var(--ink)}
+/* mm4 方案偏离 / 研究依据 */
+.box.grn{background:#F5F9F0;border-color:#CFE0BC}.box.yel{background:#FFFCEB;border-color:#F2E3A0}
+.pdm td.c,.pdm th.c{text-align:center}.pdm .bar2{display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--line2);min-width:24px;margin-top:5px}.pdm .bar2 i{display:block;height:100%}
+.pdm tr.on td{background:#FFF4E2}.lay{font-size:10.5px;color:var(--muted)}
+.cal{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}.cal .c1{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:#fff}
+.cal .c1 .t{font-size:11.5px;color:var(--muted);display:flex;align-items:center;gap:6px}.cal .c1 .v{color:var(--ink);font-weight:600;font-size:13px;margin:3px 0 2px;line-height:1.5}.cal .c1 .s{font-size:11.5px;color:var(--muted);line-height:1.55}
+.fold{margin-top:22px;border-top:1px dashed var(--line);padding-top:8px}.fold>summary{cursor:pointer;color:var(--muted);font-size:12px;list-style:none;display:flex;align-items:center;gap:6px;user-select:none}
+.fold>summary::-webkit-details-marker{display:none}.fold>summary:before{content:"▸";font-size:10px;color:var(--faint)}.fold[open]>summary:before{content:"▾"}.fold>summary:hover{color:var(--ink)}
+.fold .fold-b{margin-top:10px}

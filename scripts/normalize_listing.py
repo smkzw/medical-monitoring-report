@@ -57,14 +57,36 @@ class Book:
 
 
 def col_index(ref, labels, vars_):
+    """列引用：变量名 / 中文标签 / 列序号（int，0 起）；同名列用「名称#n」取第 n 次出现（1 起），如「其他，请描述#2」。"""
     if ref is None:
         return None
     if isinstance(ref, int):
         return ref
+    name, nth = ref, 1
+    m = re.fullmatch(r'(.+)#(\d+)', str(ref))
+    if m and not any(ref in arr for arr in (vars_, labels)):
+        name, nth = m.group(1), int(m.group(2))
     for arr in (vars_, labels):
-        if ref in arr:
-            return arr.index(ref)
+        idx = [i for i, x in enumerate(arr) if x == name]
+        if len(idx) >= nth:
+            return idx[nth - 1]
     return None
+
+
+REASON_DEFAULT = [(r'研究疾病|原发病|研究适应症|疾病本身|study disease|underlying disease', 'disease'),
+                  (r'病史|不良事件|^AE|^MH|既往|adverse|medical history', 'link'),
+                  (r'其他|其它|other', 'other')]
+
+
+def reason_code(v, patterns=None):
+    """CS 原因取值 → disease（研究疾病）/ link（病史或不良事件，需关联编号）/ other（其他+文本）/ None。"""
+    if v is None or str(v).strip() == '':
+        return None
+    s = str(v).strip()
+    for pat, code in (patterns or REASON_DEFAULT):
+        if re.search(pat, s, re.I):
+            return code
+    return 'other'
 
 
 def map_visit(v, vm):
@@ -123,18 +145,25 @@ def read_spec(spec, books, M):
     missing = [k for k, i in cols.items() if i is None]
     if missing:
         print(f"  ! {spec['sheet']}: unresolved columns {missing}")
-    filt = spec.get('filter')  # {"col": "LBSTAT", "not": "未查"}
+    # filter：{"col","eq"|"not"|"not_re"}，可为数组（全部满足）；mapping 级 row_filter 对所有 spec 生效
+    # （如 EDC 差异导出的 Flag=Deleted 行：{"col": "Flag", "not_re": "^Deleted$"}——已删除记录不得进入分析）。
+    filts = [x for x in ([spec['filter']] if isinstance(spec.get('filter'), dict) else (spec.get('filter') or []))]
+    filts += [x for x in (M.get('row_filter') or []) if col_index(x['col'], labels, vars_) is not None]
+    fidx = [(x, col_index(x['col'], labels, vars_)) for x in filts]
     for rown, r in data:
         rec = {k: conv(k, r[i] if i is not None and i < len(r) else None, M) for k, i in cols.items()}
         if not rec.get('sid'):
             continue
-        if filt:
-            fi = col_index(filt['col'], labels, vars_)
-            fv = r[fi] if fi is not None else None
-            if 'eq' in filt and str(fv) != str(filt['eq']):
-                continue
-            if 'not' in filt and str(fv) == str(filt['not']):
-                continue
+        skip = False
+        for fx, fi in fidx:
+            fv = r[fi] if fi is not None and fi < len(r) else None
+            s = '' if fv is None else str(fv).strip()
+            if ('eq' in fx and s != str(fx['eq'])) or ('not' in fx and s == str(fx['not'])) or \
+                    ('not_re' in fx and re.search(fx['not_re'], s)):
+                skip = True
+                break
+        if skip:
+            continue
         rec['wb'] = alias           # PR-8: owning workbook alias on every record (row-level attribution)
         rec['sheet'] = spec['sheet']
         rec['row'] = rown
@@ -146,7 +175,8 @@ def findings(spec, books, M):
     out = []
     lay = spec.get('layout', 'long')
     for rec, r, labels, vars_ in read_spec(spec, books, M):
-        base = {k: rec.get(k) for k in ('sid', 'visit', 'date', 'time', 'tpt', 'sheet', 'row', 'done', 'wb')}
+        base = {k: rec.get(k) for k in ('sid', 'visit', 'date', 'time', 'tpt', 'sheet', 'row', 'done', 'wb', 'reason', 'reason_text',
+                                        'reason_disease', 'reason_link', 'reason_other', 'flag')}
         base['domain'] = spec.get('domain', 'lab')
         base['group'] = spec.get('group', spec['sheet'])
         if lay == 'long':
@@ -172,7 +202,20 @@ def findings(spec, books, M):
             f = dict(base)
             f.update({'test': str(it.get('test') or '').strip(), 'raw': None if raw is None else str(raw),
                       'value': to_num(raw), 'unit': it.get('unit'), 'lo': to_num(it.get('lo')), 'hi': to_num(it.get('hi')),
-                      'clin': it.get('clin'), 'desc': it.get('desc'), 'links': parse_links(it.get('link'))})
+                      'clin': it.get('clin'), 'desc': it.get('desc'), 'links': parse_links(it.get('link'), M.get('link_re'))})
+            for k in ('reason', 'reason_text', 'reason_disease', 'reason_link', 'reason_other'):
+                if it.get(k) not in (None, ''):          # 宽表逐指标原因列覆盖行级
+                    f[k] = it.get(k)
+            # CS 原因（mm4）：单选文本 reason（reason_map 归类）或复选框 reason_disease/reason_link/reason_other（是/否）
+            codes = []
+            if f.get('reason') not in (None, ''):
+                codes.append(reason_code(f['reason'], M.get('reason_map')))
+            for k, c in (('reason_disease', 'disease'), ('reason_link', 'link'), ('reason_other', 'other')):
+                if yes(f.pop(k, None)) and c not in codes:
+                    codes.append(c)
+            f['reason'] = '+'.join(c for c in codes if c) or None
+            if f['links'] and 'link' not in (f['reason'] or ''):
+                f['reason'] = '+'.join(filter(None, [f['reason'], 'link']))
             if not f['test']:
                 continue
             if isinstance(f['unit'], str) and re.match(r'^10\^?\d', f['unit']):

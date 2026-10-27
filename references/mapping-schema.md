@@ -21,18 +21,28 @@
 |---|---|
 | subjects（可多 sheet，按 sid 合并） | `sid`* `site` `center` `icf` `age` `sex` `ht` `wt` `bmi` `eth` `rand` `rand_d` `strat` `status` `fd` `ld` `eot_d` `eot_why` `eos_d` `eos_done` `eos_why` `cond` |
 | visits | `sid`* `visit`* `date`* |
-| exposure | `sid`* `visit` `start`* `end` `dose` `pause` |
+| exposure | `sid`* `visit` `start`* `end` `dose` `pause` ＋mm4：`time`（给药时刻）`route` `freq` `fast`（是否空腹）`qty`（实际用量，依从性） |
 | ae | `sid`* `no` `term`* `pt` `soc` `llt`（MedDRA 编码，AESI 按 PT/SOC 定义时必需）`start`* `end` `grade` `serious` `aesi` `rel` `action` `outcome` `cm` `withdraw` `dili` `aware`（获知日期）`rpt`（报告日期）|
 | mh | `sid`* `no` `term`* `start` `end` `ongoing` |
 | cm | `sid`* `no` `term`* `start` `end` `ongoing` `dose` `freq` `route` `indication` `ind_kind` |
 | proc | `sid`* `no` `term`* `start` `end` |
 | findings | `sid`* `visit` `date` `time` `tpt` `test`* `value`* `unit` `lo` `hi` `clin` `desc` `link` `done`；spec 级 `domain`(lab/vs/ecg/img/pe/exam/pk/ada…；lab/vs/ecg 以外的域自动成为个例页通用「专项检查」组，如妇科超声、眼科、影像) `group` `layout`(long/wide) `tests`(宽表) |
 | efficacy | `sid`* `visit` `date` `metric`* `value`* |
-| pd | `sid`* `cat` `desc` `date` |
+| pd | `sid`* `cat` `desc` `date` ＋`sub`（子类）`grade`（严重程度原文）`status` |
+| icf（mm4） | `sid`* `ver` `date`* |
+| sample（mm4） | `sid`* `visit` `tpt`（计划时间点）`date`* `time` `dose_date` `dose_time` `done` |
+| dispense（mm4，预留） | `sid`* `visit` `date` `disp` `ret` |
 | extq | `sid`* `form` `visit` `row` `text`* |
 | groups | `sid`* `grp` `strat` |
 
-\* 必需。`link`（检验页“关联 AE/MH”字段）支持 `AE+1+头痛`、`MH+4+贫血` 等写法（多条以 ; ， 、 或换行分隔），解析为 `[类型, 术语, _, 编号]`。
+\* 必需。`link`（检验页“关联 AE/MH”字段）支持 `AE+1+头痛`、`MH+4+贫血`、`病史-3 - 贫血 - 2020-01-01`、`不良事件-2 - 头痛 - 日期`、`AE 3` 等写法
+（多条以 ; ， 、 换行或连续空格分隔），解析为 `[类型, 术语, _, 编号]`；特殊写法用 mapping 级 `link_re`（命名组 type/no/term）。
+findings 另可映射 `reason`（CS 原因单选文本，mapping 级 `reason_map: [[正则, disease|link|other]]` 覆盖默认归类）、`reason_text`，
+或复选框 `reason_disease` / `reason_link` / `reason_other`（是/否）；宽表 tests 内同名键逐指标覆盖。
+
+**列引用**：变量名 / 中文标签 / 列序号（int）；同名列用 `"名称#2"` 取第 2 次出现。
+**行过滤**：spec `filter` 可为对象或数组（`eq` / `not` / `not_re`）；mapping 级 `row_filter` 对所有含该列的 sheet 生效，
+如 EDC 差异导出的已删除行：`"row_filter": [{"col": "Flag", "not_re": "^Deleted$"}]`。
 
 ## 宽表 tests
 ```json
