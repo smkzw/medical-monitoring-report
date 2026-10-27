@@ -552,8 +552,8 @@ def build_labrows(C):
                         risk = 'DIS'
                         ctx.append(f'研究疾病表现（{nm}）：较基线未进一步加重，按疾病表现处理（不发 query）')
             t_base = float(C.cfg['thresholds'].get('base', 0.3))
-            if risk == 'CSX' and all(ext_rules.judgment_only(C, r, rows, t_base) for r in cs_pts):
-                risk = 'CSI'                             # 用户 2026-10-27：相近数值一次 NCS 一次 CS 属判定不一致（另发一致性 query），不按潜在 AE 漏记
+            if risk == 'CSX' and not any(c.startswith('同期 AE') for c in ctx) and all(ext_rules.judgment_only(C, r, rows, t_base) for r in cs_pts):
+                risk = 'CSI'                             # 用户 2026-10-27：相近数值一次 NCS 一次 CS 属判定不一致（另发一致性 query），不按潜在 AE 漏记；有同期疑似 AE 时仍请关联
                 ctx.append('CS 与相近结果的 NCS 判定不一致：另发「临床意义判定不一致」query，不按潜在 AE 漏记处理')
             if risk == 'CSX' and any('link' in (r.get('reason') or '') for r in cs_pts):
                 ctx.append('原因选择「病史/不良事件」但未关联编号')
