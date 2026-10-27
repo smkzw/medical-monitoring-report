@@ -282,10 +282,16 @@ def m19_ae_ex(C):
                     f"给药记录 {e.get('visit') or ''}（{e.get('start')}）「{why}」，不良事件页未见同期（±{w} 天）采取措施为暂停/停药的记录",
                     e.get('visit'), e.get('start'), e.get('sheet', ''), e.get('row'), '',
                     rule={'ask': '请核实并补充或更正。'}, bkey=f"{e.get('start')}|{why}", wb=e.get('wb') or '')
+        # 给药记录里的「中断」：暂停原因文本、剂量为 0 的给药区间、相邻区间之间的空档；永久停药看末次给药日期
+        stops = [e.get('start') for e in exp if act_re.search(str(e.get('pause') or '')) or
+                 any(str(e.get(k)).strip() in ('0', '0.0') for k in ('dose_act', 'qty') if e.get(k) not in (None, ''))]
+        iv = sorted((e['start'], e.get('end') or e['start']) for e in exp if is_full_date(e.get('start')))
+        stops += [prev[1] for prev, nxt in zip(iv, iv[1:]) if is_full_date(prev[1]) and (days(nxt[0], prev[1]) or 0) > 1]
+        last = max((x[1] for x in iv if is_full_date(x[1])), default=None)
         for a in C.ae_by[sid]:                          # ② AE 措施=停药/暂停但给药记录无中断
             if not act_re.search(str(a.get('act') or '')):
                 continue
-            if any(act_re.search(str(e.get('pause') or '')) and near(e.get('start'), a.get('s')) for e in exp):
+            if any(near(d, a.get('s')) for d in stops) or (re.search(r'永久|停药|停用', str(a.get('act'))) and near(last, a.get('s'))):
                 continue
             add_ext(C, sid, 'AE与给药记录一致性核对', 'M19', 3,
                     f"AE「{a['t']}」（{a['s']}）采取措施「{a['act']}」，给药记录未见同期（±{w} 天）中断/暂停",

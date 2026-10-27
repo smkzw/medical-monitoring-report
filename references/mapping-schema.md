@@ -19,14 +19,14 @@
 
 | 域 | 字段 |
 |---|---|
-| subjects（可多 sheet，按 sid 合并） | `sid`* `site` `center` `icf` `age` `sex` `ht` `wt` `bmi` `eth` `rand` `rand_d` `strat` `status` `fd` `ld` `eot_d` `eot_why` `eos_d` `eos_done` `eos_why` `cond` |
+| subjects（可多 sheet，按 sid 合并） | `sid`* `site` `center` `icf` `age` `sex` `ht` `wt` `bmi` `eth` `rand` `rand_d` `strat` `status` `fd` `ld` `eot_d` `eot_why` `eos_d` `eos_done` `eos_why` `cond` ＋mm4：`rescreen`（是否重复筛选）`prev_sid`（首次筛选编号）|
 | visits | `sid`* `visit`* `date`* |
-| exposure | `sid`* `visit` `start`* `end` `dose` `pause` ＋mm4：`time`（给药时刻）`route` `freq` `fast`（是否空腹）`qty`（实际用量，依从性） |
+| exposure | `sid`* `visit` `start`* `end` `dose` `pause` ＋mm4：`time`（给药时刻）`route` `freq` `fast`（是否空腹）`qty`（实际用量，依从性）；剂量制记录用 `dose_plan`（每日计划剂量）`dose_act`（每日实际剂量）`miss_qty`/`extra_qty`（漏服/多服总剂量，只在无法给出具体日期时计）；实际剂量为 0 的区间视为暂停，不算首/末次给药 |
 | ae | `sid`* `no` `term`* `pt` `soc` `llt`（MedDRA 编码，AESI 按 PT/SOC 定义时必需）`start`* `end` `grade` `serious` `aesi` `rel` `action` `outcome` `cm` `withdraw` `dili` `aware`（获知日期）`rpt`（报告日期）|
 | mh | `sid`* `no` `term`* `start` `end` `ongoing` |
 | cm | `sid`* `no` `term`* `start` `end` `ongoing` `dose` `freq` `route` `indication` `ind_kind` |
 | proc | `sid`* `no` `term`* `start` `end` |
-| findings | `sid`* `visit` `date` `time` `tpt` `test`* `value`* `unit` `lo` `hi` `clin` `desc` `link` `done`；spec 级 `domain`(lab/vs/ecg/img/pe/exam/pk/ada…；lab/vs/ecg 以外的域自动成为个例页通用「专项检查」组，如妇科超声、眼科、影像) `group` `layout`(long/wide) `tests`(宽表) |
+| findings | `sid`* `visit` `date` `time` `tpt` `test`* `value`* `unit` `lo` `hi` `clin` `desc` `link` `link_mh` `link_ae`（按类型分列的关联编号列，取值如「003>窦性心动过缓>2026-07-07」）`done`；spec 级 `domain`(lab/vs/ecg/img/pe/exam/pk/ada…；lab/vs/ecg 以外的域自动成为个例页通用「专项检查」组，如妇科超声、眼科、影像) `group` `layout`(long/wide) `tests`(宽表) |
 | efficacy | `sid`* `visit` `date` `metric`* `value`* |
 | pd | `sid`* `cat` `desc` `date` ＋`sub`（子类）`grade`（严重程度原文）`status` |
 | icf（mm4） | `sid`* `ver` `date`* |
@@ -40,7 +40,7 @@
 findings 另可映射 `reason`（CS 原因单选文本，mapping 级 `reason_map: [[正则, disease|link|other]]` 覆盖默认归类）、`reason_text`，
 或复选框 `reason_disease` / `reason_link` / `reason_other`（是/否）；宽表 tests 内同名键逐指标覆盖。
 
-**列引用**：变量名 / 中文标签 / 列序号（int）；同名列用 `"名称#2"` 取第 2 次出现。
+**列引用**：变量名 / 中文标签 / 列序号（int）；同名列用 `"名称#2"` 取第 2 次出现。单行表头写成「不良事件名称(AETERM)」时，括号内变量名或括号前标签均可引用。
 **行过滤**：spec `filter` 可为对象或数组（`eq` / `not` / `not_re`）；mapping 级 `row_filter` 对所有含该列的 sheet 生效，
 如 EDC 差异导出的已删除行：`"row_filter": [{"col": "Flag", "not_re": "^Deleted$"}]`。
 

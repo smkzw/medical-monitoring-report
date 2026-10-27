@@ -17,7 +17,7 @@ from pathlib import Path
 import ctcae
 import ext_rules
 import pd_rules
-from common import days, dump_json, fmt, is_full_date, load_json, quantile, study_day
+from common import days, dump_json, fmt, is_full_date, load_json, quantile, study_day, zero_dose
 
 AGG_EXCL = set()
 
@@ -152,6 +152,10 @@ def _vkey(code):
     return frozenset(re.findall(r'[A-Z]+\d+', str(code or '').upper()))
 
 
+_VCLASS = [re.compile(r'筛选|screen|^SCR$|^[WD]\s*-\s*\d', re.I), re.compile(r'提前|退出|^ET$|early', re.I),
+           re.compile(r'计划外|^USV$|unsched', re.I)]
+
+
 def align_visit_codes(C):
     """mm4：方案写「V6/W4/D29」、EDC 导出写「W4/D29V6」——同一组访视标记（字母＋数字）视为同一访视，把配置里的访视代码改写成
     listing 实际写法（visitWindows、visits.order/d1/unsched/early、soa、pd 关键访视与顺序规则）。只在 listing 中恰有一个同组标记时改写。"""
@@ -170,6 +174,12 @@ def align_visit_codes(C):
         if k and len(hit) == 1:
             amap[c] = next(iter(hit))
             return amap[c]
+        for rx in _VCLASS:                                # 再按访视类别（筛选 / 提前退出 / 计划外）唯一匹配：「W-4~W-1」↔ SCR
+            if rx.search(c):
+                hit = {v for v in L if rx.search(v)}
+                if len(hit) == 1:
+                    amap[c] = next(iter(hit))
+                    return amap[c]
         return c
     vis = C.cfg.get('visits') or {}
     for k in ('order', 'unsched', 'early'):
@@ -189,6 +199,8 @@ def align_visit_codes(C):
     for o in P.get('order') or []:
         if o.get('visits'):
             o['visits'] = [m(x) for x in o['visits']]
+    for x in (P.get('sample') or {}).get('windows') or []:
+        x['visit'] = m(x.get('visit'))
     C.visitAlias = amap
 
 
@@ -208,7 +220,7 @@ def build_subjects(C):
     C.subj = {}
     for s in sorted(C.subjects, key=lambda x: x['sid']):
         sid = s['sid']
-        e = sorted([x for x in ex[sid] if is_full_date(x.get('start'))], key=lambda x: x['start'])
+        e = sorted([x for x in ex[sid] if is_full_date(x.get('start')) and not zero_dose(x)], key=lambda x: x['start'])   # 0 剂量区间不算首/末次给药
         fd = e[0]['start'] if e else s.get('fd')
         ld = max([x.get('end') or x['start'] for x in e if is_full_date(x.get('end') or x['start'])], default=None) if e else s.get('ld')
         st = s.get('status')
@@ -521,6 +533,10 @@ def build_labrows(C):
             risk = 'AE' if has_ae else 'NCS'
         if unassessed and risk != 'AE':
             ctx.append('临床意义未评价')
+        if risk in ('CSX', 'MH', 'NCS2', 'NA', 'NA2'):   # mm4：方案/IB 列出的研究疾病表现 → 审阅时可见
+            ibg = next((b for a, b in (C.A.get('indicationBackground') or []) if re.search(a, mid)), None)
+            if ibg:
+                ctx.append('可能为研究疾病表现：' + re.sub(r'（医学常识）$', '', str(ibg).split('：')[0]))
         if not C.G.has(C.cmap.get(mid)):
             ctx.append(f'无{C.GL}数值条目：不能仅凭数值分级')
         elif C.metric[mid].get('unitIssue'):
@@ -672,7 +688,8 @@ def threshold_rules(C):
                 on = R.get('on', 'val')
                 x = {'val': r.get('value'), 'chg': r.get('chg'), 'pct': r.get('pct'),
                      'uln': (r['value'] / r['hi']) if r.get('value') is not None and r.get('hi') else None,
-                     'lln': (r['value'] / r['lo']) if r.get('value') is not None and r.get('lo') else None}.get(on)
+                     'lln': (r['value'] / r['lo']) if r.get('value') is not None and r.get('lo') else None,
+                     'grade': r.get('grade')}.get(on)                    # mm4：方案按 CTCAE 级别定义的阈值（如 3 级血细胞减少）
                 if not cmp(R.get('op', '>='), x, R['v']):
                     continue
                 if R.get('once') and (sid, R['id']) in seen:
@@ -850,9 +867,16 @@ def overlap(c, a, b):
     return s <= (b or '9999') and e >= (a or '0000')
 
 
+_TOPICAL = re.compile(r'外用|局部|皮肤|软膏|乳膏|霜|凝胶|洗剂|搽剂|酊|贴|滴眼|滴鼻|吸入|喷雾|topical|cream|ointment|gel|lotion', re.I)
+_SYSTEMIC = re.compile(r'系统|全身|口服|静脉|注射|systemic', re.I)
+
+
 def cm_checks(C):
+    rescue = (C.A.get('pd') or {}).get('rescue') or {}
+    rescue_re = re.compile(r'补救|rescue', re.I)
     for P in C.A.get('prohibited', []):  # {"name","re","window":[daysBeforeFd, 'ld'|daysAfterFd], "pr"}
         pre = re.compile(P['re'], re.I)
+        systemic_only = bool(_SYSTEMIC.search(P.get('name') or '')) and not _TOPICAL.search(P.get('name') or '')
         for sid in C.pop:
             s = C.subj[sid]
             if not s['fd']:
@@ -862,6 +886,11 @@ def cm_checks(C):
             b = (dt.date.fromisoformat(s['ld']) + dt.timedelta(days=P.get('daysAfter', 0))).isoformat() if is_full_date(s['ld']) else s['lo']
             for c in C.cm_by[sid]:
                 if pre.search(c['t']) and overlap(c, a, b):
+                    # 「系统治疗」类禁用药不匹配外用/局部给药；按方案作为补救治疗使用的由补救规则（CM-02/03）核查，不按禁用药报
+                    if systemic_only and (_TOPICAL.search(c.get('rt') or '') or _TOPICAL.search(c['t'])):
+                        continue
+                    if rescue and rescue_re.search(c.get('why') or '') and (not is_full_date(c['s']) or c['s'] >= s['fd']):
+                        continue
                     add_other(C, sid, P.get('cat', '禁限用药核对'), P.get('pr', 4),
                               f"CM「{c['t']}」（{c['s'] or '?'}~{'持续' if c['ong'] else c['e'] or '?'}）属于{P['name']}，与{('首剂前 %d 天至' % w0) if w0 else ''}治疗期重叠；用药原因：{c['why'] or '—'}",
                               None, c['s'], c['sh'], c['row'], c['t'], ctx=[P.get('note', '')] if P.get('note') else [],
@@ -1022,6 +1051,8 @@ QT = {  # default query wording (Chinese, fact first, then the ask). Override in
             '请核实该异常是否应记录为不良事件；如判断为既往疾病延续，请在病史中补充并关联；如判定有误请更正临床意义评价。'),
     'MH': ('CS仅关联病史·加重核对', '{visit}（{date}）{test} {raw} {unit}，研究者判定「异常有临床意义」，仅关联病史「{mh}」；基线（{bvis}）为 {braw}{unit}。',
            '请评估给药后是否较基线加重；如属加重，请记录为不良事件并关联。'),
+    'CSX_DIS': ('CS未关联·疑似研究疾病表现', '{visit}（{date}）{test} {raw} {unit}（参考范围 {rng}{gtxt}），研究者判定「异常有临床意义」，但未关联不良事件或病史，也未注明原因；该异常可见于研究疾病（{bg}）。',
+                '请确认临床意义的原因：如属研究疾病表现，请在原因中注明并关联相应病史；如判断为给药后新发或加重，请记录为不良事件并关联；如判定有误请更正临床意义评价。'),
     'CSX_AE': ('CS未关联·同期疑似AE', '{visit}（{date}）{test} {raw} {unit}（参考范围 {rng}{gtxt}），研究者判定「异常有临床意义」；同期已记录 {cand}，但该检查记录未关联。',
                '请确认两者是否为同一事件；如是，请在该记录的关联字段中关联该 AE（如表单无关联字段，请在异常描述中注明 AE 编号）；如否，请评估是否需另行记录不良事件。'),
     'NCS2': ('NCS但达分级≥2级', '{visit}（{date}）{test} {raw} {unit}，按 {gl} 数值达 {grade} 级（{gterm}），研究者判定「异常无临床意义」。',
@@ -1109,6 +1140,7 @@ def build_queries(C):
             src['cro'] = cro
         return q
 
+    ind_bg = [(re.compile(a), str(b or '')) for a, b in (C.A.get('indicationBackground') or [])]
     for g in C.labrows:
         if g['risk'] not in risks:
             continue
@@ -1116,9 +1148,13 @@ def build_queries(C):
             continue
         cat, ft, ask = T[g['risk']]
         cand = [c for c in g['ctx'] if c.startswith('同期 AE')]
+        bg = next((b for rx, b in ind_bg if rx.search(g.get('mid') or '')), None) if g['risk'] == 'CSX' else None
         if g['risk'] == 'CSX' and cand:  # a plausible AE exists but the finding is not linked → ask to link instead of "report AE"
             cat, ft, ask = T.get('CSX_AE', T['CSX'])
             ft = ft.replace('{cand}', '；'.join(re.sub(r'可能对应，但检验页未关联', '', c).replace('同期 ', '') for c in cand))
+        elif bg:                         # mm4：方案/IB 列出的研究疾病表现（indicationBackground）→ 请研究者注明原因，而不是只问是否记 AE
+            cat, ft, ask = T.get('CSX_DIS', T['CSX'])
+            ft = ft.replace('{bg}', re.sub(r'（医学常识）$', '', bg.split('：')[0]))
         P = [p for p in g['pts'] if (g['risk'] in ('NCS2', 'NA2') and (p[4] or 0) >= 2) or (g['risk'] not in ('NCS2', 'NA2') and p[5] == 2)] or g['pts']
         p = P[0]
         f = next((r for r in C.F[(g['sid'], g['mid'])] if r['sheet'] == p[7] and r['row'] == p[8]), {})

@@ -63,7 +63,7 @@ mm4 新增：`calibers:[[主题, 采用口径, 状态, 规则id, 说明]]`（关
 - `extFlagPct`（50）：变化幅度红色高亮阈值。
 
 **规则信号**
-- `thresholdRules`：`[{id, metric(正则), on:val|chg|pct|uln|lln, op, v, label, cat, pr, aesi, expectAE(正则), window, visits, post(true), once, sum(模板), ask, query, qcat, lane, level}]`；
+- `thresholdRules`：`[{id, metric(正则), on:val|chg|pct|uln|lln|grade, op, v, label, cat, pr, aesi, expectAE(正则), window, visits, post(true), once, sum(模板), ask, query, qcat, lane, level}]`；
   `sum` 可用 `{test} {value} {unit} {visit} {date} {thr} {base} {chg} {pct} {uln} {lln}`。
 - `comboRules`：多指标组合（如 Hy’s law）`[{id, name, all:[{metric, on:val|uln|lln|chg|pct|grade, op, v}], none:[…], window:0(同日), aesi, expectAE, aeWindow(30), pr, cat, sum, ask, once}]`。
 - `prohibited`：`[{name, re, daysBefore, daysAfter, pr(4), cat, note}]` 与首剂前 N 天至末次给药后 M 天重叠。

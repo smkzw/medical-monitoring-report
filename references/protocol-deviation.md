@@ -54,19 +54,19 @@
 | ASMT-03 | 访视内先后顺序违背 | 一般 | 同一宽表行只计一次 | `pd.order`＋时刻字段 |
 | IP-01 | 途径/频次与方案不符 | 待判定 | — | `pd.dosing` |
 | IP-02 | 终止治疗/研究结束/妊娠阳性后仍给药 | 重要 | 区间型给药记录取结束日期 | 给药＋治疗结束 |
-| IP-03 | 依从性超出方案范围 | 重要 | 累计 ≥ `minDays` 才评估；范围内但非 100% 不报（避免每例一条） | `pd.compliance`＋`exposure.qty` |
+| IP-03 | 依从性超出方案范围 | 重要 | 累计 ≥ `minDays` 才评估；范围内但非 100% 不报（避免每例一条）；只计治疗结束日期前的区间；剂量制记录按 Σ实际/Σ计划 计 | `pd.compliance`＋`exposure.qty` 或 `dose_plan/dose_act` |
 | IP-04 | 非空腹给药 | 一般 | — | `pd.fasting`＋`exposure.fast` |
 | SAMP-01 | 给药前样本晚于给药 | 重要 | PK 谷浓度不可用 | `domains.sample` 时刻＋给药时刻 |
-| SAMP-02 | 给药后样本超窗 | 一般 | 时点标签自带窗口（「4h±30min」）优先，其次 `pd.sample.windowMin`；方案允许超窗采样时可在 `pd.grades` 改为待判定 | `pd.sample.windowMin` |
+| SAMP-02 | 样本采集超出时间窗 | 一般 | 给药后样本偏离计划时点超窗，或「给药前 N 小时内」样本早于窗口；时点标签自带窗口（「4h±30min」）优先，其次 `pd.sample.windows`（方案按访视×计划时点编译，同一时点多种人群口径取较宽者），再次 `windowMin`；方案未给窗口的时点不推断 | `pd.sample.windows` |
 | CM-01 | 禁用药 | 待判定 | `prohibited[].important` 的类别 → 重要 | `analysis.prohibited` |
 | CM-02 | 补救早于允许时间 | 重要 | — | `pd.rescue.earliestDay` |
 | CM-03 | 补救后未按要求停药 | 重要 | — | `pd.rescue.stopRequired` |
 | SAFE-01 | 潜在 AE 漏记（CSX / DISW / 病史加重） | 待判定 | 数值 ≥3 级 → 重要；经确认未记录才构成 PD | labrows |
 | SAFE-02 | SAE/AESI 报告超时 | 重要 | — | `analysis.reportRules`＋获知/报告日期 |
 | SAFE-03 | 方案阈值事件未见对应 AE | 待判定 | — | `thresholdRules[].expectAE` |
-| WD-01 | 达到停药标准仍给药 | 重要 | — | `thresholdRules[].stop` |
+| WD-01 | 达到停药标准仍给药 | 重要 | 停药标准带前提（复测确认、与研究药物相关、恢复给药后再次出现）→ 待判定，依据写明前提（`thresholdRules[].stopCond`） | `thresholdRules[].stop` |
 
-`analysis.pd.grades = {规则: 分级}` 可整体覆盖默认分级（例如把本研究 PD 界定表的「严重/轻微」落进来）。缺配置的规则不运行，
+`analysis.pd.grades = {规则: 分级}` 可整体覆盖默认分级（例如把本研究 PD 界定表的「严重/轻微」落进来），`analysis.pd.gradeBasis = {规则: 界定表条目}` 写进每条的分级依据。优先级：个案判定（关键访视升级、例外条款/重复筛选/带前提停药标准降为待判定）＞ 本研究 PD 界定表 ＞ 规则默认。ICF-01 遇重复筛选（`rescreen`/`prev_sid`）降为待判定。缺配置的规则不运行，
 `KZ.pd.rules[].state = unconfigured`（页面「检查规则与覆盖」可见），不猜。
 
 ## 5. 只能经源文件核查 / 外部系统确认（页面如实标注，不从 listing 推断）

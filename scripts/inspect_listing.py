@@ -28,27 +28,32 @@ DOMAIN_RE = [  # (domain, sheet-name/label regex)
     ('ae', r'^(AE|不良事件)'), ('mh', r'^(MH|病史|既往史|现病史)'), ('cm', r'^(CM|合并用药|既往用药|伴随用药)'), ('proc', r'^(PR|手术|操作|非药物治疗)'),
     ('findings:lab', r'^(LB|血常规|血生化|生化|尿常规|凝血|实验室|甲功|血脂|肝功|肾功|电解质|妊娠|HEMA|CHEM|URIN|COAG)'),
     ('findings:vs', r'^(VS|生命体征)'),
-    ('efficacy', r'^(QS|EFF|RS|TU|TR|量表|评分|疗效|有效性|问卷|日记)'), ('pd', r'^(DV|PD|方案偏离|偏离)'), ('extq', r'(质疑|QUERY|Query|query|^CROQ|^DCF|^EDCQ)'),
+    ('efficacy', r'^(QS|EFF|RS|TU|TR|量表|评分|疗效|有效性|问卷|日记)'), ('pd', r'^(DV|PD|方案偏离|偏离|违背)'), ('extq', r'(质疑|QUERY|Query|query|^CROQ|^DCF|^EDCQ)'),
     ('pk', r'^(PK|PC|药代|血药浓度|采样)'), ('ada', r'^(ADA|IS|免疫原性|抗药抗体)'),
 ]
 FIELD_SYN = {  # normalized field → variable/label patterns (first match wins)
     'sid': [r'^(SUBJID|USUBJID|SUBJECT|受试者(编号|号|代码)?|筛选号|病例号)$'], 'site': [r'^(SITEID|SITENO|中心(编号|号)?)$'], 'center': [r'^(SITENAME|中心名称|研究中心)$'],
-    'visit': [r'^(VISIT|VISITNAME|FOLDERNAME|访视(名称)?|访视阶段)$'], 'date': [r'(DAT|DTC|日期)$'], 'tpt': [r'(TPT|时间点)$'],
-    'icf': [r'(ICFDAT|知情同意.*日期)'], 'eot_d': [r'(EOTDAT|DSSTDAT|治疗结束.*日期|退出.*日期)'], 'eot_why': [r'(EOTREAS|DSDECOD|DSTERM|退出原因|终止原因|未完成原因)'], 'eos_d': [r'(EOSDAT|研究结束.*日期)'], 'eos_done': [r'(EOSCOMP|是否完成)'], 'eos_why': [r'(EOSREAS|研究结束原因)'], 'age': [r'^(AGE|年龄)'], 'sex': [r'^(SEX|性别)'], 'rand': [r'(RANDNO|随机号)'], 'ht': [r'(HEIGHT|身高)'], 'wt': [r'^(WEIGHT|体重)'],
+    'visit': [r'^(VISIT|VISITNAME|FOLDERNAME|访视(名称)?|访视阶段)$', r'^(数据节|FOLDER)$'], 'date': [r'(DAT|DTC|日期)$'], 'tpt': [r'(TPT|时间点)$'],
+    'time': [r'(TIM|TIME|时间)$'],
+    'icf': [r'^(DSICDAT|ICFDAT)$', r'知情同意书?签署日期'], 'rescreen': [r'(RSCRYN|是否.{0,3}重复筛选|是否.{0,3}重新筛选)'], 'prev_sid': [r'(首次筛选.{0,6}编号|DSSUBJID)'], 'eot_d': [r'(EOTDAT|末次(给药|服药)日期|治疗结束.*日期|终止治疗.*日期)'], 'eot_why': [r'(EOTREAS|终止治疗.*原因|治疗结束.*原因)', r'(DSDECOD|DSTERM|退出原因|终止原因|未完成原因)'],
+    'eos_d': [r'(EOSDAT|DSSTDAT|研究结束.*日期|完成/?退出日期|退出(研究|试验)?日期)'], 'eos_done': [r'(EOSCOMP|DSCOMYN|是否完成)'], 'eos_why': [r'(EOSREAS|DSREAS|研究结束原因|未完成.*原因)'], 'age': [r'^(AGE|年龄)'], 'sex': [r'^(SEX|性别)'], 'rand': [r'(RANDNO|随机号)'], 'ht': [r'(HEIGHT|身高)'], 'wt': [r'^(WEIGHT|体重)'],
     'term': [r'(AETERM|MHTERM|CMTRT|PRTRT|DVTERM|名称$|术语|偏离描述|事件描述)'], 'start': [r'(STDAT|STDTC|开始日期|起始日期)'], 'end': [r'(ENDAT|ENDTC|结束日期|停止日期)'],
-    'ongoing': [r'(ONGO|是否持续|仍在)'], 'grade': [r'(TOXGR|SEV|严重程度|分级|CTCAE)'], 'serious': [r'^(AESER|是否SAE|是否.*严重不良事件|严重不良事件)$', r'(AESER|是否SAE)'],
+    'ongoing': [r'(ONGO|是否持续|仍在)'], 'grade': [r'(TOXGR|SEV|严重程度|分级|CTCAE)'], 'serious': [r'^(AESERYN|是否SAE)$', r'^是否(为)?严重不良事件', r'^(AESER|严重不良事件)$', r'(AESER|是否SAE)'], 'fast': [r'(FAST$|是否.{0,4}空腹)'],
     'pt': [r'(AEDECOD|AEPT|首选术语|^PT(名称)?$)'], 'soc': [r'(AESOC|AEBODSYS|系统器官分类|^SOC)'], 'llt': [r'(AELLT|低位语|^LLT)'],
     'aware': [r'(AWARE|获知日期|知晓日期)'], 'rpt': [r'(RPTDAT|SAERPT|报告日期|上报日期)'], 'aesi': [r'(AESI|特别关注)'],
     'rel': [r'(AEREL|与研究药物.*关|相关性|因果)'], 'action': [r'(AEACN|采取.*措施|对研究药物.*措施)'], 'outcome': [r'(AEOUT|转归)'],
-    'dose': [r'(DOSE$|DOSTXT|剂量$|单次剂量)'], 'freq': [r'(FRQ|FREQ|频次|频率)'], 'route': [r'(ROUTE|途径)'], 'indication': [r'(INDC|用药原因|适应症)'],
-    'test': [r'^(LBTEST|VSTEST|EGTEST|QSTEST|检查项(目)?|项目名称|指标)$'], 'value': [r'(ORRES$|STRESN|结果$|测量值|检测值)'], 'unit': [r'(ORRESU|STRESU|单位)'],
-    'lo': [r'(NRLO|下限)'], 'hi': [r'(NRHI|上限)'], 'clin': [r'(CLSIG|临床意义)'], 'link': [r'(病史/不良事件|关联|LINK)'], 'desc': [r'(异常描述|DESC)'],
+    'dose_plan': [r'(PDOSE$|计划.{0,4}剂量)'], 'dose_act': [r'(ADOSE$|实际.{0,4}剂量)'], 'miss_qty': [r'(LMNUM$|漏服.{0,4}剂量)'],
+    'extra_qty': [r'(MMNUM$|多服.{0,4}剂量)'], 'dose': [r'(DOSE$|DOSTXT|剂量$|单次剂量)'], 'freq': [r'(FRQ|FREQ|频次|频率)'], 'route': [r'(ROUTE|途径)'], 'indication': [r'(INDC|用药原因|适应症)'],
+    'test': [r'^(LBTEST|VSTEST|EGTEST|QSTEST|检查项(目)?|项目名称|指标|(实验室)?指标名称)$'], 'value': [r'(ORRES$|STRESN|结果$|测量值|检测值)'], 'unit': [r'(ORRESU|STRESU|单位)'],
+    'lo': [r'(NRLO|下限)'], 'hi': [r'(NRHI|上限)'], 'clin': [r'(CLSIG|临床意义|临床评估)'], 'link': [r'(病史/不良事件|关联|LINK|^动态链接$)'], 'desc': [r'(异常描述|DESC)'],
+    'link_mh': [r'(MHNO$|相关(既往)?病史)'], 'link_ae': [r'(AENO$|相关不良事件)'], 'reason_disease': [r'与研究疾病相关'],
     'cat': [r'(DVCAT|偏离(类别|分类))'], 'text': [r'(质疑内容|QUERYTEXT|TEXT)'], 'form': [r'^(FORM|表单|CRF页)'],
 }
-DOMAIN_FIELDS = {'subjects': ['sid', 'site', 'center', 'icf', 'age', 'sex', 'ht', 'wt', 'rand', 'eot_d', 'eot_why', 'eos_d', 'eos_done', 'eos_why'], 'visits': ['sid', 'visit', 'date'],
-                 'exposure': ['sid', 'visit', 'start', 'end', 'dose'], 'ae': ['sid', 'term', 'pt', 'soc', 'llt', 'start', 'end', 'grade', 'serious', 'aesi', 'rel', 'action', 'outcome', 'aware', 'rpt'],
+DOMAIN_FIELDS = {'subjects': ['sid', 'site', 'center', 'icf', 'rescreen', 'prev_sid', 'age', 'sex', 'ht', 'wt', 'rand', 'eot_d', 'eot_why', 'eos_d', 'eos_done', 'eos_why'], 'visits': ['sid', 'visit', 'date'],
+                 'exposure': ['sid', 'visit', 'start', 'end', 'dose_plan', 'dose_act', 'miss_qty', 'extra_qty', 'dose', 'time', 'fast'], 'ae': ['sid', 'term', 'pt', 'soc', 'llt', 'start', 'end', 'grade', 'serious', 'aesi', 'rel', 'action', 'outcome', 'aware', 'rpt'],
                  'mh': ['sid', 'term', 'start', 'end', 'ongoing'], 'cm': ['sid', 'term', 'start', 'end', 'ongoing', 'dose', 'freq', 'route', 'indication'],
-                 'proc': ['sid', 'term', 'start', 'end'], 'findings': ['sid', 'visit', 'date', 'tpt', 'test', 'value', 'unit', 'lo', 'hi', 'clin', 'desc', 'link'],
+                 'proc': ['sid', 'term', 'start', 'end'], 'findings': ['sid', 'visit', 'date', 'time', 'tpt', 'test', 'value', 'unit', 'lo', 'hi', 'clin', 'desc', 'link',
+                                                                    'link_mh', 'link_ae', 'reason_disease'], 'sample': ['sid', 'visit', 'tpt', 'date', 'time'],
                  'efficacy': ['sid', 'visit', 'date', 'test', 'value'], 'pd': ['sid', 'cat', 'term', 'date'], 'extq': ['sid', 'form', 'visit', 'text'],
                  'pk': ['sid', 'visit', 'date', 'tpt', 'value'], 'ada': ['sid', 'visit', 'date', 'value']}
 
@@ -70,9 +75,25 @@ def header_rows(rows):
     return 1, 0, 2
 
 
+# EDC 导出的系统元数据列（每张表都有、不是业务内容）：只允许映射到指定字段，其余字段一律跳过
+#（否则「试验中心名称」会被当成 AE 术语、「最后修改时间」当成采样时刻、「Instance顺序号」当成记录编号）
+SYS_META = {'项目编号': None, '表单编号': None, '姓名缩写': None, '受试者状态': None, 'Instance顺序号': None, '数据块': None,
+            'Block顺序号': None, '数据页': None, '最后修改时间': None, '行号': None, '数据节': 'visit', '试验中心编号': 'site',
+            '试验中心名称': 'center', '动态链接': 'link'}
+LABEL_VAR = re.compile(r'(.+?)\s*[（(]([A-Z][A-Z0-9_]{1,19})[)）]')
+
+
+def split_label(lab, var):
+    """单行表头「不良事件名称(AETERM)」→（不良事件名称, AETERM）；已有变量名行时不拆。"""
+    m = LABEL_VAR.fullmatch(lab or '') if not var else None
+    return (m.group(1), m.group(2)) if m else (lab, var)
+
+
 def guess(names, field):
     for pat in FIELD_SYN.get(field, []):
         for i, (lab, var) in enumerate(names):
+            if lab in SYS_META and SYS_META[lab] != field:
+                continue
             if (var and re.search(pat, var)) or (lab and re.search(pat, lab)):
                 return var or lab
     return None
@@ -99,9 +120,14 @@ def main():
             lr, vr, ds = header_rows(rows)
             labels = [str(x).strip() if x is not None else '' for x in rows[lr - 1]]
             vars_ = [str(x).strip() if x is not None else '' for x in rows[vr - 1]] if vr else [''] * len(labels)
-            names = list(zip(labels + [''] * (len(vars_) - len(labels)), vars_ + [''] * (len(labels) - len(vars_))))
+            names = [split_label(a, b) for a, b in zip(labels + [''] * (len(vars_) - len(labels)), vars_ + [''] * (len(labels) - len(vars_)))]
             data = [r for r in rows[ds - 1:] if any(c not in (None, '') for c in r)]
             dom = next((d for d, rx in DOMAIN_RE if re.search(rx, ws.title) or re.search(rx, labels[0] if labels else '')), None)
+            hdr = ' '.join(labels)
+            if dom == 'pd' and not re.search(r'偏离|违背|deviation|DVTERM|DVCAT', hdr, re.I):
+                dom = None                                   # 表名 PD 但不是方案偏离（如药效学 PD 样本）
+            if dom in (None, 'pk', 'pd') and re.search(r'采血|采样|样本采集', hdr) and re.search(r'时间点|TPT|(采血|采样)时间', hdr) and not re.search(r'结果|浓度|ORRES|偏离|违背', hdr):
+                dom = 'sample'                               # 只有计划时间点/实际采集时刻、没有结果 → 样本采集记录（PD 执行层面核查用）
             sidc = guess(names, 'sid')
             testc = guess(names, 'test')
             lay = 'long' if testc else 'wide'

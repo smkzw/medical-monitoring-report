@@ -69,6 +69,18 @@ def to_num(v):
     return None
 
 
+def zero_dose(e):
+    """给药记录的实际剂量/数量明确为 0（暂停或停药后的占位区间）→ 不算给药。"""
+    for k in ('dose_act', 'qty'):
+        v = e.get(k)
+        if v not in (None, ''):
+            try:
+                return float(str(v).strip()) == 0
+            except ValueError:
+                return False
+    return False
+
+
 def yes(v):
     if v is None:
         return False
@@ -112,6 +124,26 @@ LINK_RE = re.compile(r'(AE|MH)\s*[+＋_\-]\s*(\d+)\s*[+＋_\-]?\s*(.*)', re.I)
 LINK_START = re.compile(r'(?<![A-Za-z一-鿿])(AE|MH|CM|不良事件|既往病史|既往史|病史|合并用药)\s*[+＋_\-－#＃：:]?\s*(\d+)', re.I)
 LINK_TYPE = {'ae': 'AE', '不良事件': 'AE', 'mh': 'MH', '病史': 'MH', '既往病史': 'MH', '既往史': 'MH', 'cm': 'CM', '合并用药': 'CM'}
 _LINK_DATE_TAIL = re.compile(r'[\s\-－]+(\d{4}|uk|UK|UNK)[-/.]([\dA-Za-z]{1,3})[-/.]([\dA-Za-z]{1,3})\s*$')
+
+
+_TYPED_ITEM = re.compile(r'^\s*0*(\d+)\s*(?:[>＞\-－]\s*(.*?))?\s*$')
+
+
+def parse_typed_links(v, typ):
+    """关联类型由列决定（病史编号列 / AE 编号列），取值只有「编号>术语>日期」或编号本身 → [[typ, 术语, None, 编号]]。
+    取值自带类型前缀（MH-4-…）时按 parse_links 解析。"""
+    if not v:
+        return []
+    s = str(v)
+    if LINK_START.search(s):
+        return parse_links(s)
+    out = []
+    for part in re.split(r'[;；,，、\n$|]|\s{2,}', s):          # 多条关联常见分隔：；，、换行 $ |
+        part = _LINK_DATE_TAIL.sub('', re.sub(r'[>＞]\s*[\dA-Za-z]{2,4}[-/.][\dA-Za-z]{1,3}[-/.][\dA-Za-z]{1,3}\s*$', '', part.strip()))
+        m = _TYPED_ITEM.match(part)
+        if m:
+            out.append([typ, (m.group(2) or '').strip(' >＞-－'), None, int(m.group(1))])
+    return out
 
 
 def parse_links(v, link_re=None):

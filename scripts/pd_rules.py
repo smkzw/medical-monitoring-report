@@ -18,7 +18,7 @@ import datetime as dt
 import re
 from collections import Counter, defaultdict
 
-from common import days, fmt, is_full_date
+from common import days, fmt, is_full_date, yes, zero_dose
 
 # (分类码, 名称, 层面, 说明, CDISC DVCAT（SDTM CT C225352；与 TransCelerate 7 类一一对应）)
 TAXONOMY = [
@@ -72,7 +72,7 @@ RULES = {
     'IP-03': ('IP', '依从性超出方案范围', '重要', 'CRA 核实', '按方案公式计算的依从性超出规定范围（analysis.pd.compliance）', '给药/发放回收数量'),
     'IP-04': ('IP', '未按要求空腹给药', '一般', 'CRA 核实', '方案要求空腹服药，给药记录为非空腹', '给药记录（是否空腹）'),
     'SAMP-01': ('SAMP', '给药前样本晚于给药', '重要', 'CRA 核实', '标注为给药前的样本，采集时刻晚于当次给药时刻（PK 谷浓度不可用）', '样本采集时刻＋给药时刻'),
-    'SAMP-02': ('SAMP', '给药后样本超出时间窗', '一般', 'CRA 核实', '给药后样本的实际采集时间偏离计划时点超过允许窗口（analysis.pd.sample.windowMin）', '样本采集时刻＋给药时刻'),
+    'SAMP-02': ('SAMP', '样本采集超出时间窗', '一般', 'CRA 核实', '给药后样本偏离计划时点超过允许窗口，或给药前样本早于「给药前 N 小时内」（analysis.pd.sample.windows / windowMin）', '样本采集时刻＋给药时刻'),
     'CM-01': ('CM', '使用方案禁用药物', '待判定', '发 query', '禁用药与方案禁用期重叠；影响主要终点或安全的类别（analysis.prohibited[].important）为重要', '合并用药＋禁用清单'),
     'CM-02': ('CM', '补救治疗早于允许时间', '重要', 'CRA 核实', '补救治疗开始日早于方案允许的最早研究日（analysis.pd.rescue.earliestDay）', '合并用药（补救）＋首剂'),
     'CM-03': ('CM', '补救治疗后未按要求停药', '重要', 'CRA 核实', '方案要求使用（系统）补救后永久停药，但其后仍有研究药物给药', '合并用药＋给药'),
@@ -161,6 +161,13 @@ def _classify(text, extra=None):
     return 'OTH'
 
 
+def _num(v):
+    try:
+        return float(str(v).strip())
+    except (TypeError, ValueError):
+        return None
+
+
 class _PD:
     def __init__(self, C):
         self.C = C
@@ -175,7 +182,12 @@ class _PD:
 
     def add(self, rule, sid, fact, *, date=None, visit=None, src=None, grade=None, why='', sig=None, action=None, ctx=None):
         cat, title, g0, act0, _, _ = RULES[rule]
-        g = (self.P.get('grades') or {}).get(rule) or grade or g0
+        # 分级优先级：个案判定（关键访视升级、例外条款降为待判定等）> 本研究 PD 界定表（analysis.pd.grades）> 规则默认
+        pg = (self.P.get('grades') or {}).get(rule)
+        g = grade or pg or g0
+        if not grade and pg:
+            basis = '本研究 PD 界定表：' + ((self.P.get('gradeBasis') or {}).get(rule) or pg)
+            why = f'{why}；{basis}' if why and not why.startswith('规则默认') else basis
         s = self.C.subj.get(sid) or {}
         it = {'id': '', 'sid': sid, 'site': s.get('site', ''), 'cat': cat, 'layer': TAX[cat][2], 'rule': rule, 'title': title,
               'dv': RULE_DV.get(rule, ''),
@@ -261,11 +273,15 @@ class _PD:
             if early:
                 early.sort()
                 d0 = early[0]
+                rs = yes(s.get('rescreen')) or bool(s.get('prev_sid'))
+                g_rs = '待判定' if rs else None           # 重复筛选：早于本次知情的记录可能来自首次筛选（方案允许范围内沿用不构成偏离）
                 kinds = sorted({x[1].split('·')[0] for x in early})
                 days_ = sorted({x[0] for x in early})
                 self.add('ICF-01', sid, f"知情同意签署 {icf}，但 {d0[0]} 已有{d0[1]}；早于知情的记录共 {len(early)} 条，涉及 {'、'.join(kinds[:4])}{'等' if len(kinds) > 4 else ''}（{len(days_)} 个日期）",
                          date=d0[0], src=[[x[2], x[3], x[1]] for x in early[:4]],
-                         why='知情同意先于任何研究程序是受试者权益保护的基本要求（GCP）；核实是否为方案允许的既往常规诊疗结果')
+                         grade=g_rs, why=(f"重复筛选（首次筛选编号 {s.get('prev_sid') or '未填'}）：核实早于本次知情的记录是否为首次筛选所做、"
+                                          "且沿用符合方案；否则按知情同意偏离处理") if rs else
+                         '知情同意先于任何研究程序是受试者权益保护的基本要求（GCP）；核实是否为方案允许的既往常规诊疗结果')
         vers = P.get('icfVersions') or []
         icfs = getattr(C, 'icf', []) or []
         if vers and icfs:
@@ -322,7 +338,9 @@ class _PD:
             return
         for sid in sorted(C.dosed):
             s = C.subj[sid]
-            stop = min([d for d in (s.get('eos_d'), s.get('eot_d') if self.P.get('stopAtEot') else None) if is_full_date(d)] or [self.cutoff])
+            et_d = min((v['date'] for v in C.visits if v['sid'] == sid and v.get('visit') in C.ET and is_full_date(v.get('date'))), default=None)
+            # 研究结束日期 / （可选）治疗结束日期 / 提前退出访视日期：之后不再期待计划访视
+            stop = min([d for d in (s.get('eos_d'), s.get('eot_d') if self.P.get('stopAtEot') else None, et_d) if is_full_date(d)] or [self.cutoff])
             for vis, spec in W.items():
                 if vis in have[sid]:
                     continue
@@ -439,18 +457,20 @@ class _PD:
             for d, why in ends:
                 if not is_full_date(d):
                     continue
-                late = [e for e in ex if (_last_dose(e) or '') > d and not str(e.get('dose') or '').strip() in ('0', '0.0')]
+                late = [e for e in ex if (_last_dose(e) or '') > d and not zero_dose(e) and not str(e.get('dose') or '').strip() in ('0', '0.0')]
                 if late:
                     e = late[0]
                     self.add('IP-02', sid, f"{why}日期 {d}，给药记录至 {_last_dose(e)}（{e['start']} 起）", date=_last_dose(e),
                              src=[[_sh(e), e['row'], '给药']], why='终止治疗后继续暴露于研究药物，可能影响受试者安全（重要偏离）')
                     break
             for d, o in sorted(stop_hit.get(sid, []))[:1]:
-                late = [e for e in ex if (_last_dose(e) or '') > d]
+                late = [e for e in ex if (_last_dose(e) or '') > d and not zero_dose(e)]
                 if late:
                     e = late[0]
                     self.add('WD-01', sid, f"{o.get('test')} {o.get('v') or ''}（{d}）达到方案停药标准（{o['_rule'].get('label') or o['cat']}），给药记录持续至 {_last_dose(e)}",
-                             date=_last_dose(e), src=[[_sh(o, 'sh'), o['row'], o.get('test') or ''], [_sh(e), e['row'], '给药']])
+                             date=_last_dose(e), src=[[_sh(o, 'sh'), o['row'], o.get('test') or ''], [_sh(e), e['row'], '给药']],
+                             grade='待判定' if o['_rule'].get('stopCond') else None,
+                             why=('方案停药标准带前提（' + o['_rule']['stopCond'] + '…）：需核实前提是否满足') if o['_rule'].get('stopCond') else '')
         dz = P.get('dosing') or {}
         if dz:
             self.ran['IP-01'] = 'ran'
@@ -482,7 +502,9 @@ class _PD:
             lo, hi, per = float(cp.get('lo', 80)), float(cp.get('hi', 120)), float(cp['perDay'])
             min_days = int(cp.get('minDays', 14))
             for sid in sorted(C.dosed):
-                ex = [e for e in C.exposure if e['sid'] == sid and is_full_date(e.get('start')) and e.get('qty') not in (None, '')]
+                eot = C.subj.get(sid, {}).get('eot_d')
+                ex = [e for e in C.exposure if e['sid'] == sid and is_full_date(e.get('start')) and
+                      (e.get('qty') not in (None, '') or _num(e.get('dose_plan'))) and not (is_full_date(eot) and e['start'] > eot)]
                 if not ex:
                     continue
                 tot_d = tot_q = 0
@@ -490,8 +512,16 @@ class _PD:
                     end = e.get('end') if is_full_date(e.get('end')) else e['start']
                     n = (days(end, e['start']) or 0) + 1
                     try:
-                        q = float(e['qty'])
-                    except (TypeError, ValueError):
+                        if e.get('qty') not in (None, ''):
+                            q = float(e['qty'])
+                        else:
+                            # 剂量制（每日计划剂量 / 每日实际剂量 ± 漏服、多服总剂量）→ 折算成「应服单位」
+                            plan = _num(e.get('dose_plan'))
+                            act = _num(e.get('dose_act'))
+                            act = plan if act is None else act
+                            miss = 0 if act == 0 else (_num(e.get('miss_qty')) or 0)
+                            q = max(0.0, (act * n - miss + (_num(e.get('extra_qty')) or 0)) / plan * per)
+                    except (TypeError, ValueError, ZeroDivisionError):
                         continue
                     tot_d += n
                     tot_q += q
@@ -514,6 +544,7 @@ class _PD:
         self.ran['SAMP-01'] = self.ran['SAMP-02'] = 'ran'
         pre = re.compile((P.get('sample') or {}).get('preRe') or r'给药前|服药前|pre-?dose|谷')
         win = (P.get('sample') or {}).get('windowMin')
+        wins = (P.get('sample') or {}).get('windows') or []
         dose_t = defaultdict(list)
         for e in C.exposure:
             t = _dt(e.get('start'), e.get('time'))
@@ -529,22 +560,31 @@ class _PD:
                 continue
             tpt = str(r.get('tpt') or '')
             src = [[_sh(r), r['row'], tpt or '样本']]
+            kind = f"（{r.get('sheet')}）" if r.get('sheet') else ''
             if pre.search(tpt):
+                lim = re.search(r'前\s*(\d+(?:\.\d+)?)\s*(h|小时|min|分钟)\s*内', tpt, re.I)
                 if ts > td and ts.date() == td.date():
-                    self.add('SAMP-01', r['sid'], f"{r.get('visit')}（{r.get('date')}）{tpt} 样本采集 {ts.strftime('%H:%M')}，晚于当次给药 {td.strftime('%H:%M')}",
+                    self.add('SAMP-01', r['sid'], f"{r.get('visit')}（{r.get('date')}）{tpt}{kind} 样本采集 {ts.strftime('%H:%M')}，晚于当次给药 {td.strftime('%H:%M')}",
+                             date=r.get('date'), visit=r.get('visit'), src=src)
+                elif lim and ts <= td and (td - ts).total_seconds() / 60 > float(lim.group(1)) * (60 if lim.group(2).lower() in ('h', '小时') else 1):
+                    self.add('SAMP-02', r['sid'], f"{r.get('visit')}（{r.get('date')}）{tpt}{kind} 样本于给药前 {(td - ts).total_seconds() / 60:.0f} 分钟采集，早于方案窗口",
                              date=r.get('date'), visit=r.get('visit'), src=src)
                 continue
             m = re.search(r'(\d+(?:\.\d+)?)\s*(h|小时|hr|min|分钟)', tpt, re.I)
             own = re.search(r'[±＋+]\s*(\d+(?:\.\d+)?)\s*(h|小时|hr|min|分钟)', tpt, re.I)   # 时点标签自带窗口（「4h±30min」）优先
-            if m and (win is not None or own):
+            if m and (win is not None or own or wins):
                 nominal = float(m.group(1)) * (60 if m.group(2).lower() in ('h', '小时', 'hr') else 1)
                 actual = (ts - td).total_seconds() / 60
                 if own:
                     w = float(own.group(1)) * (60 if own.group(2).lower() in ('h', '小时', 'hr') else 1)
+                elif wins:                                # 方案按「访视 × 计划时点」规定的窗口
+                    w = next((x['w'] for x in wins if x.get('visit') == r.get('visit') and abs(x['nom'] - nominal) < 1e-6), None)
+                    if w is None:
+                        continue                          # 该访视/时点方案未给窗口：不推断
                 else:
                     w = float(win.get(m.group(0), win.get('default', 0))) if isinstance(win, dict) else float(win)
                 if w and abs(actual - nominal) > w:
-                    self.add('SAMP-02', r['sid'], f"{r.get('visit')}（{r.get('date')}）{tpt} 样本实际于给药后 {actual:.0f} 分钟采集（计划 {nominal:.0f}±{w:.0f} 分钟）",
+                    self.add('SAMP-02', r['sid'], f"{r.get('visit')}（{r.get('date')}）{tpt}{kind} 样本实际于给药后 {actual:.0f} 分钟采集（计划 {nominal:.0f}±{w:.0f} 分钟）",
                              date=r.get('date'), visit=r.get('visit'), src=src)
 
     # ------------------------------------------------------------------ 补救治疗

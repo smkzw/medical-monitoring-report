@@ -6,10 +6,24 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from common import parse_links  # noqa: E402
+from common import parse_links, parse_typed_links  # noqa: E402
 
 
 class LinkGrammar(unittest.TestCase):
+    def test_dash_style_and_typed_columns(self):
+        self.assertEqual(parse_links('MH-4-血脂异常-2026-05-18'), [['MH', '血脂异常', None, 4]])
+        self.assertEqual(parse_typed_links('002>PR间期缩短>2026-04-28$003>ST段改变>2026-05-01', 'AE'),
+                         [['AE', 'PR间期缩短', None, 2], ['AE', 'ST段改变', None, 3]])
+        self.assertEqual(parse_typed_links('001>高血压>2023-04-UK', 'MH'), [['MH', '高血压', None, 1]])
+        self.assertEqual(parse_typed_links('3', 'MH'), [['MH', '', None, 3]])
+
+    def test_label_var_header_reference(self):
+        from normalize_listing import col_index
+        labels = ['受试者编号', '不良事件名称(AETERM)', '开始日期（AESTDAT）']
+        self.assertEqual(col_index('AETERM', labels, [''] * 3), 1)
+        self.assertEqual(col_index('不良事件名称', labels, [''] * 3), 1)
+        self.assertEqual(col_index('AESTDAT', labels, [''] * 3), 2)
+
     def test_plus_style(self):
         self.assertEqual(parse_links('AE+1+头痛'), [['AE', '头痛', None, 1]])
         self.assertEqual(parse_links('MH+4+贫血；AE+2+皮疹'), [['MH', '贫血', None, 4], ['AE', '皮疹', None, 2]])

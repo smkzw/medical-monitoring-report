@@ -29,7 +29,7 @@ from pathlib import Path
 
 import openpyxl
 
-from common import clin_code, dump_json, load_json, norm_date, parse_links, to_num, yes
+from common import clin_code, dump_json, load_json, norm_date, parse_links, parse_typed_links, to_num, yes
 
 DATE_FIELDS = {'date', 'start', 'end', 'icf', 'eot_d', 'eos_d', 'rand_d', 'fd', 'ld', 'aware', 'rpt'}
 NUM_FIELDS = {'age', 'bmi', 'ht', 'wt', 'lo', 'hi'}
@@ -70,7 +70,15 @@ def col_index(ref, labels, vars_):
         idx = [i for i, x in enumerate(arr) if x == name]
         if len(idx) >= nth:
             return idx[nth - 1]
+    # mm4：「不良事件名称(AETERM)」式表头（单行表头把变量名写在括号里）→ 变量名或括号前标签均可引用
+    for grp in (2, 1):
+        idx = [i for i, x in enumerate(labels) if (m := _LABEL_VAR.fullmatch(str(x or '').strip())) and m.group(grp) == name]
+        if len(idx) >= nth:
+            return idx[nth - 1]
     return None
+
+
+_LABEL_VAR = re.compile(r'(.+?)\s*[（(]([A-Z][A-Z0-9_]{1,19})[)）]')
 
 
 REASON_DEFAULT = [(r'研究疾病|原发病|研究适应症|疾病本身|study disease|underlying disease', 'disease'),
@@ -202,7 +210,9 @@ def findings(spec, books, M):
             f = dict(base)
             f.update({'test': str(it.get('test') or '').strip(), 'raw': None if raw is None else str(raw),
                       'value': to_num(raw), 'unit': it.get('unit'), 'lo': to_num(it.get('lo')), 'hi': to_num(it.get('hi')),
-                      'clin': it.get('clin'), 'desc': it.get('desc'), 'links': parse_links(it.get('link'), M.get('link_re'))})
+                      'clin': it.get('clin'), 'desc': it.get('desc'),
+                      'links': parse_links(it.get('link'), M.get('link_re')) + parse_typed_links(it.get('link_mh'), 'MH') +
+                      parse_typed_links(it.get('link_ae'), 'AE')})
             for k in ('reason', 'reason_text', 'reason_disease', 'reason_link', 'reason_other'):
                 if it.get(k) not in (None, ''):          # 宽表逐指标原因列覆盖行级
                     f[k] = it.get(k)
