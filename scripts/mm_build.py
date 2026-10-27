@@ -1423,6 +1423,17 @@ def build_eff(C):
                     m = next(x for x in M if x['id'] == R['metric'])
                     anomalies.append({'sid': sid, 'site': e['site'], 'k': R['label'], 'c': R.get('cls', 'org'), 'v': v,
                                       't': f"{m['label']} {fmt(y)}{m.get('unit', '')}（{v}）", 'st': R.get('st', '核对源数据/测量'), 'qcat': R.get('qcat', [])})
+    for m in M:  # mm4：检验/检查来源的测量值，同一受试者某次与本人其余访视中位数相差 ≥10 倍 → 疑似单位/录入错误（量表不查：改善到接近 0 属正常）
+        if m.get('derive') or str(m['src']).startswith('eff:'):
+            continue
+        for sid, e in data.items():
+            ys = e['v'].get(m['id'], {})
+            for v, y in ys.items():
+                rest = sorted(x for w, x in ys.items() if w != v and x > 0)
+                if y > 0 and len(rest) >= 2 and not 0.1 < y / rest[len(rest) // 2] < 10:
+                    anomalies.append({'sid': sid, 'site': e['site'], 'k': f'{m["label"]}量级异常', 'c': 'org', 'v': v,
+                                      't': f'{m["label"]} {fmt(y)}{m.get("unit", "")}（{v}），本人其余访视中位数 {fmt(rest[len(rest) // 2])}',
+                                      'st': '核对单位或录入（疑似数量级错误）'})
     for m in M:  # key-visit pending: visit happened, value missing
         kv = m.get('keyVisit')
         if not kv or m.get('pending') is False:
