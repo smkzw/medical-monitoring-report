@@ -459,6 +459,22 @@ def resolve_links(C, sid, links):
     return out
 
 
+def worse_vs_base(r, b, t_base):
+    """D14/D19 较基线加重：分级升高（0→1 级不单独算，见 ext_rules.grade_up），或超出范围且同向较基线变化 ≥T_base。
+    返回说明文本或 None；仅临床意义 NCS→CS 的判定波动不算加重。"""
+    if ext_rules.grade_up((b or {}).get('grade'), r.get('grade')):
+        return f"等级 {(b or {}).get('grade') or 0}→{r.get('grade')} 级"
+    v, bv = r.get('value'), (b or {}).get('value')
+    if v is None or bv in (None, 0) or not r.get('oor'):
+        return None
+    pct = (v - bv) / abs(bv)
+    if r.get('hi') is not None and v > r['hi'] and pct >= t_base:
+        return f"较基线升高 {pct * 100:.0f}%"
+    if r.get('lo') is not None and v < r['lo'] and -pct >= t_base:
+        return f"较基线降低 {-pct * 100:.0f}%"
+    return None
+
+
 def build_labrows(C):
     doms = set(C.A.get('labDomains', ['lab', 'vs', 'ecg']))
     match = [(re.compile(a), re.compile(b), w) for a, b, w in C.A.get('aeMatch', [])]  # [metricRe, aeTermRe, ±days]
@@ -520,6 +536,18 @@ def build_labrows(C):
                 if orphan:
                     risk = 'CSX'
                     ctx.append('CS 结果未关联且不在已关联事件期间：' + '、'.join(f"{r.get('visit')}（{r.get('date')}）" for r in orphan[:3]))
+            ibg = next((bb for a, bb in (C.A.get('indicationBackground') or []) if re.search(a, mid)), None) if risk == 'CSX' else None
+            if ibg:
+                nm = re.sub(r'（医学常识）$', '', str(ibg).split('：')[0])
+                if b is None:
+                    ctx.append(f'研究疾病表现（{nm}）；基线缺失，无法判断是否较基线加重')
+                else:
+                    wf = next((w for w in (worse_vs_base(r, b, float(C.cfg['thresholds'].get('base', 0.3))) for r in cs_pts if r['post']) if w), None)
+                    if wf:
+                        ctx.append(f'研究疾病表现（{nm}），但较基线进一步加重：{wf}')
+                    else:                                # 用户 2026-10-27：疾病本身的表现、较基线没有进一步加重 → 不作为风险
+                        risk = 'DIS'
+                        ctx.append(f'研究疾病表现（{nm}）：较基线未进一步加重，按疾病表现处理（不发 query）')
             if risk == 'CSX' and any('link' in (r.get('reason') or '') for r in cs_pts):
                 ctx.append('原因选择「病史/不良事件」但未关联编号')
             if risk == 'CSX' and any('disease' in (r.get('reason') or '') for r in cs_pts):
@@ -533,7 +561,7 @@ def build_labrows(C):
             risk = 'AE' if has_ae else 'NCS'
         if unassessed and risk != 'AE':
             ctx.append('临床意义未评价')
-        if risk in ('CSX', 'MH', 'NCS2', 'NA', 'NA2'):   # mm4：方案/IB 列出的研究疾病表现 → 审阅时可见
+        if risk in ('MH', 'NCS2', 'NA', 'NA2'):   # mm4：方案/IB 列出的研究疾病表现 → 审阅时可见（CSX/DIS 已在上方判定）
             ibg = next((b for a, b in (C.A.get('indicationBackground') or []) if re.search(a, mid)), None)
             if ibg:
                 ctx.append('可能为研究疾病表现：' + re.sub(r'（医学常识）$', '', str(ibg).split('：')[0]))
@@ -552,15 +580,7 @@ def build_labrows(C):
             # 仅临床意义由 NCS 变 CS（判定波动）不算加重，避免把病史延续的判定差异全部变成 query
             t_base = float(C.cfg['thresholds'].get('base', 0.3))
 
-            def _mh_worse(r):
-                if (r.get('grade') or 0) > bg:
-                    return True
-                v, bv = r.get('value'), (b or {}).get('value')
-                if v is None or bv in (None, 0) or not r.get('oor'):
-                    return False
-                pct = (v - bv) / abs(bv)
-                return (r.get('hi') is not None and v > r['hi'] and pct >= t_base) or (r.get('lo') is not None and v < r['lo'] and -pct >= t_base)
-            worse = any(_mh_worse(r) for r in P if r.get('clin') == 2)
+            worse = any(worse_vs_base(r, b, t_base) for r in P if r.get('clin') == 2)
             ctx.append('较基线加重：需判断是否给药后加重（AE）' if worse else '与基线同级或变化未达阈值：病史延续可能')
         for l in links:
             if not l[4]:
@@ -1051,8 +1071,8 @@ QT = {  # default query wording (Chinese, fact first, then the ask). Override in
             '请核实该异常是否应记录为不良事件；如判断为既往疾病延续，请在病史中补充并关联；如判定有误请更正临床意义评价。'),
     'MH': ('CS仅关联病史·加重核对', '{visit}（{date}）{test} {raw} {unit}，研究者判定「异常有临床意义」，仅关联病史「{mh}」；基线（{bvis}）为 {braw}{unit}。',
            '请评估给药后是否较基线加重；如属加重，请记录为不良事件并关联。'),
-    'CSX_DIS': ('CS未关联·疑似研究疾病表现', '{visit}（{date}）{test} {raw} {unit}（参考范围 {rng}{gtxt}），研究者判定「异常有临床意义」，但未关联不良事件或病史，也未注明原因；该异常可见于研究疾病（{bg}）。',
-                '请确认临床意义的原因：如属研究疾病表现，请在原因中注明并关联相应病史；如判断为给药后新发或加重，请记录为不良事件并关联；如判定有误请更正临床意义评价。'),
+    'CSX_DIS': ('CS未关联·研究疾病表现较基线加重', '{visit}（{date}）{test} {raw} {unit}（参考范围 {rng}{gtxt}），研究者判定「异常有临床意义」，未关联不良事件或病史；该异常可见于研究疾病（{bg}），但较基线进一步加重（{wf}）。',
+                '请评估是否为给药后加重：如是，请记录为不良事件并关联；如属研究疾病自然波动，请在原因中注明并关联相应病史；如判定有误请更正临床意义评价。'),
     'CSX_AE': ('CS未关联·同期疑似AE', '{visit}（{date}）{test} {raw} {unit}（参考范围 {rng}{gtxt}），研究者判定「异常有临床意义」；同期已记录 {cand}，但该检查记录未关联。',
                '请确认两者是否为同一事件；如是，请在该记录的关联字段中关联该 AE（如表单无关联字段，请在异常描述中注明 AE 编号）；如否，请评估是否需另行记录不良事件。'),
     'NCS2': ('NCS但达分级≥2级', '{visit}（{date}）{test} {raw} {unit}，按 {gl} 数值达 {grade} 级（{gterm}），研究者判定「异常无临床意义」。',
@@ -1152,9 +1172,10 @@ def build_queries(C):
         if g['risk'] == 'CSX' and cand:  # a plausible AE exists but the finding is not linked → ask to link instead of "report AE"
             cat, ft, ask = T.get('CSX_AE', T['CSX'])
             ft = ft.replace('{cand}', '；'.join(re.sub(r'可能对应，但检验页未关联', '', c).replace('同期 ', '') for c in cand))
-        elif bg:                         # mm4：方案/IB 列出的研究疾病表现（indicationBackground）→ 请研究者注明原因，而不是只问是否记 AE
+        elif bg:                         # mm4：研究疾病表现且较基线进一步加重（未加重的已归 DIS，不发 query）
             cat, ft, ask = T.get('CSX_DIS', T['CSX'])
-            ft = ft.replace('{bg}', re.sub(r'（医学常识）$', '', bg.split('：')[0]))
+            wf = next((c.split('但较基线进一步加重：', 1)[1] for c in g['ctx'] if '但较基线进一步加重：' in c), '较基线变化见明细')
+            ft = ft.replace('{bg}', re.sub(r'（医学常识）$', '', bg.split('：')[0])).replace('{wf}', wf)
         P = [p for p in g['pts'] if (g['risk'] in ('NCS2', 'NA2') and (p[4] or 0) >= 2) or (g['risk'] not in ('NCS2', 'NA2') and p[5] == 2)] or g['pts']
         p = P[0]
         f = next((r for r in C.F[(g['sid'], g['mid'])] if r['sheet'] == p[7] and r['row'] == p[8]), {})

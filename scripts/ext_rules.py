@@ -418,6 +418,11 @@ def date_order(C):
 
 
 # --------------------------------------------------------------------------- M23 CSB 确定性＋候选
+def grade_up(bg, cg):
+    """按分级判加重：基线已 ≥1 级后再升级，或升到 ≥2 级。0 级 → 1 级不单独算（避免略超上限即判加重）。"""
+    return (cg or 0) > (bg or 0) and ((bg or 0) >= 1 or (cg or 0) >= 2)
+
+
 def _worsening(r, t_base):
     """步骤 4 确定性恶化（与 review/csb.py deterministic_worsening 同口径）。返回 (known, value, flags)。"""
     if not r['post']:
@@ -427,7 +432,7 @@ def _worsening(r, t_base):
         return True, True, ['基线缺失（按新发处理）']
     flags = []
     bg, cg = b.get('grade') or 0, r.get('grade') or 0
-    if cg > bg:
+    if grade_up(bg, cg):                       # 0 级 → 1 级不单独算加重（须同时超出范围且同向较基线 ≥T_base，由下方数值规则判定；用户 2026-10-27 确认）
         flags.append(f"等级升高 {bg}→{cg} 级")
     if (r.get('clin') or 0) > (b.get('clin') or 0):
         flags.append('CS 新出现')

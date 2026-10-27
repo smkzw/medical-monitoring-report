@@ -19,7 +19,7 @@ K.studyDay=(d,fd)=>{const x=K.days(d,fd);return x==null?'':(x>=0?'D'+(x+1):'D'+x
 K.clin=c=>c===2?K.p('CS','red'):c===1?K.p('NCS','yel'):c===0?K.p('正常','grn'):'';
 K.PRI={4:['优先核实','red'],3:['需核实','org'],2:['结合临床','yel'],1:['筛查提示','']};
 K.pri=n=>K.p(K.PRI[n]?.[0]||'—',K.PRI[n]?.[1]||'');
-K.RISK={CSX:['CS·未关联AE/MH','solid-red','判CS但未关联AE或病史：漏报AE风险最高'],MH:['CS·仅关联MH','org','判CS且仅关联既往病史：需判断是否给药后加重'],NCS2:['NCS·≥2级','yel','数值落入'+((window.KZ||{}).cfg||{}).ctcaeVersion+'≥2级但判NCS'],NA2:['未评价·≥2级','yel','数值达≥2级但未见研究者临床意义评价'],AE:['已关联AE','grn','已有对应AE记录'],NA:['超范围·未评价','yel','给药后超出参考范围但未见研究者临床意义评价'],DIS:['CS·归因研究疾病','grn','研究者判CS并归因研究疾病，给药后未较基线加重'],DISW:['CS·研究疾病·加重','org','研究者归因研究疾病，但给药后较基线加重：按AE定义评估'],NCS:['NCS','','异常无临床意义'],REL:['较基线显著变化','yel','给药后超出参考范围且偏离≥T_dev、同向较基线变化≥T_base（双阈值，按当前所选档位即时重分类）'],'MHX-T':['疑似病史漏记·首剂前','org','首剂前判NCS/未评价且偏离≥T_dev（或≥2级）且病史未记录（按当前所选档位即时重分类）']};
+K.RISK={CSX:['CS·未关联AE/MH','solid-red','判CS但未关联AE或病史：漏报AE风险最高'],MH:['CS·仅关联MH','org','判CS且仅关联既往病史：需判断是否给药后加重'],NCS2:['NCS·≥2级','yel','数值落入'+((window.KZ||{}).cfg||{}).ctcaeVersion+'≥2级但判NCS'],NA2:['未评价·≥2级','yel','数值达≥2级但未见研究者临床意义评价'],AE:['已关联AE','grn','已有对应AE记录'],NA:['超范围·未评价','yel','给药后超出参考范围但未见研究者临床意义评价'],DIS:['CS·研究疾病表现','grn','研究者归因研究疾病，或属方案/IB 列出的研究疾病表现，且给药后未较基线进一步加重：不作为风险'],DISW:['CS·研究疾病·加重','org','研究者归因研究疾病，但给药后较基线加重：按AE定义评估'],NCS:['NCS','','异常无临床意义'],REL:['较基线显著变化','yel','给药后超出参考范围且偏离≥T_dev、同向较基线变化≥T_base（双阈值，按当前所选档位即时重分类）'],'MHX-T':['疑似病史漏记·首剂前','org','首剂前判NCS/未评价且偏离≥T_dev（或≥2级）且病史未记录（按当前所选档位即时重分类）']};
 K.risk=r=>K.p(K.RISK[r]?.[0]||r,K.RISK[r]?.[1]||'',K.RISK[r]?.[2]);
 /* ---- 双阈值（T_dev/T_base，PR-4）：状态读取 + REL 即时重分类 + 变更监听 ----
  * 档位来源：系统层 KZS.thresholds（选择器写入）＞ cfg.thresholds（构建配置，默认 30%/30%）。
@@ -125,7 +125,7 @@ K.showQ=id=>{const q=K.qById(id);if(!q)return;const cro=D().cro.filter(c=>c[2]==
   if(ex){box.innerHTML=K.listing(ex.rows);box.classList.remove('muted')}else{box.innerHTML=`<table class="t"><tbody>${q.ev.map(e=>`<tr><td>${K.p(e[0],'sq mono')}</td><td>行 ${e[1]}</td><td>${K.p(e[2],'blu')}</td><td>${K.esc(e[3])}</td></tr>`).join('')}</tbody></table>`}
 };
 document.addEventListener('click',e=>{const q=e.target.closest('[data-q]');if(q){e.preventDefault();K.showQ(q.dataset.q)}});
-K.CTX=((((window.KZ||{}).cfg||{}).taxonomy||{}).ctx||[['无CTCAE条目|不能仅凭数值','无CTCAE数值条目',''],['症状/处置型','需结合症状/处置',''],['单位|换算','单位待核','org'],['基线.*(回退|替代)|替代基线|改用首次','替代基线','blu']]).map(([re,l,c])=>[new RegExp(re),l,c]);
+K.CTX=((((window.KZ||{}).cfg||{}).taxonomy||{}).ctx||[['无CTCAE条目|不能仅凭数值','无CTCAE数值条目',''],['症状/处置型','需结合症状/处置',''],['单位|换算','单位待核','org'],['基线.*(回退|替代)|替代基线|改用首次','替代基线','blu'],['研究疾病表现.*未进一步加重|研究者归因：研究疾病$','研究疾病表现·未加重','grn'],['研究疾病表现.*进一步加重','疾病表现·较基线加重','org'],['可能为研究疾病表现','可能为疾病表现','']]).map(([re,l,c])=>[new RegExp(re),l,c]);
 K.ctxTags=arr=>{const out=[];(arr||[]).forEach(t=>{const m=K.CTX.find(([re])=>re.test(t));if(m&&!out.some(o=>o[0]===m[1]))out.push([m[1],m[2],t])});return out.map(([l,c,t])=>K.p(l,c,t)).join('')};
 K.init=fn=>document.addEventListener('DOMContentLoaded',()=>{K.header();fn()});
 /* SoA 完成度矩阵（访视流程表 × 实际完成）：mm4 起位于「方案偏离」执行层面；研究依据页只陈述方案本身 */

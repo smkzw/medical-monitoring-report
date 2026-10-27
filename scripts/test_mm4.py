@@ -45,6 +45,26 @@ class LinkGrammar(unittest.TestCase):
         self.assertEqual(parse_links('AE3:头晕|MH1:高血压', rx), [['AE', '头晕', None, 3], ['MH', '高血压', None, 1]])
 
 
+class WorseningRule(unittest.TestCase):
+    """用户 2026-10-27：0 级 → 1 级不单独算加重，须同时超出范围且同向较基线 ≥T_base。"""
+    def test_grade_up(self):
+        from ext_rules import grade_up
+        self.assertFalse(grade_up(0, 1))
+        self.assertTrue(grade_up(0, 2))
+        self.assertTrue(grade_up(1, 2))
+        self.assertFalse(grade_up(2, 2))
+
+    def test_worse_vs_base(self):
+        from mm_build import worse_vs_base
+        b = {'grade': 0, 'value': 5.11}
+        small = {'grade': 1, 'value': 5.54, 'hi': 5.2, 'lo': 0, 'oor': True}           # 0→1 级、+8%：不算
+        self.assertIsNone(worse_vs_base(small, b, 0.3))
+        big = {'grade': 1, 'value': 6.8, 'hi': 5.2, 'lo': 0, 'oor': True}              # 0→1 级、+33%：算
+        self.assertIn('较基线升高', worse_vs_base(big, b, 0.3))
+        self.assertIn('等级', worse_vs_base({'grade': 2, 'value': 5.6, 'hi': 5.2, 'oor': True}, {'grade': 1, 'value': 5.5}, 0.3))
+        self.assertIsNone(worse_vs_base({'grade': 0, 'value': 0.9, 'hi': 0.52, 'oor': True}, {'grade': 0, 'value': 0.8}, 0.3))  # 基线已高、+12%
+
+
 class QualLevel(unittest.TestCase):
     def test_plus_minus_spellings_are_weak(self):
         from ext_rules import qual_level

@@ -251,6 +251,8 @@ def main():
             recs = []
             for s in specs:
                 for rec, *_ in read_spec(s, books, M):
+                    if dom in ('ae', 'mh', 'cm', 'proc') and 'term' in (s.get('cols') or {}) and not str(rec.get('term') or '').strip():
+                        continue                         # 日志表的占位行（如「是否发生了不良事件？=否」）不是事件记录
                     if dom in ('mh', 'cm') and 'ongoing' in rec:
                         rec['ongoing'] = yes(rec['ongoing'])
                     recs.append(rec)
