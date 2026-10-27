@@ -76,13 +76,47 @@ class DiseaseRelatedCS(unittest.TestCase):
                                           {'t': '特应性皮炎', 's': '2026-07-30'}]})
         dz = disease_kw(C)
         self.assertTrue(dz.search('特应性皮炎加重') and dz.search('嗜酸性粒细胞增多'))
-        hit = disease_ae(C, 'S1', '嗜酸性粒细胞', [{'date': '2026-05-15'}])
-        self.assertEqual([a['t'] for a in hit], ['特应性皮炎加重'])                 # 头痛不算；窗口外（±14 天）不算
-        self.assertEqual(disease_ae(C, 'S1', '嗜酸性粒细胞', [{'date': '2026-06-30'}]), [])
-        C.ae_by['S2'] = [{'t': '白细胞减少', 's': '2026-05-20'}, {'t': '嗜酸性粒细胞减少', 's': '2026-05-20'}, {'t': '嗜酸性粒细胞增多', 's': '2026-05-21'}]
+        hit = disease_ae(C, 'S1', '嗜酸性粒细胞', [{'date': '2026-05-25'}])
+        self.assertEqual([a['t'] for a in hit], ['特应性皮炎加重'])                 # 头痛不算；AE 持续期间覆盖异常日期才算
+        self.assertEqual(disease_ae(C, 'S1', '嗜酸性粒细胞', [{'date': '2026-05-15'}]), [])   # 异常早于 AE 起始：不算（不用 ±N 天窗口）
+        C.ae_by['S2'] = [{'t': '白细胞减少', 's': '2026-05-10'}, {'t': '嗜酸性粒细胞减少', 's': '2026-05-10'}, {'t': '嗜酸性粒细胞增多', 's': '2026-05-12', 'e': '2026-06-01'}]
         C.metric = {'EOS%': {'label': '嗜酸性粒细胞百分比'}}
-        hit = disease_ae(C, 'S2', 'EOS%', [{'date': '2026-05-15', 'value': 16.5, 'hi': 8}])
+        pts = [{'date': '2026-05-15', 'value': 16.5, 'hi': 8}]
+        hit = disease_ae(C, 'S2', 'EOS%', pts)
         self.assertEqual([a['t'] for a in hit], ['嗜酸性粒细胞增多'])               # 方向相反、其他细胞类型都不算
+        from ext_rules import onset_note
+        self.assertIn('首次异常检验日期 2026-05-15', onset_note(C, 'EOS%', hit[0], pts))   # 以检验异常为表现的 AE，起始应为首次异常日期
+
+    def test_attribution_and_stated_worsening_in_remarks(self):
+        from types import SimpleNamespace
+        from ext_rules import disease_attr, stated_worse, ae_covers
+        C = SimpleNamespace(A={'diseaseTerms': ['AD']}, S={'study': {'design': {'facts': [['适应症', '中度至重度特应性皮炎患者']]}}})
+        self.assertTrue(disease_attr(C, {'desc': 'CS，与AD相关'}))
+        self.assertTrue(disease_attr(C, {'desc': '与研究疾病有关'}))
+        self.assertTrue(disease_attr(C, {'reason': 'disease'}))
+        self.assertFalse(disease_attr(C, {'desc': '急性上呼吸道感染相关'}))
+        self.assertFalse(disease_attr(C, {'desc': 'ADHD'}))
+        self.assertTrue(stated_worse({'desc': 'AD加重相关'}))
+        self.assertTrue(stated_worse({'reason_raw': '与研究疾病加重有关'}))
+        self.assertIsNone(stated_worse({'desc': '皮损未见加重'}))
+        self.assertTrue(ae_covers({'s': '2026-07-uk', 'e': ''}, '2026-07-21'))
+        self.assertFalse(ae_covers({'s': '2026-05-01', 'e': '2026-05-10'}, '2026-05-21'))
+
+
+class ClinConsistency(unittest.TestCase):
+    """用户 2026-10-27：同一受试者相同/相近结果一次判 NCS、一次判 CS → 风险（query），不作 PD。"""
+    def test_same_level(self):
+        from types import SimpleNamespace
+        from ext_rules import same_level, judgment_only
+        C = SimpleNamespace(A={})
+        a = {'value': 319, 'hi': 250, 'lo': 120, 'clin': 1}
+        self.assertTrue(same_level(C, a, {'value': 320, 'hi': 250, 'lo': 120}))
+        self.assertFalse(same_level(C, a, {'value': 400, 'hi': 250, 'lo': 120}))        # 相差 >10%
+        self.assertFalse(same_level(C, {'value': 151, 'clin': 1}, {'value': 152}))       # 无参考范围（心电图间期）不比较
+        self.assertTrue(same_level(C, {'raw': '3+', 'clin': 1}, {'raw': '3+'}))
+        self.assertFalse(same_level(C, {'raw': '1+', 'clin': 1}, {'raw': '3+'}))
+        b = {'value': 320, 'hi': 250, 'lo': 120, 'clin': 2, 'post': True, 'base': {'value': 315, 'grade': 0}}
+        self.assertTrue(judgment_only(C, b, [a, b], 0.3))                             # 只是改判，不按潜在 AE 漏记
 
 
 class QualLevel(unittest.TestCase):

@@ -20,6 +20,7 @@ merge/CRO 查重/qkey）＋步骤 5 候选导出（供工作台 review/csb.py::e
 from __future__ import annotations
 
 import re
+from collections import defaultdict
 
 from common import days, fmt, is_full_date
 
@@ -439,19 +440,74 @@ def worse_vs_base(r, b, t_base):
     return None
 
 
+def _indication_names(C):
+    ind = next((f[1] for f in ((C.S.get('study') or {}).get('design') or {}).get('facts') or [] if f[0] == '适应症'), '')
+    return [p for p in re.split(r'[^\u4e00-\u9fff]+', re.sub(r'中度至重度|轻度|中度|重度|中重度|患者|伴有|成人|儿童|青少年|的|和|及', ' ', str(ind)))
+            if len(p) >= 3]
+
+
 def disease_kw(C):
     """研究疾病及其表现的关键词（方案适应症＋indicationBackground 名称），用于识别「研究疾病加重」类 AE 与研究疾病病史。"""
-    kws = set()
+    kws = set(_indication_names(C))
     for _, b in C.A.get('indicationBackground') or []:
         nm = re.sub(r'[（(].*?[)）]|[↑↓]|（医学常识）', '', str(b).split('：')[0]).strip()
         nm = re.sub(r'^(外周血|血清|血)|(增多|升高|降低|减少|异常)$', '', nm)
         if len(nm) >= 2:
             kws.add(nm)
-    ind = next((f[1] for f in ((C.S.get('study') or {}).get('design') or {}).get('facts') or [] if f[0] == '适应症'), '')
-    for part in re.split(r'[^\u4e00-\u9fff]+', re.sub(r'中度至重度|轻度|中度|重度|中重度|患者|伴有|成人|儿童|青少年|的|和|及', ' ', str(ind))):
-        if len(part) >= 3:
-            kws.add(part)
     return re.compile('|'.join(sorted(map(re.escape, kws), key=len, reverse=True))) if kws else None
+
+
+def disease_name_re(C):
+    """研究疾病名称（不含表现）：适应症＋方案缩写（analysis.diseaseTerms，如 AD）＋「研究疾病/原发病」。用于识别备注里的归因。"""
+    if getattr(C, '_dz_name', None) is None:
+        alt = ['研究疾病', '原发病', '原发疾病'] + [re.escape(n) for n in _indication_names(C)] + \
+              [rf'(?<![A-Za-z]){re.escape(a)}(?![A-Za-z])' for a in C.A.get('diseaseTerms') or []]
+        C._dz_name = re.compile('|'.join(alt))
+    return C._dz_name
+
+
+def _cs_text(r):
+    return ' '.join(str(r.get(k) or '') for k in ('reason_raw', 'reason_text', 'desc'))
+
+
+def disease_attr(C, r):
+    """CS 归因研究疾病：原因选项为研究疾病，或备注写明与研究疾病相关（D001：「与AD相关」「研究疾病相关」多写在异常描述里）。"""
+    return 'disease' in (r.get('reason') or '') or bool(disease_name_re(C).search(_cs_text(r)))
+
+
+_WORSE_TXT = re.compile(r'加重|恶化|进展|加剧|复发')
+_NOT_WORSE = re.compile(r'(?:未|无|非|没有|不|排除)[^，。；,;]{0,3}(?:加重|恶化|进展|加剧|复发)')
+
+
+def stated_worse(r):
+    """研究者在原因/备注里写明加重（「AD加重相关」「皮损较前加重」）：研究者判定优先，视为较基线加重。返回说明或 None。"""
+    s = _NOT_WORSE.sub('', _cs_text(r))
+    m = _WORSE_TXT.search(s)
+    return f"研究者备注「{s[max(0, m.start() - 8):m.end() + 2].strip(' ，,。；;：:')}」" if m else None
+
+
+def _dprefix(s):
+    m = re.match(r'\d{4}-\d{2}-\d{2}|\d{4}-\d{2}|\d{4}', str(s or ''))
+    return m.group() if m else None
+
+
+def ae_covers(a, d):
+    """AE 持续期间覆盖日期 d（起始 ≤ d ≤ 结束；未结束视为持续；不完整日期按已知的年/年-月比较）。"""
+    s, e = _dprefix(a.get('s')), _dprefix(a.get('e'))
+    return bool(s) and s <= d[:len(s)] and (not e or d[:len(e)] <= e)
+
+
+def _stem(C, mid):
+    return re.sub(r'[（(].*$|百分比|计数|绝对值|浓度|含量', '', str(((getattr(C, 'metric', None) or {}).get(mid) or {}).get('label') or mid))
+
+
+def onset_note(C, mid, a, pts):
+    """以检验异常为主要表现的 AE（术语含指标名），起始日期应为检验首次异常日期；不一致时给出提示。"""
+    ds = sorted(r['date'] for r in pts if is_full_date(r.get('date')))
+    stem = _stem(C, mid)
+    if ds and len(stem) >= 2 and stem in a['t'] and a.get('s') != ds[0]:
+        return f"；AE 起始 {a.get('s') or '—'} 与首次异常检验日期 {ds[0]} 不一致，请核对"
+    return ''
 
 
 def opposite_dir(pts):
@@ -462,24 +518,74 @@ def opposite_dir(pts):
 
 
 def disease_ae(C, sid, mid, pts, dz=None):
-    """同期（±aeExWindow 天，默认 14）已记录的研究疾病加重类 AE：术语含研究疾病/表现关键词，或含该指标名（如「嗜酸性粒细胞增多」）；
-    数值方向相反的不算（D001 QC：aeMatch 方向不分，曾把「白细胞减少」当成嗜酸性粒细胞升高的疾病加重 AE）。"""
+    """已记录的研究疾病加重类 AE：持续期间覆盖任一异常检验日期（ae_covers），术语含研究疾病/表现关键词或该指标名，且方向一致。
+    不用固定时间窗（±N 天无法规或指导原则依据，用户 2026-10-27）；首剂前开始的 AE 不算。"""
     dz = dz if dz is not None else disease_kw(C)
-    aew = int(C.A.get('aeExWindow', 14))
     ds = [r['date'] for r in pts if is_full_date(r.get('date'))]
     if not ds:
         return []
-    lo_, hi_ = min(ds), max(ds)
-    opp = opposite_dir(pts)
-    stem = re.sub(r'[（(].*$|百分比|计数|绝对值|浓度|含量', '', str(((getattr(C, 'metric', None) or {}).get(mid) or {}).get('label') or mid))
-    hit = []
-    for a in C.ae_by[sid]:
-        s0 = a.get('s')
-        if not is_full_date(s0) or a.get('pre') or (days(s0, lo_) or 0) < -aew or (days(s0, hi_) or 0) > aew or opp.search(a['t']):
+    opp, stem = opposite_dir(pts), _stem(C, mid)
+    return [a for a in C.ae_by[sid] if not a.get('pre') and not opp.search(a['t']) and any(ae_covers(a, d) for d in ds)
+            and ((dz and dz.search(a['t'])) or (len(stem) >= 2 and stem in a['t']))]
+
+
+def _comparable(r):
+    if r.get('value') is not None:
+        return 'n', r['value']
+    if qual_level(r.get('raw')):                      # 定性阳性类（±/+/2+…）按写法比较；阴性/文本描述不比较
+        return 'q', re.sub(r'\s', '', str(r.get('raw')))
+    return None
+
+
+def same_level(C, a, b):
+    """两次结果相同或相近：数值相差 ≤ analysis.clinConsistTol（默认 10%）且同向超出参考范围；定性结果写法相同。
+    无参考范围的数值（如心电图间期，临床意义评价的是整份心电图）不比较。"""
+    ka, kb = _comparable(a), _comparable(b)
+    if not ka or not kb or ka[0] != kb[0]:
+        return False
+    if ka[0] == 'q':
+        return ka[1] == kb[1]
+
+    def side(r):
+        v = r['value']
+        return 1 if r.get('hi') is not None and v > r['hi'] else -1 if r.get('lo') is not None and v < r['lo'] else 0
+    x, y = ka[1], kb[1]
+    return side(a) == side(b) != 0 and abs(x - y) <= float(C.A.get('clinConsistTol', 0.1)) * max(abs(x), abs(y))
+
+
+def judgment_only(C, r, rows, t_base):
+    """该 CS 点与同受试者同指标某次 NCS 判定数值相近、且较基线未加重：属判定不一致，不按「潜在 AE 漏记」处理（用户 2026-10-27）。"""
+    return not worse_vs_base(r, r.get('base'), t_base) and any(a.get('clin') == 1 and same_level(C, a, r) for a in rows)
+
+
+def clin_consistency(C):
+    """同一受试者同一指标，相同/相近结果一次判 NCS、一次判 CS → 发 query（判定一致性；不构成方案偏离）。
+    同一受试者同一表单合并为一条（D002：贫血受试者的 MCH/MCHC/MCV/Hb 常同时出现），锚定最近一次相关记录。"""
+    by = defaultdict(list)
+    for (sid, mid), rows in sorted(C.F.items()):
+        if sid not in C.pop:
             continue
-        if (dz and dz.search(a['t'])) or (len(stem) >= 2 and stem in a['t']):
-            hit.append(a)
-    return hit
+        pairs = [tuple(sorted((a, b), key=lambda x: x.get('date') or '')) for b in rows if b.get('clin') == 2
+                 for a in rows if a.get('clin') == 1 and same_level(C, a, b)]
+        if pairs:
+            by[(sid, pairs[0][0]['sheet'])].append((mid, pairs))
+    for (sid, sh), items in sorted(by.items()):
+        def last(it):
+            return max(x.get('date') or '' for p in it[1] for x in p)
+        items.sort(key=last, reverse=True)
+        mid, pairs = items[0]
+        late = max((x for p in pairs for x in p), key=lambda x: x.get('date') or '')
+        parts = []
+        for m, ps in items[:3]:
+            a, b = max(ps, key=lambda p: p[1].get('date') or '')
+            parts.append(f"{C.metric[m]['label']} " + '，'.join(
+                f"{x.get('visit')}（{x.get('date')}）{_val(_raw_or_val(x), x.get('unit'))} 判「{'异常有临床意义' if x.get('clin') == 2 else '异常无临床意义'}」" for x in (a, b)))
+        more = f"；另有 {len(items) - 3} 项同类情况" if len(items) > 3 else ''
+        add_ext(C, sid, '临床意义判定不一致', 'CLIN-INC', 3, '；'.join(parts) + f"——结果相近但临床意义判定不同{more}",
+                late.get('visit'), late.get('date'), late['sheet'], late['row'], C.metric[mid]['label'],
+                ctx=['判定一致性核对（不构成方案偏离）'],
+                rule={'ask': '请核实上述判定的依据并统一；如判定确有不同，请说明理由（如症状、复查结果、标本因素）；如判定有临床意义，请评估是否需记录不良事件或病史。'},
+                bkey=f"{sh}|clin", wb=late.get('wb') or '')
 
 
 def _worsening(r, t_base):
@@ -529,7 +635,7 @@ def m23_csb(C):
     exempt = dp.get('confirmed') is True and str(dp.get('quote') or '').strip()
     handled = set()                                      # M01/M02 已产 query 或已判通过的 CS 行
     for g in C.labrows:
-        if g['risk'] in ('CSX', 'MH', 'CSX_AE', 'AE', 'DIS', 'DISW'):
+        if g['risk'] in ('CSX', 'MH', 'CSX_AE', 'AE', 'DIS', 'DISW', 'CSI'):
             for p in g['pts']:
                 handled.add((g['sid'], p[7], p[8]))
     candidates, seen = [], set()
@@ -544,10 +650,10 @@ def m23_csb(C):
             binding = {'link': None, 'matched_ae': [], 'matched_mh': []}
             emit = None                                  # ('LINK'|'CSX_AE'|'MH'|'CSW'|'CSX', rec, extra)
             link = next((l for l in (r.get('links') or [])), None)
-            if not link and 'disease' in (r.get('reason') or ''):
+            if not link and disease_attr(C, r):
                 # 用户 2026-10-27：归因研究疾病不算「未关联」。只有较基线明显加重（D14/D19，判定波动不算）且同期未见
                 # 「研究疾病加重」类 AE 才作为风险；其余只作提示。方案进展条款已确认时交步骤 5 候选（D21）。
-                wf = worse_vs_base(r, r.get('base'), t_base) if r['post'] and r.get('base') else None
+                wf = (worse_vs_base(r, r.get('base'), t_base) if r['post'] and r.get('base') else None) or (r['post'] and stated_worse(r))
                 if not wf and r['post'] and r.get('value') is None and (r.get('base') or {}).get('clin') == 0:
                     wf = '基线正常，给药后新出现异常'           # 定性检查（体检/影像）：基线正常 → CS 视为明显异常；NCS→CS 判定波动不算
                 if not wf or disease_ae(C, sid, mid, [r]):
@@ -555,7 +661,7 @@ def m23_csb(C):
                 if exempt:
                     candidates.append(_candidate(C, r, binding, known, worse, flags, disease_hint(C, mid) or '研究者归因研究疾病'))
                     continue
-                _csb_query(C, r, 'CSW', None, f"；研究者归因研究疾病，但较基线明显加重（{wf}），同期未见研究疾病加重类不良事件", flags)
+                _csb_query(C, r, 'CSW', None, f"；研究者归因研究疾病，但较基线明显加重（{wf}），未见覆盖该日期的研究疾病加重类不良事件", flags)
                 continue
             if link:
                 pool = C.ae_by[sid] if link[0] == 'AE' else C.mh_by[sid]
@@ -625,7 +731,7 @@ def m23_csb(C):
                         if known and worse:
                             emit = ('CSW', mmhs[0], f"；病史 {mmhs[0]['no']}「{mmhs[0]['term']}」存在，但给药后较基线恶化")
             dh = disease_hint(C, mid)
-            if emit is None and not link and r['post'] and known and worse and not (exempt and dh):
+            if emit is None and not link and r['post'] and known and worse and not (exempt and dh) and not judgment_only(C, r, rows, t_base):
                 emit = ('CSW' if _base_abn(r) else 'CSX', None, None)   # 步骤 4：确定性恶化直接 query（D19/D21）
             # 已关联且对象存在、对应性无法确定 → 步骤 5 候选（三问 Q3），不按「未关联」发 query（D002 QC：超声「其他异常」已关联病史/AE 曾被报 CS 未关联）
             if emit is not None:
@@ -711,6 +817,7 @@ def run(C):
     m20_ae_sae(C)
     m21_ae_course(C)
     date_order(C)
+    clin_consistency(C)
     cands = m23_csb(C)
     C.labrows.sort(key=lambda g: (-g['pr'], g['sid'], g['test']))
     return cands                                    # 词表未配置提示由 defaults() 追加到 todo（不覆盖默认待办）

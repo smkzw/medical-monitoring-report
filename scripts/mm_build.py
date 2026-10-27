@@ -509,15 +509,17 @@ def build_labrows(C):
         # 全部 CS 点都归因研究疾病且无关联 → DIS（研究疾病可解释，不发 query，可见）；其中给药后较基线恶化 → DISW（D21：仍须评估 AE）。
         # 原因选「病史/不良事件」但未关联编号 → 仍按 CSX（事实即「未关联」），上下文注明数据缺失。
         cs_pts = [r for r in P if r.get('clin') == 2]
-        dis_only = bool(cs_pts) and not links and all('disease' in (r.get('reason') or '') for r in cs_pts)
+        dis_only = bool(cs_pts) and not links and all(ext_rules.disease_attr(C, r) for r in cs_pts)   # 原因选项或备注归因研究疾病
         if anycs and dis_only:
             # 用户 2026-10-27：归因研究疾病不算「未关联」；只有较基线明显加重、且未记录「研究疾病加重」类 AE 才作为风险
             t_base = float(C.cfg['thresholds'].get('base', 0.3))
-            wf = next((w for w in (worse_vs_base(r, b, t_base) for r in cs_pts if r['post']) if w), None) if b else None
+            wf = (next((w for w in (worse_vs_base(r, b, t_base) for r in cs_pts if r['post']) if w), None) if b else None) or \
+                next((w for w in map(ext_rules.stated_worse, cs_pts) if w), None)      # 研究者备注写明加重：研究者判定优先
             dae = disease_ae(sid, mid, cs_pts) if wf else []
             risk = 'DISW' if wf and not dae else 'DIS'
             ctx.append('研究者归因：研究疾病' + (f'；给药后较基线加重（{wf}）' if wf else '；基线缺失，无法判断是否加重' if not b else '；较基线未明显加重') +
-                       (f"；已记录研究疾病加重 AE「{dae[0]['t']}」（{dae[0]['s']}，未关联，提示关联）" if dae else ''))
+                       (f"；已记录研究疾病加重 AE「{dae[0]['t']}」（{dae[0]['s']}，未关联，提示关联）{ext_rules.onset_note(C, mid, dae[0], cs_pts)}" if dae else
+                        '；未见覆盖该期间的研究疾病加重类 AE' if wf else ''))
         elif anycs:
             risk = 'AE' if has_ae else 'MH' if has_mh else 'CSX'
             # mm4：关联按组汇总会掩盖单点——某次 CS 结果自身未关联，且不在本组已关联 AE/MH 的持续期间内 → 仍按 CSX
@@ -542,12 +544,17 @@ def build_labrows(C):
                     dae = disease_ae(sid, mid, cs_pts) if wf else []
                     if wf and dae:
                         risk = 'DIS'
-                        ctx.append(f"研究疾病表现（{nm}）较基线加重（{wf}），已记录研究疾病加重 AE「{dae[0]['t']}」（{dae[0]['s']}，未关联，提示关联）")
+                        ctx.append(f"研究疾病表现（{nm}）较基线加重（{wf}），已记录研究疾病加重 AE「{dae[0]['t']}」（{dae[0]['s']}，未关联，提示关联）"
+                                   f"{ext_rules.onset_note(C, mid, dae[0], cs_pts)}")
                     elif wf:
                         ctx.append(f'研究疾病表现（{nm}），但较基线进一步加重：{wf}')
                     else:                                # 用户 2026-10-27：疾病本身的表现、较基线没有进一步加重 → 不作为风险
                         risk = 'DIS'
                         ctx.append(f'研究疾病表现（{nm}）：较基线未进一步加重，按疾病表现处理（不发 query）')
+            t_base = float(C.cfg['thresholds'].get('base', 0.3))
+            if risk == 'CSX' and all(ext_rules.judgment_only(C, r, rows, t_base) for r in cs_pts):
+                risk = 'CSI'                             # 用户 2026-10-27：相近数值一次 NCS 一次 CS 属判定不一致（另发一致性 query），不按潜在 AE 漏记
+                ctx.append('CS 与相近结果的 NCS 判定不一致：另发「临床意义判定不一致」query，不按潜在 AE 漏记处理')
             if risk == 'CSX' and any('link' in (r.get('reason') or '') for r in cs_pts):
                 ctx.append('原因选择「病史/不良事件」但未关联编号')
             if risk == 'CSX' and any('disease' in (r.get('reason') or '') for r in cs_pts):
@@ -580,11 +587,12 @@ def build_labrows(C):
             # 仅临床意义由 NCS 变 CS（判定波动）不算加重，避免把病史延续的判定差异全部变成 query
             t_base = float(C.cfg['thresholds'].get('base', 0.3))
 
-            worse = any(worse_vs_base(r, b, t_base) for r in P if r.get('clin') == 2)
             dz_mh = bool(dz) and any(l[0] == 'MH' and dz.search(l[1] or '') for l in links)
+            worse = any(worse_vs_base(r, b, t_base) or (dz_mh and ext_rules.stated_worse(r)) for r in P if r.get('clin') == 2)
             dae = disease_ae(sid, mid, [r for r in P if r.get('clin') == 2]) if worse and dz_mh else []
             if dae:
-                ctx.append(f"研究疾病病史，加重已记录为 AE「{dae[0]['t']}」（{dae[0]['s']}，未关联，提示关联）")
+                ctx.append(f"研究疾病病史，加重已记录为 AE「{dae[0]['t']}」（{dae[0]['s']}，未关联，提示关联）"
+                           f"{ext_rules.onset_note(C, mid, dae[0], [r for r in P if r.get('clin') == 2])}")
             else:
                 ctx.append('较基线加重：需判断是否给药后加重（AE）' if worse else '与基线同级或变化未达阈值：病史延续可能')
         for l in links:
@@ -1085,7 +1093,7 @@ QT = {  # default query wording (Chinese, fact first, then the ask). Override in
     'NA': ('超出参考范围·未评价临床意义', '{visit}（{date}）{test} {raw} {unit}（参考范围 {rng}），该结果超出参考范围，未见研究者临床意义评价。',
            '请评价该结果的临床意义；如判定有临床意义，请评估是否需记录不良事件并关联。'),
     'DISW': ('CS归因研究疾病·给药后加重', '{visit}（{date}）{test} {raw} {unit}（参考范围 {rng}{gtxt}），研究者判定「异常有临床意义」并归因研究疾病；基线（{bvis}）为 {braw}{unit}。',
-             '该异常较基线明显加重，且同期未见「研究疾病加重」类不良事件记录。请评估是否需记录为不良事件（如研究疾病加重；不良事件定义不论与研究药物的因果关系）；如判断仍属研究疾病自然病程，请在异常描述中说明依据。'),
+             '该异常较基线明显加重（或研究者备注为加重），且未见覆盖该期间的「研究疾病加重」类不良事件记录。请评估是否需记录为不良事件（如研究疾病加重；不良事件定义不论与研究药物的因果关系）；如判断仍属研究疾病自然病程，请在异常描述中说明依据。'),
     'NA2': ('未评价临床意义·达分级≥2级', '{visit}（{date}）{test} {raw} {unit}（参考范围 {rng}），按 {gl} 数值达 {grade} 级（{gterm}），该结果未见研究者临床意义评价。',
             '请评估该结果的临床意义；如判定有临床意义，请评估是否需记录 AE 并关联。'),
 }
@@ -1378,6 +1386,31 @@ def eff_num(v):
     return float(m.group(1)) if m else None
 
 
+def eff_magnitude(C):
+    """mm4：有效性指标中检验/检查来源的测量值，同一受试者某次与本人其余访视中位数相差 ≥10 倍 → 疑似单位/录入错误，发 query
+    （用户 2026-10-27 确认转 query）；量表不查（改善到接近 0 属正常）。结果同时进有效性页异常列表。"""
+    C.effmag = []
+    for m in C.A.get('efficacy') or []:
+        if m.get('derive') or str(m.get('src', '')).startswith('eff:'):
+            continue
+        for sid in sorted(C.pop):
+            vm = {}
+            for r in sorted(C.F.get((sid, m['src']), []), key=lambda r: (C.vi(r.get('visit')), r.get('date') or '')):
+                if r.get('value') is None or (m.get('visits') and r.get('visit') not in m['visits']):
+                    continue
+                if r.get('visit') not in vm or (m.get('agg') == 'max' and r['value'] > vm[r['visit']]['value']):
+                    vm[r.get('visit')] = r
+            for v, r in vm.items():
+                rest = sorted(x['value'] for w, x in vm.items() if w != v and x['value'] > 0)
+                if r['value'] > 0 and len(rest) >= 2 and not 0.1 < r['value'] / rest[len(rest) // 2] < 10:
+                    t_ = f"{m['label']} {fmt(r['value'])}{m.get('unit', '')}（{v}），本人其余访视中位数 {fmt(rest[len(rest) // 2])}"
+                    C.effmag.append({'sid': sid, 'site': C.subj[sid]['site'], 'k': f"{m['label']}量级异常", 'c': 'org', 'v': v, 't': t_,
+                                     'st': '核对单位或录入（疑似数量级错误）'})
+                    add_other(C, sid, '有效性数据量级异常', 3, f"{v}（{r.get('date')}）{t_}，相差 10 倍以上", v, r.get('date'), r['sheet'], r['row'],
+                              m['label'], rule={'id': 'EFF-MAG', 'ask': '疑似单位或录入错误，请核对源文件并更正；如数值无误，请说明原因。'},
+                              bkey=f"{m['src']}|mag|{v}", wb=r.get('wb') or '')
+
+
 def build_eff(C):
     M = C.A.get('efficacy', [])
     data = {}
@@ -1424,17 +1457,7 @@ def build_eff(C):
                     m = next(x for x in M if x['id'] == R['metric'])
                     anomalies.append({'sid': sid, 'site': e['site'], 'k': R['label'], 'c': R.get('cls', 'org'), 'v': v,
                                       't': f"{m['label']} {fmt(y)}{m.get('unit', '')}（{v}）", 'st': R.get('st', '核对源数据/测量'), 'qcat': R.get('qcat', [])})
-    for m in M:  # mm4：检验/检查来源的测量值，同一受试者某次与本人其余访视中位数相差 ≥10 倍 → 疑似单位/录入错误（量表不查：改善到接近 0 属正常）
-        if m.get('derive') or str(m['src']).startswith('eff:'):
-            continue
-        for sid, e in data.items():
-            ys = e['v'].get(m['id'], {})
-            for v, y in ys.items():
-                rest = sorted(x for w, x in ys.items() if w != v and x > 0)
-                if y > 0 and len(rest) >= 2 and not 0.1 < y / rest[len(rest) // 2] < 10:
-                    anomalies.append({'sid': sid, 'site': e['site'], 'k': f'{m["label"]}量级异常', 'c': 'org', 'v': v,
-                                      't': f'{m["label"]} {fmt(y)}{m.get("unit", "")}（{v}），本人其余访视中位数 {fmt(rest[len(rest) // 2])}',
-                                      'st': '核对单位或录入（疑似数量级错误）'})
+    anomalies += getattr(C, 'effmag', [])
     for m in M:  # key-visit pending: visit happened, value missing
         kv = m.get('keyVisit')
         if not kv or m.get('pending') is False:
@@ -1626,7 +1649,7 @@ def defaults(C):
         grp = defaultdict(list)
         for c in cats:
             k = ('不良事件记录' if c.startswith('AE') or 'AESI' in c else '合并用药' if '用药' in c else '入排/访视' if re.search('入排|访视', c)
-                 else '检验异常·绑定核查' if re.search(r'CS|关联|研究疾病|病史', c) else '检验记录质量' if re.search(r'参考范围|定性|未评价', c) else '方案阈值专项')
+                 else '检验异常·绑定核查' if re.search(r'CS|关联|研究疾病|病史', c) else '检验记录质量' if re.search(r'参考范围|定性|未评价|判定不一致|量级异常', c) else '方案阈值专项')
             grp[k].append(c)
         col = {'方案阈值专项': 'red', '不良事件记录': 'org', '合并用药': 'brn', '入排/访视': 'blu', '检验异常·绑定核查': 'org', '检验记录质量': ''}
         tax['domains'] = [[k, v, col.get(k, '')] for k, v in grp.items()] + [['检验异常', list(dict.fromkeys(QT[k][0] for k in QT)), 'org']]
@@ -1766,6 +1789,7 @@ def main():
     pd_reconcile(C)
     csb_candidates = ext_rules.run(C)                    # M13–M23 确定性＋日期序＋CSB 候选（PR-5）
     C.others.sort(key=lambda o: (-o['pr'], o['cat'], o['sid'], o['d']))
+    eff_magnitude(C)
     build_queries(C)
     build_cons(C)
     build_centers(C)

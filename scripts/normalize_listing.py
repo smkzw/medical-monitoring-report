@@ -218,6 +218,7 @@ def findings(spec, books, M):
                     f[k] = it.get(k)
             # CS 原因（mm4）：单选文本 reason（reason_map 归类）或复选框 reason_disease/reason_link/reason_other（是/否）
             codes = []
+            f['reason_raw'] = f.get('reason')              # 原因选项原文（如「与研究疾病加重有关」），供备注加重识别
             if f.get('reason') not in (None, ''):
                 codes.append(reason_code(f['reason'], M.get('reason_map')))
             for k, c in (('reason_disease', 'disease'), ('reason_link', 'link'), ('reason_other', 'other')):

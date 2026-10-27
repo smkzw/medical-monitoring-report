@@ -22,7 +22,7 @@ function tabLab(){
   K.onThr(()=>{rk.set(st.risk);draw();const b=document.getElementById('kz-rel-n');if(b)b.textContent=cnt('REL')});
   K.chips(document.getElementById('grp'),groups.map(g=>[g,g,lab.filter(x=>x.grp===g).length]),v=>{st.grp=v||'';draw()},{all:'全部分组'});
   document.getElementById('cat').onchange=e=>{st.cat=e.target.value;draw()};document.getElementById('site').onchange=e=>{st.site=e.target.value;draw()};document.getElementById('q').oninput=e=>{st.q=e.target.value.trim();draw()};
-  const order={CSX:0,DISW:1,MH:2,NCS2:3,AE:4,DIS:5,NCS:6,REL:7};
+  const order={CSX:0,DISW:1,MH:2,NCS2:3,CSI:4,AE:5,DIS:6,NCS:7,REL:8};
   const tb=K.table(document.getElementById('tb'),{rows:[],h:'640px',pageSize:80,cols:[
     {k:'risk',t:'风险',s:r=>-order[r.risk],f:r=>K.risk(r.risk)+(r.pdId?' '+K.pdPill(r.pdId):'')},
     {k:'sid',t:'受试者',f:r=>K.sid(r.sid)+` <span class="xs faint">${r.site}</span>`},
