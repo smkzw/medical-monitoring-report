@@ -53,16 +53,14 @@ GRADE_STD = [(r'严重|重要|重大|major|important|critical', '重要'), (r'�
 SIG_CAT = {'入排标准核对': ('ELIG', 'ELIG-01'), '入排洗脱用药核对': ('ELIG', 'ELIG-02'), '禁限用药核对': ('CM', 'CM-01'),
            '访视超窗核对': ('VIS', 'VIS-01')}
 # 方案「可沿用既往结果」条目常写检测品牌/英文名，listing 写中文通用名：按同一检测的常见写法扩展（医学同义，非研究特判）
-PRE_ICF_SYN = [(r'结核|QuantiFERON|T-?SPOT|IGRA|干扰素释放', r'γ-?干扰素释放|干扰素释放试验|IGRA|QuantiFERON|T-?SPOT|结核感染T细胞|结核'),
-               (r'乙肝|乙型肝炎|HBsAg|HBV', r'乙肝|乙型肝炎|HBsAg|HBV'), (r'丙肝|丙型肝炎|HCV', r'丙肝|丙型肝炎|HCV'),
-               (r'HIV|人类免疫缺陷', r'HIV|人类免疫缺陷|艾滋'), (r'梅毒|TPPA|RPR', r'梅毒|TPPA|RPR')]
+PRE_ICF_SYN = [(r'结核|QuantiFERON|T-?SPOT|IGRA|干扰素释放', r'γ-?干扰素释放|干扰素释放试验|IGRA|QuantiFERON|T-?SPOT|结核感染T细胞')]
 ICF_TIP = ('数据层面无法区分该检查是为本研究而做，还是受试者常规诊疗中已做、按方案可沿用的结果。'
            '请 CRA 核对源文件（检查申请/医嘱时间、是否为常规诊疗）：属方案允许沿用的既往结果则不构成偏离。')
 
 
 def _pre_icf_rx(item):
     ext = [b for a, b in PRE_ICF_SYN if re.search(a, item, re.I)]
-    return re.compile('|'.join([item] + ext), re.I)
+    return re.compile('|'.join([f'(?:{item})'] + [f'(?i:{x})' for x in ext]))
 
 
 # 未执行的原因（用户 2026-10-28：写清是方案没写、listing 缺字段，还是阶段不判定，不能只写「未配置」）
@@ -79,7 +77,7 @@ REASON = {
     'IP-03': {'unconfigured': '方案中未找到依从性计算方法与允许范围'},
     'IP-04': {'unconfigured': '方案未要求空腹给药，或给药记录中没有「是否空腹」字段'},
     'SAMP-01': {'no-data': 'listing 中没有样本采集时刻或给药时刻'}, 'SAMP-02': {'no-data': 'listing 中没有样本采集时刻或给药时刻'},
-    'CM-02': {'unconfigured': '方案未规定补救治疗最早可用时间'}, 'CM-03': {'unconfigured': '方案未规定使用补救治疗后须停用研究药物'},
+    'CM-02': {'unconfigured': '方案未规定补救治疗最早可用时间'}, 'CM-03': {'unconfigured': '方案未规定使用补救治疗后须停用研究药物，或未列出须停药的补救药物'},
     'SAFE-02': {'no-data': 'AE listing 没有获知日期/报告日期，无法判断报告是否超时'},
     'ELIG-01': {'unconfigured': '方案入排标准中没有可用数据核对的数值条件'},
 }
@@ -638,7 +636,7 @@ class _PD:
             return
         rx = re.compile(R['re'], re.I)
         self.ran['CM-02'] = 'ran' if R.get('earliestDay') else 'unconfigured'
-        self.ran['CM-03'] = 'ran' if R.get('stopRequired') else 'unconfigured'
+        self.ran['CM-03'] = 'ran' if R.get('stopRequired') and R.get('stopRe') else 'unconfigured'   # 未列出须停药的补救药物时不执行（否则外用补救也会被判）
         for sid in sorted(C.dosed):
             s = C.subj[sid]
             for c in C.cm_by[sid]:
@@ -648,7 +646,7 @@ class _PD:
                 if R.get('earliestDay') and 0 < sd < int(R['earliestDay']):
                     self.add('CM-02', sid, f"补救治疗「{c['t']}」于研究日 D{sd}（{c['s']}）开始，早于方案允许的 D{R['earliestDay']}",
                              date=c['s'], src=[[_sh(c, 'sh'), c['row'], c['t']]])
-                if R.get('stopRequired') and (not R.get('stopRe') or re.search(R['stopRe'], f"{c['t']}|{c.get('rt') or ''}", re.I)):
+                if R.get('stopRequired') and R.get('stopRe') and re.search(R['stopRe'], f"{c['t']}|{c.get('rt') or ''}", re.I):
                     late = [e for e in C.exposure if e['sid'] == sid and (_last_dose(e) or '') > c['s']]
                     if late:
                         self.add('CM-03', sid, f"补救治疗「{c['t']}」{c['s']} 开始，方案要求其后永久停用研究药物，但给药记录持续至 {_last_dose(late[0])}",

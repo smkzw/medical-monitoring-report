@@ -138,6 +138,38 @@ class Batch6(unittest.TestCase):
             self.assertEqual(form_names(Book(str(p))), {'LBCH': '血生化', 'OTH': '其他检查'})
 
 
+class ReviewFindings(unittest.TestCase):
+    """第六批代码审查发现：加重判断的边界、备注否定、IB 匹配范围。"""
+    def test_worse_vs_base_edges(self):
+        from ext_rules import worse_vs_base, qual_worse
+        self.assertIsNone(worse_vs_base({'grade': 2, 'value': 5}, None, 0.3))                    # 基线缺失不虚构「0→2 级」
+        self.assertIn('基线为 0', worse_vs_base({'value': 199.68, 'hi': 0.05}, {'value': 0.0, 'grade': 0}, 0.3))
+        sbp = {'value': 175, 'test': '收缩压', 'mid': 'vs:收缩压'}
+        w = worse_vs_base(sbp, {'value': 129, 'grade': 0}, 0.3)
+        self.assertTrue(w is None or '升高' in w)                                             # 有默认上限时按上限比较（无上限时不报错）
+        self.assertIn('阴性→2+', qual_worse({'raw': '2+'}, {'raw': '阴性'}))
+
+    def test_disease_attr_negation_and_stated_worse(self):
+        from types import SimpleNamespace
+        from ext_rules import disease_attr, stated_worse
+        C = SimpleNamespace(A={'diseaseTerms': ['AD']}, S={'study': {'design': {'facts': [['适应症', '中度至重度特应性皮炎患者']]}}})
+        for s in ('与AD无关', '与研究疾病无关', '排除AD', '考虑与AD无关，上感所致', 'AD治疗药物相关'):
+            self.assertFalse(disease_attr(C, {'desc': s}), s)
+        self.assertTrue(disease_attr(C, {'desc': '与AD相关'}))
+        self.assertTrue(stated_worse({'desc': '皮疹控制不佳加重'}))
+        self.assertIsNone(stated_worse({'desc': '不考虑AD加重'}))
+
+    def test_ib_match_serious_and_direction(self):
+        from types import SimpleNamespace
+        from mm_build import ib_match
+        C = SimpleNamespace(A={'expectedAE': [{'term': '严重感染', 'label': 'IB重要潜在风险', 're': '', 'pt': '感染', 'soc': '感染及侵染类疾病', 'labs': []},
+                                              {'term': '中性粒细胞计数减少', 'label': '类效应（方案列明）', 're': '', 'pt': '', 'soc': '', 'labs': []}]})
+        self.assertEqual(ib_match(C, {'t': '上呼吸道感染', 'pt': '上呼吸道感染', 'soc': '感染及侵染类疾病', 'sae': False, 'g': '1级'}),
+                         ['IB重要潜在风险·严重感染（同类，非严重）'])
+        self.assertEqual(ib_match(C, {'t': '严重感染', 'pt': '感染', 'soc': '感染及侵染类疾病', 'sae': True, 'g': '3级'}), ['IB重要潜在风险·严重感染'])
+        self.assertEqual(ib_match(C, {'t': '中性粒细胞计数升高', 'pt': '', 'soc': '各类检查', 'sae': False, 'g': '1级'}), [])
+
+
 class QualLevel(unittest.TestCase):
     def test_plus_minus_spellings_are_weak(self):
         from ext_rules import qual_level

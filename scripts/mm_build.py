@@ -342,7 +342,7 @@ def ae_summary(C):
 
 # ----------------------------------------------------------------------------- findings
 # IB/方案列明的产品风险（analysis.expectedAE，工作台从 IB 风险表编译）：AE 按术语/PT 匹配，按 SOC 匹配的标「同类」；检验按风险的检验表现匹配
-LAB_ALIAS = {'CK': '肌酸激酶|CK|CPK', 'CPK': '肌酸激酶|CK|CPK', 'HGB': '血红蛋白|Hb|HGB', 'HB': '血红蛋白|Hb|HGB', 'WBC': '白细胞', 'NEUT': '中性粒细胞',
+LAB_ALIAS = {'CK': '肌酸激酶|CK|CPK', 'CPK': '肌酸激酶|CK|CPK', 'HGB': '(?<!糖化)血红蛋白|Hb|HGB', 'HB': '(?<!糖化)血红蛋白|Hb|HGB', 'WBC': '白细胞', 'NEUT': '中性粒细胞',
              'ANC': '中性粒细胞', 'LYM': '淋巴细胞', 'LYMPH': '淋巴细胞', 'PLT': '血小板', 'ALT': '丙氨酸氨基转移酶|ALT', 'AST': '天门冬氨酸氨基转移酶|天冬氨酸|AST',
              'TBIL': '总胆红素', 'TG': '甘油三酯', 'TC': '总胆固醇', 'LDL': '低密度脂蛋白', 'CREA': '肌酐', 'QTCF': 'QTc'}
 
@@ -353,12 +353,15 @@ def _exp_list(C):
         for e in C.A.get('expectedAE') or []:
             labs = []
             for a, lab, d in e.get('labs') or []:
-                pat = LAB_ALIAS.get(str(a or '').upper()) or (re.escape(str(a)) if a else None)
-                if not pat and lab:
+                pat = LAB_ALIAS.get(str(a or '').upper())
+                if not pat and lab and re.search(r'[一-鿿]', str(lab)):      # 别名表没有的指标用中文名（去掉升降词）
                     pat = re.escape(re.sub(r'(升高|降低|增高|减少|下降|异常)$', '', str(lab))[:6])
+                if not pat and a:
+                    pat = re.escape(str(a))
                 if pat:
                     labs.append((re.compile(pat, re.I), d))
-            C._exp.append({**e, '_re': re.compile(e['re']) if e.get('re') else None, '_labs': labs})
+            core = re.sub(r'^(严重|重要|重度)|[（(].*?[)）]', '', str(e.get('term') or '')).strip()   # 只按风险名本身匹配（PT 另做相等比较）
+            C._exp.append({**e, '_re': re.compile(re.escape(core)) if len(core) >= 2 else None, '_labs': labs})
     return C._exp
 
 
@@ -366,7 +369,15 @@ def ib_match(C, rec):
     out = []
     for e in _exp_list(C):
         name = f"{e['label']}·{e['term']}"
-        if (e['_re'] and e['_re'].search(rec['t'])) or (e.get('pt') and (rec.get('pt') == e['pt'] or e['pt'] in rec['t'])):
+        term = str(e.get('term') or '')
+        opp = ('升高|增多|增高|增加' if re.search(r'减少|降低|下降|减低', term) else '减少|降低|下降|减低' if re.search(r'升高|增多|增高|增加', term) else None)
+        if opp and re.search(opp, rec['t']):
+            continue
+        serious_only = bool(re.match(r'严重|重要|重度', term))
+        hit = (e.get('pt') and rec.get('pt') == e['pt']) or (e['_re'] and e['_re'].search(rec['t']))
+        if hit and serious_only and not (rec.get('sae') or (grade_int(rec.get('g')) or 0) >= 3):
+            out.append(name + '（同类，非严重）')
+        elif hit:
             out.append(name)
         elif rec.get('soc') and rec['soc'] in [re.sub(r'/\d+$', '', s.strip()) for s in re.split(r'[；;]', e.get('soc') or '')
                                                if s.strip() and not s.strip().startswith('各类检查')]:
@@ -563,8 +574,8 @@ def build_labrows(C):
         P = [r for r, _ in pts]
         anycs = any(r.get('clin') == 2 for r in P)
         mg = max([r.get('grade') or 0 for r in P] + [0])
-        has_ae = any(l[0] == 'AE' for l in links)
-        has_mh = any(l[0] == 'MH' for l in links)
+        has_ae = any(l[0] == 'AE' and l[4] for l in links)    # 关联编号在 AE/病史页不存在的不算已关联
+        has_mh = any(l[0] == 'MH' and l[4] for l in links)
         unassessed = all(r.get('clin') is None for r in P)
         # mm4：研究者填写的 CS 原因（reason：disease 研究疾病 / link 病史·不良事件 / other 其他）。
         # 全部 CS 点都归因研究疾病且无关联 → DIS（研究疾病可解释，不发 query，可见）；其中给药后较基线恶化 → DISW（D21：仍须评估 AE）。
@@ -628,7 +639,7 @@ def build_labrows(C):
             risk = 'NA'
         else:
             risk = 'AE' if has_ae else 'NCS'
-        if unassessed and risk != 'AE':
+        if unassessed and risk != 'AE' and C.metric[mid].get('hasClin'):   # 表单没有临床意义字段时不写「未评价」
             ctx.append('临床意义未评价')
         if risk in ('MH', 'NCS2', 'NA', 'NA2'):   # mm4：方案/IB 列出的研究疾病表现 → 审阅时可见（CSX/DIS 已在上方判定）
             ibg = next((b for a, b in (C.A.get('indicationBackground') or []) if re.search(a, mid)), None)
@@ -650,11 +661,17 @@ def build_labrows(C):
             t_base = float(C.cfg['thresholds'].get('base', 0.3))
 
             dz_mh = bool(dz) and any(l[0] == 'MH' and dz.search(l[1] or '') for l in links)
-            wf = next((w for w in (worse_vs_base(r, b, t_base) or (dz_mh and ext_rules.stated_worse(r)) for r in P if r.get('clin') == 2) if w), None)
+            cs_ = [r for r in P if r.get('clin') == 2]
+            wf = next((w for w in (worse_vs_base(r, b, t_base) or ext_rules.qual_worse(r, b) or (dz_mh and ext_rules.stated_worse(r)) for r in cs_) if w), None)
+            undet = None if wf else ('基线缺失，无法判断是否加重' if not b else
+                                     '描述性结果，无法自动判断是否加重' if all(r.get('value') is None and ext_rules.qual_level(r.get('raw')) is None for r in cs_) else None)
             dae = disease_ae(sid, mid, [r for r in P if r.get('clin') == 2]) if wf and dz_mh else []
             mhn = '、'.join(l[1] for l in links if l[0] == 'MH')
             # 用户 2026-10-28：已关联病史＝研究者已作判定；是否加重由系统判断——未加重不作风险（MHL），加重才提示/发 query（MH）
-            if not wf:
+            if undet:                                    # 系统判断不了时不归「未加重」：单列提示，由医学监察员看原始记录
+                risk = 'MHU'
+                ctx.append(f'{undet}：已关联病史「{mhn}」')
+            elif not wf:
                 risk = 'MHL'
                 ctx.append(f'已关联病史「{mhn}」，较基线未明显加重（病史延续）')
             elif dae:
@@ -663,7 +680,7 @@ def build_labrows(C):
                            f"{ext_rules.onset_note(C, mid, dae[0], [r for r in P if r.get('clin') == 2])}")
             else:
                 ctx.append(f'较基线加重（{wf}）：仅关联病史「{mhn}」，未见对应 AE')
-        if risk not in ('NCS', 'AE', 'MHL', 'NA'):        # IB/方案列明风险的检验表现只在需关注的层提示，避免给 NCS/已关联行加噪音
+        if risk in ('CSX', 'MH', 'MHU', 'NCS2', 'NA', 'NA2', 'G2NF', 'DISW'):   # IB/方案列明风险的检验表现只在需关注的层提示
             ctx += ib_lab_tags(C, mid, C.metric[mid]['label'], P)
         for l in links:
             if not l[4]:
@@ -671,7 +688,7 @@ def build_labrows(C):
         f0 = P[0]
         C.labrows.append({
             'sid': sid, 'site': C.subj[sid]['site'], 'cat': cat, 'test': C.metric[mid]['label'], 'mid': mid, 'grp': f0.get('group') or '',
-            'pr': {'CSX': 4, 'MH': 3, 'NCS2': 3, 'NA2': 3, 'G2NF': 3, 'DISW': 3, 'NA': 3}.get(risk, 1),
+            'pr': {'CSX': 4, 'MH': 3, 'NCS2': 3, 'NA2': 3, 'G2NF': 3, 'DISW': 3, 'NA': 3, 'MHU': 2}.get(risk, 1),
             'base': [b.get('visit'), b.get('raw'), b.get('unit') or '', b.get('clin')] if b else None,
             'pts': [[r.get('visit'), r.get('date'), r.get('raw'), r.get('unit') or '', r.get('grade'), r.get('clin'),
                      None if r.get('pct') is None else round(r['pct'], 1), r['sheet'], r['row'], r.get('desc') or '',
@@ -749,7 +766,7 @@ def rel_candidates(C):
         if exist is not None and not links:
             links = [x + [True] for x in (exist.get('rel') or [])]
         cl = {r.get('clin') for r in cand}
-        judg = 'CS' if 2 in cl else 'NA' if None in cl else 'NCS' if cl == {1} else 'N'
+        judg = 'CS' if 2 in cl else 'NA' if None in cl else 'NCS' if 1 in cl else 'N'
         bctx = {'AE': '已关联AE：该变化已有对应 AE 记录', 'MH': '已关联病史：病史延续，供参考', 'DIS': '研究者归因研究疾病，供参考'}.get(bind) or \
             {'NCS': '未关联AE/病史，研究者判定NCS：较基线变化明显，请结合临床判断是否需记录AE', 'NA': '未关联AE/病史，未评价临床意义',
              'N': '未关联AE/病史，研究者判定正常', 'CS': '未关联AE/病史，研究者判定CS'}[judg]
@@ -1277,6 +1294,8 @@ def build_queries(C):
             cat, ft, ask = T.get('CSX_DIS', T['CSX'])
             ft = ft.replace('{bg}', re.sub(r'[↑↓]|（医学常识）$', '', bg.split('：')[0]))
         P = [p for p in g['pts'] if (g['risk'] in ('NCS2', 'NA2', 'G2NF') and (p[4] or 0) >= 2) or (g['risk'] not in ('NCS2', 'NA2', 'G2NF') and p[5] == 2)] or g['pts']
+        if g['risk'] in ('MH', 'DISW') or bg:          # 加重类：以较基线变化最大的那次为主，数值与「较基线」必须是同一个点（D001 QC：曾写成 0.68 较 0.60 升高 63%）
+            P = sorted(P, key=lambda x: -abs(x[6] or 0))
         p = P[0]
         f = next((r for r in C.F[(g['sid'], g['mid'])] if r['sheet'] == p[7] and r['row'] == p[8]), {})
         mh = '、'.join(l[1] for l in g['rel'] if l[0] == 'MH')
@@ -1287,6 +1306,8 @@ def build_queries(C):
         btxt = f"基线{b_[1]}{p[3]}{'（正常）' if len(b_) > 3 and b_[3] == 0 else ''}，" if b_ and b_[1] not in (None, '') else ''
         move = '升高至' if bv is not None and cv is not None and cv > bv else '下降至' if bv is not None and cv is not None and cv < bv else '为'
         wf = next((m.group(1) for c in g['ctx'] for m in [re.search(r'较基线(?:进一步)?加重[（：]([^）；]+)', c)] if m), '较基线明显加重')
+        if p[6] is not None and re.search(r'较基线(升高|降低)', wf):   # 百分比按所写的这一次计算
+            wf = f"较基线{'升高' if p[6] > 0 else '降低'} {abs(p[6]):.0f}%"
         fact = fill(ft, visit=p[0], date=p[1], test=g['test'], raw=p[2], unit=p[3], lo=fmt(f.get('lo')) if f.get('lo') is not None else '—',
                     hi=fmt(f.get('hi')) if f.get('hi') is not None else '—', gtxt=f"，{C.GL} {p[4]}级" if p[4] else '', grade=p[4], gterm=f.get('gterm', ''), rng=rng, gl=C.GL,
                     mh=mh, bvis=b_[0] if b_ else None, braw=b_[1] if b_ else '—', btxt=btxt, move=move, wf=wf)
@@ -1831,7 +1852,7 @@ def defaults(C):
             {'k': 'lab', 't': '检验→AE/MH', 'sh': sorted({g['pts'][0][7] for g in C.labrows})[:4], 'ib': [],
              'f': ['结果 · 单位 · 参考范围', '临床意义评价（CS/NCS）', '异常描述', '病史/不良事件关联'],
              'flow': [['规定基线', '按方案基线定义（指定访视/首剂前最近/多次均值）；缺失时按规则回退'], ['数值等级', C.GL + '（基线异常按基线倍数）'], ['CS/NCS', '与数值、症状、处置对照'], ['关联对象', '同一疾病、时间吻合'], ['加重判断', '仅关联病史者比较基线']],
-             'ab': {'个体': [['CS·未关联', 'solid-red', f"{lr('CSX')} 行"], ['CS·仅MH', 'org', f"{lr('MH')} 行"], ['NCS·≥2级', 'yel', f"{lr('NCS2')} 行"]] + ([['未评价·≥2级', 'yel', f"{lr('NA2')} 行"]] if lr('NA2') else []),
+             'ab': {'个体': [['CS·未关联', 'solid-red', f"{lr('CSX')} 行"], ['CS·仅MH·较基线加重', 'org', f"{lr('MH')} 行"], ['NCS·≥2级', 'yel', f"{lr('NCS2')} 行"]] + ([['未评价·≥2级', 'yel', f"{lr('NA2')} 行"]] if lr('NA2') else []),
                     '中心': [['同值异判', 'yel', f"{len(C.cons)} 组比较，{sum(c['st'] == '需核实' for c in C.cons)} 组需核实"]],
                     '全局': [['相对变化', 'line', f'无 {C.GL} 数值条目的指标仅作筛查，不改写 NCS']]},
              'ex': ex_for(list(dict.fromkeys(QT[k][0] for k in QT))), 'm': ['M01', 'M02', 'M03', 'M04', 'M05'], 'r': [], 'todo': [], 'go': [['safety.html#tab=lab', '待核异常明细'], ['objective.html', '检验趋势']]}]

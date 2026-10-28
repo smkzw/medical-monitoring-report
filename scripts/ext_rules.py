@@ -428,17 +428,31 @@ def grade_up(bg, cg):
 def worse_vs_base(r, b, t_base):
     """D14/D19 较基线加重：分级升高（0→1 级不单独算，见 grade_up），或超出范围且同向较基线变化 ≥T_base。
     返回说明文本或 None；仅临床意义 NCS→CS 的判定波动不算加重。"""
-    if grade_up((b or {}).get('grade'), r.get('grade')):
-        return f"等级 {(b or {}).get('grade') or 0}→{r.get('grade')} 级"
-    v, bv = r.get('value'), (b or {}).get('value')
-    if v is None or bv in (None, 0) or not r.get('oor'):
+    if not b:                                        # 基线缺失：不虚构「0→2 级」，由调用方按「无法判断」处理
         return None
+    if grade_up(b.get('grade'), r.get('grade')):
+        return f"等级 {b.get('grade') or 0}→{r.get('grade')} 级"
+    v, bv = r.get('value'), b.get('value')
+    if v is None or bv is None:
+        return None
+    hi, lo = ref_hi(r), r.get('lo')                  # 血压无参考范围时用默认上限（与 REL/步骤 4 同口径）
+    above, below = hi is not None and v > hi, lo is not None and v < lo
+    if bv == 0:                                      # 基线为 0（如乙肝表面抗原 0→199.68）：现超出范围即视为加重
+        return '基线为 0，现超出参考范围' if above else None
     pct = (v - bv) / abs(bv)
-    if r.get('hi') is not None and v > r['hi'] and pct >= t_base:
+    if above and pct >= t_base:
         return f"较基线升高 {pct * 100:.0f}%"
-    if r.get('lo') is not None and v < r['lo'] and -pct >= t_base:
+    if below and -pct >= t_base:
         return f"较基线降低 {-pct * 100:.0f}%"
     return None
+
+
+def qual_worse(r, b):
+    """定性结果加重：阳性等级升高（阴性→阳性、±→+ 等）。"""
+    if not b:
+        return None
+    lv, bl = qual_level(r.get('raw')), qual_level(b.get('raw'))
+    return f"定性结果 {b.get('raw')}→{r.get('raw')}" if lv is not None and bl is not None and lv > bl else None
 
 
 def _indication_names(C):
@@ -472,12 +486,17 @@ def _cs_text(r):
 
 
 def disease_attr(C, r):
-    """CS 归因研究疾病：原因选项为研究疾病，或备注写明与研究疾病相关（D001：「与AD相关」「研究疾病相关」多写在异常描述里）。"""
-    return 'disease' in (r.get('reason') or '') or bool(disease_name_re(C).search(_cs_text(r)))
+    """CS 归因研究疾病：原因选项为研究疾病，或备注写明与研究疾病相关（D001：「与AD相关」「研究疾病相关」多写在异常描述里）。
+    否定写法（「与AD无关」「排除AD」「不考虑研究疾病」）与「AD 治疗药物相关」不算归因。"""
+    if 'disease' in (r.get('reason') or ''):
+        return True
+    nm = disease_name_re(C).pattern
+    neg = re.compile(rf"(?:{nm})[^，。；,;]{{0,4}}(?:无关|不相关)|(?:排除|不考虑|除外|并非|非)[^，。；,;]{{0,4}}(?:{nm})|(?:{nm})[^，。；,;]{{0,4}}(?:治疗|药物|用药)[^，。；,;]{{0,3}}相关")
+    return bool(disease_name_re(C).search(neg.sub('', _cs_text(r))))
 
 
 _WORSE_TXT = re.compile(r'加重|恶化|进展|加剧|复发')
-_NOT_WORSE = re.compile(r'(?:未|无|非|没有|不|排除)[^，。；,;]{0,3}(?:加重|恶化|进展|加剧|复发)')
+_NOT_WORSE = re.compile(r'(?:未见?|无|并非|非|没有|不考虑|排除|除外)[^，。；,;]{0,6}(?:加重|恶化|进展|加剧|复发)')   # 不收单字「不」：「控制不佳加重」是加重
 
 
 def stated_worse(r):
@@ -585,7 +604,7 @@ def clin_consistency(C):
         add_ext(C, sid, '临床意义判定不一致', 'CLIN-INC', 3, '；'.join(parts) + f"，结果相近但判定不同{more}",
                 late.get('visit'), late.get('date'), late['sheet'], late['row'], C.metric[mid]['label'],
                 ctx=['判定一致性核对（不构成方案偏离）'],
-                rule={'ask': '请核实并统一临床意义判定；如判定确有不同，请注明理由。'},
+                rule={'ask': '请核实并统一临床意义判定；如判为有临床意义，请评估是否需记录AE。'},
                 bkey=f"{sh}|clin", wb=late.get('wb') or '')
 
 
@@ -636,7 +655,7 @@ def m23_csb(C):
     exempt = dp.get('confirmed') is True and str(dp.get('quote') or '').strip()
     handled = set()                                      # M01/M02 已产 query 或已判通过的 CS 行
     for g in C.labrows:
-        if g['risk'] in ('CSX', 'MH', 'MHL', 'CSX_AE', 'AE', 'DIS', 'DISW', 'CSI'):
+        if g['risk'] in ('CSX', 'MH', 'MHL', 'MHU', 'CSX_AE', 'AE', 'DIS', 'DISW', 'CSI'):
             for p in g['pts']:
                 handled.add((g['sid'], p[7], p[8]))
     candidates, seen = [], set()
