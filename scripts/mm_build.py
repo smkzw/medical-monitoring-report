@@ -12,6 +12,7 @@ import datetime as dt
 import hashlib
 import json
 import re
+import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -1362,6 +1363,12 @@ def build_queries(C):
         hit = QT_.get(q.get('qkey') or q['id'])
         if hit and hit.get('h') == q['card_h'] and hit.get('text'):
             q['text'], q['parts'], q['writer'] = hit['text'], [[hit['text'], 0]], 'model'
+    for q in Q:                                          # 事实卡自检：基线/数值/较基线百分比必须互相吻合（模型照卡写，错数字会直接进句子）
+        for c in q['_cards']:
+            m = re.search(r'(升高|降低)\s*(\d+)%', str(c.get('较基线') or ''))
+            b, v = _num(re.sub(r'[^\d.\-].*$', '', str(c.get('基线') or ''))), _num(re.sub(r'[^\d.\-].*$', '', str(c.get('数值') or '')))
+            if m and b and v is not None and abs(abs((v - b) / b * 100) - int(m.group(2))) > 1.5:
+                print(f"WARN  事实卡数值不一致 {q['id']}：基线 {c.get('基线')} 数值 {c.get('数值')} {c.get('较基线')}", file=sys.stderr)
     C.queries = Q
     C.qcommon = dict(common)
 
