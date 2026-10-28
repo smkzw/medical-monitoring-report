@@ -175,10 +175,15 @@ def read_spec(spec, books, M):
     filts = [x for x in ([spec['filter']] if isinstance(spec.get('filter'), dict) else (spec.get('filter') or []))]
     filts += [x for x in (M.get('row_filter') or []) if col_index(x['col'], labels, vars_) is not None]
     fidx = [(x, col_index(x['col'], labels, vars_)) for x in filts]
+    # mm4 增量：差异导出模式下保留变更标记（新增/修改/删除）供工作台合并，不在此过滤（mapping 级 change_flag: [列名…]）
+    cfi = next((i for i in (col_index(c, labels, vars_) for c in (M.get('change_flag') or [])) if i is not None), None)
     for rown, r in data:
         rec = {k: conv(k, r[i] if i is not None and i < len(r) else None, M) for k, i in cols.items()}
         if not rec.get('sid'):
             continue
+        if cfi is not None:
+            cv = r[cfi] if cfi < len(r) else None
+            rec['_chg'] = '' if cv is None else str(cv).strip()
         skip = False
         for fx, fi in fidx:
             fv = r[fi] if fi is not None and fi < len(r) else None
@@ -200,8 +205,10 @@ def findings(spec, books, M):
     out = []
     lay = spec.get('layout', 'long')
     for rec, r, labels, vars_ in read_spec(spec, books, M):
-        base = {k: rec.get(k) for k in ('sid', 'visit', 'date', 'time', 'tpt', 'sheet', 'row', 'done', 'wb', 'reason', 'reason_text',
+        base = {k: rec.get(k) for k in ('sid', 'visit', 'date', 'time', 'tpt', 'sheet', 'row', 'done', 'wb', 'reason', 'reason_text', '_chg',
                                         'reason_disease', 'reason_link', 'reason_other', 'flag')}
+        if base.get('_chg') is None:
+            base.pop('_chg')                          # 只有差异导出模式才带变更标记
         base['domain'] = spec.get('domain', 'lab')
         base['group'] = spec.get('group', spec['sheet'])
         if lay == 'long':

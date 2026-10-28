@@ -10,6 +10,9 @@ K.pct=v=>v==null||isNaN(v)?'—':(v>0?'+':'')+(+v).toFixed(1)+'%';
 K.sid=(id,extra='')=>`<a class="sid" href="subjects.html#s=${id}${extra}">${id}</a>`;
 const C0=()=>(window.KZ&&window.KZ.cfg)||{};
 K.cfg=()=>C0();
+/* 阈值档位：kz-tier.js 已按所选 T_base 载入该档的分析结果（window.KZV），覆盖默认档的对应数据（检验风险、专项核查、质疑、潜在 PD 等） */
+(()=>{const V=window.KZV,Z=window.KZ;if(!V||!Z)return;const k=Object.keys(V)[0],v=V[k]||{};
+  Object.keys(v).forEach(x=>{if(x==='meta')Object.assign(Z.meta||(Z.meta={}),v.meta);else Z[x]=v[x]});K.tier=k})();
 K.VIS=(((window.KZ||{}).cfg||{}).visits||{}).order||['V1','V2','D1','USV','ET'];
 K.VUNS=(((window.KZ||{}).cfg||{}).visits||{}).unsched||['USV'];K.VET=(((window.KZ||{}).cfg||{}).visits||{}).early||['ET'];
 K.isAgg=v=>!K.VUNS.includes(v)&&!K.VET.includes(v);
@@ -22,35 +25,69 @@ K.pri=n=>K.p(K.PRI[n]?.[0]||'—',K.PRI[n]?.[1]||'');
 K.RISK={CSX:['CS·未关联AE/MH','solid-red','判CS但未关联AE或病史：漏报AE风险最高'],MH:['CS·仅关联MH·较基线加重','org','判CS且仅关联既往病史，系统判定给药后较基线加重，未见对应AE：请评估是否需记录AE'],MHU:['CS·仅关联MH·无法判断加重','yel','判CS并已关联病史，但基线缺失或为描述性结果，系统无法判断是否加重：请结合原始记录判断'],MHL:['已关联MH','grn','判CS并已关联既往病史，较基线未明显加重（病史延续），或加重已记录为AE：不作为风险'],NCS2:['NCS·≥2级','yel','数值落入'+((window.KZ||{}).cfg||{}).ctcaeVersion+'≥2级但判NCS'],NA2:['未评价·≥2级','yel','数值达≥2级，表单有临床意义字段但研究者未评价'],G2NF:['≥2级·表单无临床意义评价','yel','数值达≥2级，该表单没有临床意义字段（如体重）：请评估是否需记录AE'],AE:['已关联AE','grn','已有对应AE记录'],NA:['超范围·未评价','yel','给药后超出参考范围但未见研究者临床意义评价'],DIS:['CS·研究疾病表现','grn','研究者归因研究疾病，或属方案/IB 列出的研究疾病表现，且给药后未较基线进一步加重：不作为风险'],DISW:['CS·研究疾病·加重','org','研究者归因研究疾病，但给药后较基线加重：按AE定义评估'],NCS:['NCS','','异常无临床意义'],CSI:['CS·判定不一致','yel','同一受试者相近结果一次判NCS、一次判CS：发判定一致性query，不按潜在AE漏记'],REL:['较基线显著变化','yel','给药后超出参考范围且较基线同向明显变化（阈值见下方选择）；只统计未关联AE/病史的，已关联的单独标注'],'MHX-T':['疑似病史漏记·首剂前','org','首次给药前已明显超出参考范围（或达≥2级），研究者判NCS或未评价，且病史未记录（阈值见下方选择）']};
 K.risk=r=>K.p(K.RISK[r]?.[0]||r,K.RISK[r]?.[1]||'',K.RISK[r]?.[2]);
 /* ---- 双阈值（T_dev/T_base，PR-4）：状态读取 + REL 即时重分类 + 变更监听 ----
- * 档位来源：系统层 KZS.thresholds（选择器写入）＞ cfg.thresholds（构建配置，默认 30%/30%）。
+ * 档位来源：用户所选（localStorage，按研究编号）＞ 系统层 KZS.thresholds（工作台项目设置）＞ cfg.thresholds（构建配置，默认 30%/30%）。
+ * 切换即保存并重新载入页面：T_base 按档位载入构建期结果（kz-tier.js），T_dev 与 REL/MHX-T 逐点在载入时按阈值过滤（K.applyThr），全报告同一口径。
  * per_metric 为覆盖（直接替换所选值）；metricThreshold 为收紧（有效值=min(所选,收紧值)，构建折叠进 cfg.metricTight）。 */
 /* 表单代码 → 中文表单名（「edc:LBCH」→「血生化（LBCH）」） */
 /* 指标正则 → 可读名（研究依据页不露正则）：去域前缀、否定前瞻、可选后缀，取含中文的备选 */
 K.rxl=s=>{s=String(s||'').replace(/\(\?![^()]*(?:\([^()]*\)[^()]*)*\)/g,'').replace(/\([^()]*\)\?/g,'').replace(/\^?\\w\+:|\^?[a-z]+:|\.\*|\\b|[\^$]|\(\?:/g,'');
   const n=[...new Set(s.split(/[|()]/).map(x=>x.replace(/[\\?*+\[\]{}]/g,'').trim()).filter(x=>/[\u4e00-\u9fff]/.test(x)))];return n.slice(0,3).join('、')||[...new Set(s.split(/[|()]/).map(x=>x.replace(/[\\^$.*?+\[\]{}]/g,'').trim()).filter(Boolean))].slice(0,3).join('/')};
 K.OPL={'<':'＜','<=':'≤','>':'＞','>=':'≥','==':'＝',re:'阳性'};
+/* ---- 较上次（工作台多次上传：KZS.delta 记录级、KZS.riskdiff 风险项级）；键与工作台 lifecycle/riskdiff.py 同一写法 ---- */
+K.RD=()=>{const R=(window.KZS||{}).riskdiff;return R&&R.basis==='prev_build'?R:null};
+K.dkey={lab:g=>g.sid+'|'+g.test,oth:o=>o.qkey,ae:a=>a.sid+'|'+(a.n!=null&&a.n!==''?a.n:a.t+'|'+a.s),pd:p=>p.rule+'|'+p.sid+'|'+(p.visit||p.date||'')};
+K.dst=(kind,x)=>{const R=K.RD();return R&&R[kind]?(R[kind][K.dkey[kind](x)]||''):''};
+K.DPL={new:['本次新增','red'],worse:['较上次加重','red'],milder:['较上次减轻','grn']};
+K.dpill=(kind,x)=>{const p=K.DPL[K.dst(kind,x)];return p?K.p(p[0],p[1]):''};
+/* 「只看本次新增/加重」开关＋已解决查看；返回过滤函数 */
+K.chgBar=(el,kind,onChange,label)=>{const R=K.RD();if(!R||!el)return ()=>true;let on=false;const res=((R.resolved||{})[kind]||[]);
+  el.innerHTML=`<label class="chip"><input type="checkbox"> 只看本次新增/加重</label>${res.length?`<a class="small" href="javascript:void 0" style="margin-left:8px">较上次已解决 ${res.length} 条 ›</a>`:''}`;
+  el.querySelector('input').onchange=e=>{on=e.target.checked;onChange()};
+  const a=el.querySelector('a');if(a)a.onclick=()=>K.drawer(`较上次已解决 · ${label||''}`,`<div class="note small mb">上次有、本次不再出现（数据更正、已补关联或记录删除等）；原因请结合源数据确认。</div><table class="t"><tbody>${res.map(x=>`<tr><td style="width:90px">${K.sid(x.sid)}</td><td class="small">${K.esc(x.sum)}</td></tr>`).join('')}</tbody></table>`);
+  return x=>!on||['new','worse'].includes(K.dst(kind,x))};
+/* 总览「较上次」卡：数据变化（记录级）＋风险变化（风险项级）；无上一次时不显示 */
+K.deltaCard=()=>{const S=window.KZS||{},DL=S.delta,R=K.RD();if(!DL)return '';
+  const c=DL.counts||{},L=DL.labels||{},sum=k=>Object.values(c).reduce((a,v)=>a+(v[k]||0),0);
+  const doms=['visits','ae','findings','exposure','cm','mh','efficacy','sample'].filter(d=>c[d]&&(c[d].new||c[d].changed||c[d].deleted));
+  const nsub=Object.keys(DL.subjects||{}).length;
+  const rk=[['lab','检验异常','safety.html#tab=lab'],['oth','专项核查','safety.html#tab=oth'],['ae','AE','safety.html#tab=ae'],['pd','潜在 PD','deviations.html']];
+  const rc=R?rk.map(([k,n,h])=>{const x=(R.counts||{})[k]||{};return `<a class="drow" href="${h}"><span class="dn">${n}</span>${x.new?K.p('新增 '+x.new,'red'):''}${x.worse?K.p('加重 '+x.worse,'red'):''}${x.milder?K.p('减轻 '+x.milder,'grn'):''}${x.resolved?K.p('已解决 '+x.resolved,'grn'):''}${!(x.new||x.worse||x.milder||x.resolved)?'<span class="xs faint">无变化</span>':''}</a>`}).join(''):'';
+  const aeN=(DL.aeNew||[]).slice(0,6).map(a=>`<div class="small">${K.sid(a.sid)} ${K.esc(a.label)}${a.grade?' '+K.esc(a.grade):''}</div>`).join('');
+  return `<div class="card mt"><div class="hd"><h2>较上次</h2><span class="sub">对比上次上传（${K.esc(DL.prevCutoff||'—')}）· 本次为${DL.exportType==='delta'?'差异导出，已合并到上次数据':'全量导出'}</span></div>
+  ${DL.warning?`<div class="box red small mb">${K.esc(DL.warning)}</div>`:''}
+  <div class="grid g2"><div><div class="xs muted mb">数据变化 · 涉及 ${nsub} 名受试者 · 新增 ${sum('new')}、修改 ${sum('changed')}、删除 ${sum('deleted')} 条记录</div>
+   <table class="t"><tbody>${doms.map(d=>`<tr><td style="width:96px">${K.esc(L[d]||d)}</td><td>${c[d].new?K.p('新增 '+c[d].new,'blu'):''}${c[d].changed?K.p('修改 '+c[d].changed,'org'):''}${c[d].deleted?K.p('删除 '+c[d].deleted,'line'):''}</td></tr>`).join('')||'<tr><td class="empty">无记录变化</td></tr>'}</tbody></table>
+   ${aeN?`<div class="xs muted mt">新增 AE${(DL.aeNew||[]).length>6?'（前 6 条）':''}</div>${aeN}`:''}${(DL.aeWorse||[]).length?`<div class="xs muted mt">等级升高或转为 SAE 的 AE ${(DL.aeWorse||[]).length} 条</div>`:''}
+   <div class="mt"><a class="small" href="subjects.html">本次有新数据的受试者 ›</a></div></div>
+   <div><div class="xs muted mb">风险变化（各页可勾选「只看本次新增/加重」）</div>${rc||'<div class="small muted">本次与上次之间没有可比的风险数据</div>'}</div></div></div>`};
 K.shName=sh=>{const s=String(sh||'').replace(/^[^:]*:/,''),n=((C0().sheetNames)||{})[s];return n?`${n}（${s}）`:s};
 K.loc=(sh,row)=>`${K.shName(sh)}${row!=null&&row!==''?' 第'+row+'行':''}`;
-K._thrSel=(()=>{try{return JSON.parse(localStorage.getItem('kz.thr')||'null')}catch(e){return null}})();   /* 用户所选档位跨页保留 */
-K.thr=()=>{const c=(C0().thresholds)||{},S=window.KZS,src=(S&&S.thresholds)?S.thresholds:(K._thrSel||{}),sel={...c,...src};
+K.thrKey='kz.thr:'+((C0().study||{}).code||'');
+K._thrSel=(()=>{try{return JSON.parse(localStorage.getItem(K.thrKey)||'null')}catch(e){return null}})();   /* 用户所选档位跨页、跨次打开保留 */
+K.thr=()=>{const c=(C0().thresholds)||{},S=window.KZS,src=K._thrSel||((S&&S.thresholds)?S.thresholds:{}),sel={...c,...src};
   return {dev:sel.dev??c.dev??.3,base:sel.base??c.base??.3,per_metric:sel.per_metric??c.per_metric??{}}};
 K.thrOf=mid=>{const t=K.thr(),pm=(t.per_metric||{})[mid]||{},ti=((C0().metricTight)||{})[mid]||{};
   const d=pm.dev??t.dev,b=pm.base??t.base;
   return {dev:ti.dev!=null?Math.min(d,ti.dev):d,base:ti.base!=null?Math.min(b,ti.base):b,ov:pm.dev!=null||pm.base!=null,tight:ti.dev!=null||ti.base!=null}};
-K.relPts=g=>{if(!g||g.risk!=='REL')return [];const t=K.thrOf(g.mid||('lab:'+g.test));
-  return (g.pts||[]).filter(p=>p[10]!=null&&p[6]!=null&&p[10]>=t.dev&&Math.abs(p[6])>=t.base*100)};
-K.relOn=g=>K.relPts(g).length>0;
+K.relOn=g=>!!g&&g.risk==='REL'&&!g.off;
 K.relRisk=g=>K.relOn(g)&&(g.bind||'none')==='none';   /* 只有未关联 AE/病史的才算需关注 */
 K.relBind=g=>({AE:['已关联AE','grn'],MH:['已关联病史','grn'],DIS:['研究疾病相关','grn']}[g.bind]||({NCS:['未关联·判NCS','yel'],NA:['未关联·未评价','yel'],N:['未关联·判正常','yel'],CS:['未关联·判CS','red']}[g.judg]||['未关联','yel']));
 K.thrBar=(el)=>{if(!el)return;const t=K.thr(),o=[['0.2','20%'],['0.3','30%'],['0.5','50%']];
-  el.innerHTML='<span class="xs muted">较基线显著变化阈值：偏离参考范围 ≥</span><span class="seg" id="kz-tdev"></span><span class="xs muted">且较基线变化 ≥</span><span class="seg" id="kz-tbase"></span>';
+  el.innerHTML='<span class="xs muted">阈值：偏离参考范围 ≥</span><span class="seg" id="kz-tdev"></span><span class="xs muted">且较基线变化 ≥</span><span class="seg" id="kz-tbase"></span><span class="xs faint" style="margin-left:8px">切换后整份报告按所选阈值重算（各页列表、计数、质疑、潜在 PD）</span>';
   K.seg(el.querySelector('#kz-tdev'),o,String(t.dev),v=>K.setThr({dev:+v}));K.seg(el.querySelector('#kz-tbase'),o,String(t.base),v=>K.setThr({base:+v}))};                 /* 当前所选阈值下该 REL 候选是否构成风险项 */
-K.mhxOn=g=>{if(!g||g.risk!=='MHX-T')return false;const t=K.thrOf(g.mid||('lab:'+g.test));
-  return (g.pts||[]).some(p=>(p[10]!=null&&p[10]>=t.dev)||(p[4]!=null&&p[4]>=2))};  /* M13：偏离≥T_dev 或 ≥2 级 */
-K._thrFns=[];
-K.onThr=fn=>{K._thrFns.push(fn)};
-K.setThr=sel=>{if(window.KZS)KZS.thresholds={...KZS.thresholds,...sel};else{K._thrSel={...(K._thrSel||{}),...sel};try{localStorage.setItem('kz.thr',JSON.stringify(K._thrSel))}catch(e){}}
-  K._thrFns.forEach(f=>{try{f(K.thr())}catch(e){console.error('thr listener',e)}});return K.thr()};
+K.mhxOn=g=>!!g&&g.risk==='MHX-T'&&!g.off;   /* M13：偏离≥T_dev、≥2 级或定性异常（K.applyThr 已逐点过滤） */
+/* 切换阈值：保存后重新载入页面（档位数据在页面脚本之前载入，全部页面从同一口径重新渲染）；与当前相同则不动 */
+K.setThr=sel=>{const cur=K.thr(),nx={...cur,...sel};if(nx.dev===cur.dev&&nx.base===cur.base)return cur;
+  K._thrSel={dev:nx.dev,base:nx.base};try{localStorage.setItem(K.thrKey,JSON.stringify(K._thrSel))}catch(e){}
+  if(window.KZS)KZS.thresholds={...KZS.thresholds,...K._thrSel};location.reload();return nx};
+/* 工作台系统层载入后告知项目阈值：用户未自选过时按项目阈值显示 */
+K.thrInit=th=>{if(!K._thrSel&&th&&(th.dev!=null||th.base!=null))K.setThr({...(th.dev!=null?{dev:th.dev}:{}),...(th.base!=null?{base:th.base}:{})})};
+/* 当前阈值下的检验风险视图：REL/MHX-T 只保留达到所选阈值的异常点，全部点都不达标的整行不进入任何页面（g.off）。
+ * 各页列表与计数统一用 K.lab（按下标引用 KZ.labrows 的地方不受影响）。定性结果与 ≥2 级的首剂前异常不受偏离比例阈值限制。 */
+K.applyThr=()=>{const L=(window.KZ||{}).labrows||[];L.forEach(g=>{if(g.risk!=='REL'&&g.risk!=='MHX-T')return;g._pts=g._pts||g.pts;const t=K.thrOf(g.mid||('lab:'+g.test));
+    g.pts=g._pts.filter(p=>g.risk==='REL'?(p[10]!=null&&p[6]!=null&&p[10]>=t.dev&&Math.abs(p[6])>=t.base*100):(p[10]==null||p[10]>=t.dev||(p[4]!=null&&p[4]>=2)));
+    g.off=!g.pts.length;if(!g.off)g.mg=Math.max(0,...g.pts.map(p=>p[4]||0))});
+  K.lab=L.filter(g=>!g.off)};
 K.grade=g=>g==null?'':K.p('G'+g,g>=3?'solid-red':g>=2?'red':'yel');
 K.hash=()=>Object.fromEntries(location.hash.replace(/^#/,'').split('&').filter(Boolean).map(x=>x.split('=').map(decodeURIComponent)));
 K.setHash=o=>{const h=Object.entries(o).filter(([k,v])=>v!=null&&v!=='').map(([k,v])=>k+'='+encodeURIComponent(v)).join('&');history.replaceState(null,'','#'+h)};
@@ -139,7 +176,8 @@ K.showQ=id=>{const q=K.qById(id);if(!q)return;const cro=D().cro.filter(c=>c[2]==
 document.addEventListener('click',e=>{const q=e.target.closest('[data-q]');if(q){e.preventDefault();K.showQ(q.dataset.q)}});
 K.CTX=((((window.KZ||{}).cfg||{}).taxonomy||{}).ctx||[['^提醒：同期另有可能对应的 AE','提醒：同期AE未关联','yel'],['^(IB|类效应|方案列明风险)','IB/类效应风险','red'],['^已关联病史「','已关联病史','grn'],['^已关联AE：','已关联AE','grn'],['^未关联AE/病史，研究者判定NCS','未关联·判NCS','yel'],['无CTCAE条目|不能仅凭数值','无CTCAE数值条目',''],['症状/处置型','需结合症状/处置',''],['单位|换算','单位待核','org'],['基线.*(回退|替代)|替代基线|改用首次','替代基线','blu'],['研究疾病表现.*未进一步加重|研究者归因：研究疾病$','研究疾病表现·未加重','grn'],['研究疾病表现.*进一步加重','疾病表现·较基线加重','org'],['可能为研究疾病表现','可能为疾病表现','']]).map(([re,l,c])=>[new RegExp(re),l,c]);
 K.ctxTags=arr=>{const out=[];(arr||[]).forEach(t=>{const m=K.CTX.find(([re])=>re.test(t));if(m&&!out.some(o=>o[0]===m[1]))out.push([m[1],m[2],t])});return out.map(([l,c,t])=>K.p(l,c,t)).join('')};
-K.init=fn=>document.addEventListener('DOMContentLoaded',()=>{K.header();fn()});
+/* 声明了系统层（cfg.ext.sys）时等它载入后再渲染：页面要用到 KZS（较上次、阈值等）；最多等 4 秒，载入失败也照常渲染 */
+K.init=fn=>document.addEventListener('DOMContentLoaded',()=>{const go=()=>{K.header();fn()};K._sys?K._sys.then(go):go()});
 /* SoA 完成度矩阵（访视流程表 × 实际完成）：mm4 起位于「方案偏离」执行层面；研究依据页只陈述方案本身 */
 K.soaView=el=>{
 const ST=(window.KZ||{}).study||{},X=window.KZX||{};const COND=new Set(ST.soaCond||[]);const SX=ST.soaExclude?new RegExp(ST.soaExclude):null;
@@ -188,6 +226,7 @@ K.showPD=id=>{const it=K.pdBy(id);if(!it)return;const P=KZ.pd,X=window.KZX||{},c
   <div class="sec-t"><h2>处理建议</h2>${K.pdAct(it.action)}</div><div class="small" style="line-height:1.7">${K.esc(K.PDACT[it.action]||'')}</div>${it.tip?`<div class="note small mt" style="line-height:1.7">${K.esc(it.tip)}</div>`:''}`}
   <div class="mt"><a class="small" href="timeline.html#s=${it.sid}">查看 ${it.sid} 时间线 ›</a>　<a class="small" href="deviations.html#id=${it.id}">在方案偏离页定位 ›</a></div>`,conf?K.pdCat(it.cat):`${K.pdCat(it.cat)}${K.p(it.layer+'层面','line')}`)};
 document.addEventListener('click',e=>{const a=e.target.closest('[data-pd]');if(a){e.preventDefault();K.showPD(a.dataset.pd)}});
+K.applyThr();
 })();
 K.DOM=(((window.KZ||{}).cfg||{}).taxonomy||{}).domains||[];
 K.domOf=cat=>{const d=K.DOM.find(d=>d[1].includes(cat));return d?d[0]:'其他'};
@@ -281,5 +320,10 @@ K.ybOpt=R=>{if(!R)return {};const br=R.breaks||[],o={};if(R.hi!=null)o.max=R.hi;
   if (!ex) return;
   const head = document.head;
   (ex.css || []).forEach(h => { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = h; head.appendChild(l); });
-  [].concat(ex.sys || [], ex.js || []).forEach(s => { const t = document.createElement('script'); t.src = s; t.async = false; head.appendChild(t); });
+  const sys = [].concat(ex.sys || []);
+  let done = null;
+  if (sys.length) window.K._sys = new Promise(res => { done = res; setTimeout(res, 4000); });
+  [].concat(sys, ex.js || []).forEach((s, i) => { const t = document.createElement('script'); t.src = s; t.async = false;
+    if (done && i === sys.length - 1) t.onload = t.onerror = () => done();
+    head.appendChild(t); });
 })();

@@ -1360,11 +1360,14 @@ def build_queries(C):
             new_q(m['sid'], m['cat'], m.get('sh', ''), m.get('row'), m.get('v'), m.get('d'), m.get('test'), m['fact'], m.get('ask', ''),
                   [[m.get('sh', ''), m.get('row'), m.get('v', ''), m.get('test', '')]], {'q': [], 'cro': ''},
                   f"man|{m['sid']}|{m['cat']}|{wb_sheet(C, m.get('sh', ''))}|{m.get('v', '')}|{m.get('d', '')}|{m.get('test', '')}")
-    # 工作台用模型按事实卡撰写的句子（analysis.queryTexts：{qkey: {h: 卡片哈希, text}}）；卡片变了就不用旧句子，回落程序措辞
+    # 工作台用模型按事实卡撰写的句子（analysis.queryTexts：{qkey: {h: 卡片哈希, text}}）；卡片变了就不用旧句子，回落程序措辞。
+    # 同一 qkey 在不同阈值档位的卡片不同时，其余档位的句子存于「qkey#哈希」
     QT_ = C.A.get('queryTexts') or {}
     for q in Q:
         q['card_h'] = hashlib.sha1(json.dumps(q['_cards'], ensure_ascii=False, sort_keys=True).encode('utf-8')).hexdigest()[:16]
         hit = QT_.get(q.get('qkey') or q['id'])
+        if not (hit and hit.get('h') == q['card_h']):
+            hit = QT_.get(f"{q.get('qkey') or q['id']}#{q['card_h']}")
         if hit and hit.get('h') == q['card_h'] and hit.get('text'):
             q['text'], q['parts'], q['writer'] = hit['text'], [[hit['text'], 0]], 'model'
     for q in Q:                                          # 事实卡自检：基线/数值/较基线百分比必须互相吻合（模型照卡写，错数字会直接进句子）
@@ -1925,6 +1928,48 @@ def main():
     ap.add_argument('--audit', default=None, help='dir for analysis json (default: <out>/../../analysis)')
     a = ap.parse_args()
     C = load(a.study, a.norm)
+    KZ, csb_candidates = analyze(C)
+    out = Path(a.out)
+    aud = Path(a.audit) if a.audit else out.parent.parent / 'analysis'
+    KZ['cfg']['thrTiers'] = tier_variants(a, KZ, out, aud)
+    write_outputs(C, KZ, csb_candidates, out, aud)
+
+
+# 用户 2026-10-28：阈值切换后整份报告（各页列表、计数、质疑、潜在 PD）都要跟着变。T_base 影响构建期分层（较基线加重/研究疾病加重/
+# 判定不一致等）及其质疑与潜在 PD，页面无法即时重算，故构建时每档各算一遍；页面按所选档位载入（assets/kz-tier.js）。
+THR_TIERS = (0.2, 0.3, 0.5)
+TIER_KEYS = ('labrows', 'others', 'queries', 'subs', 'pd', 'centers', 'cons')   # 随 T_base 变化的数据；todo/unres 由工作台追加，不覆盖
+
+
+def tier_variants(a, KZ, out, aud):
+    """非默认档各重跑一遍分析；只写与默认档不同的键（core.b20.js 等），查询事实卡另存 query_cards.b20.json 供工作台撰写。"""
+    b0 = float(KZ['cfg']['thresholds'].get('base', 0.3))
+    files = {}
+    for tb in THR_TIERS:
+        if abs(tb - b0) < 1e-9:
+            continue
+        C = load(a.study, a.norm)
+        C.cfg['thresholds']['base'] = tb
+        V, _ = analyze(C)
+        diff = {k: V[k] for k in TIER_KEYS if V.get(k) != KZ.get(k)}
+        diff['meta'] = {'qs': V['meta']['qs']}
+        name = f'core.b{round(tb * 100)}.js'
+        Path(out).mkdir(parents=True, exist_ok=True)
+        (Path(out) / name).write_text(f'window.KZV={{"{tb}":' + json.dumps(diff, ensure_ascii=False, separators=(',', ':'), default=str) + '};',
+                                      encoding='utf-8')
+        files[str(tb)] = name
+        dump_json(query_cards(C), Path(aud) / f'query_cards.b{round(tb * 100)}.json')
+        print(f"tier T_base={tb:.0%}: queries {len(V['queries'])} · labrows {len(V['labrows'])} · pd {len((V.get('pd') or {}).get('potential') or [])}")
+    return files
+
+
+def query_cards(C):
+    return [{'qkey': q.get('qkey') or q['id'], 'id': q['id'], 'cat': q['cat'], 'h': q['card_h'], 'cards': q['_cards'], 'text': q['text'],
+             'writer': q.get('writer', 'template')} for q in C.queries]   # 交工作台撰写（模型只措辞，不判定）
+
+
+def analyze(C):
+    """全部分析（确定性）：返回 (KZ, csb_candidates)。不写文件。"""
     C.others, C.tl = [], defaultdict(dict)
     mt = {}
     for T in C.mthr:                                   # 收紧映射（供前端 K.thrOf 折叠；quote 不进页面数据）
@@ -1964,7 +2009,6 @@ def main():
     build_trend(C)
     build_eff(C)
     defaults(C)
-    out = Path(a.out)
     S = C.subj
     stc = Counter(s['status'] for s in S.values())
     subs = []
@@ -1996,6 +2040,11 @@ def main():
           # mm4 研究依据页：方案规则的只读视图（编译后的可执行口径，供「监查规则」按领域展示；不含任何受试者数据）
           'basis': {k: C.A.get(k) for k in ('visitWindows', 'eligibility', 'eligibilitySubject', 'prohibited', 'washout', 'aesi', 'reportRules',
                                              'thresholdRules', 'comboRules', 'indicationBackground', 'cmProtocolRequired', 'pd', 'effRulesText') if C.A.get(k)}}
+    return KZ, csb_candidates
+
+
+def write_outputs(C, KZ, csb_candidates, out, aud):
+    S = C.subj
     js_write(out / 'core.js', 'KZ', KZ)
     js_write(out / 'trend.js', 'KZT', C.KZT)
     ex, pdex = build_ex(C)
@@ -2003,10 +2052,8 @@ def main():
     js_write(out / 'grading.js', 'KZG', {'label': C.GL, 'system': C.G.t.get('system'), 'version': C.G.t.get('version'), 'source': C.G.t.get('source', ''),
                                          'items': {k: v for k, v in C.G.items.items() if k in set(C.cmap.values())}, 'map': C.cmap, 'fac': C.fac})
     build_subject_files(C, out)
-    aud = Path(a.audit) if a.audit else out.parent.parent / 'analysis'
     dump_json(KZ['queries'], aud / 'queries.json')
-    dump_json([{'qkey': q.get('qkey') or q['id'], 'id': q['id'], 'cat': q['cat'], 'h': q['card_h'], 'cards': q['_cards'], 'text': q['text'],
-                'writer': q.get('writer', 'template')} for q in C.queries], aud / 'query_cards.json')   # 交工作台撰写（模型只措辞，不判定）
+    dump_json(query_cards(C), aud / 'query_cards.json')
     dump_json(KZ['labrows'], aud / 'labrows.json')
     dump_json(KZ['others'], aud / 'others.json')
     dump_json(C.cons, aud / 'cons.json')

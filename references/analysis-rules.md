@@ -107,8 +107,16 @@
 且同向较基线变化 ≥T_base（|x−基线|/|基线|，方向须与超出方向一致；`metricDir` 单向不利指标只计不利方向）
 → REL 风险项（pr2，不自动发 query，可转 query）。范围内变化不论较基线变化多大都不计风险（明细可见 Δ%）；
 超出范围但 Δ<T_base（基线已异常）不算新风险。构建按最低档 20% 写全量候选（`per_metric`/`metricThreshold`
-更低时取收紧值），每点携带偏离比例（`pts[10]`），页面按所选 T_dev/T_base 即时重分类、不重新构建；
+更低时取收紧值），每点携带偏离比例（`pts[10]`），页面载入时按所选 T_dev/T_base 逐点过滤（`K.applyThr`：每行只留达标的点，
+全部不达标的整行不进入任何页面；页面列表与计数统一用 `K.lab`）；
 同一 (受试者,指标) 已有 pr≥3 条目时 REL 不重复列行，双阈值事实写入该条目上下文。
+
+**阈值档位（用户 2026-10-28：阈值切换后整份报告都要跟着变）**：T_base 还决定构建期分层（较基线加重 MH/MHL、研究疾病加重 DISW/DIS、
+判定不一致 CSI 等）及其质疑与潜在 PD，页面无法即时重算。`mm_build` 对 `THR_TIERS=(0.2,0.3,0.5)` 中非默认档各重跑一遍分析，
+把与默认档不同的键（labrows/others/queries/subs/pd/centers/cons、meta.qs）写 `data/core.b20.js` 等（`window.KZV={"0.2":{…}}`），
+档位表写 `cfg.thrTiers`；`assets/kz-tier.js` 在页面脚本前按所选档位同步载入，`kz.js` 覆盖进 `KZ`。各档事实卡另存
+`analysis/query_cards.b20.json` 等；`analysis.queryTexts` 的键为 qkey，或「qkey#卡片哈希」（同一 qkey 在其他档位卡片不同）。
+首剂前定性异常（≥+，`pts[10]` 为空）与 ≥2 级的 MHX-T 点不受偏离比例阈值限制。
 
 ## 16. 扩展规则（M13–M23 确定性部分；编号沿用工作台执行包 03 §3）
 词表键：`analysis.mhMatch` [[指标Re, 病史术语Re]]、`analysis.cmIndicationMap` [[用药原因Re, 疾病术语Re]]、

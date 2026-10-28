@@ -2,7 +2,7 @@ K.init(()=>{
 const D=KZ,T=KZT,app=document.getElementById('app'),H=K.hash();
 const CF=K.cfg(),VL=K.VIS,D1I=VL.indexOf((CF.visits||{}).d1||'D1');
 const SJ=T.subjects;const dosed=i=>SJ[i][3]===1;
-const LRw=g=>(g.risk==='REL'||g.risk==='MHX-T')?0.5:(g.pr||0);const LRk={};D.labrows.forEach(g=>{const k=g.sid+'|'+g.test;if(!LRk[k]||LRw(g)>LRw(LRk[k]))LRk[k]=g});   /* 同一指标多层结果取风险最高的（旧版被低风险层覆盖） */
+const LRw=g=>(g.risk==='REL'||g.risk==='MHX-T')?0.5:(g.pr||0);const LRk={};K.lab.forEach(g=>{const k=g.sid+'|'+g.test;if(!LRk[k]||LRw(g)>LRw(LRk[k]))LRk[k]=g});   /* 同一指标多层结果取风险最高的（旧版被低风险层覆盖） */
 const vk=r=>VL[r[5]]+(r[5]===D1I&&r[16]===1||(r[17]&&/后/.test(r[17]))?'·后':'');
 const ORDER=VL.filter(K.isAgg).flatMap(v=>[v,v+'·后']);
 const AGG=r=>K.isAgg(VL[r[5]]); // 中心/全试验层面不含计划外/提前退出访视

@@ -4,7 +4,7 @@ K.renderMethods=(app,{embed=false}={})=>{
 const D=KZ,X=window.KZX||{ex:{},pdex:{}},H=embed?{}:K.hash();
 const S=K.subs(),M=Object.fromEntries(D.methods.map(m=>[m.id,m]));
 const qc=cats=>D.queries.filter(q=>cats.includes(q.cat));
-const lr=f=>D.labrows.filter(f).length;
+const lr=f=>K.lab.filter(f).length;
 const ctrAE={};S.filter(s=>s.fd).forEach(s=>{const c=ctrAE[s.site]=ctrAE[s.site]||[0,0];c[0]++;c[1]+=s.nae});
 const lowAE=Object.entries(ctrAE).filter(([k,v])=>v[0]>=2&&v[1]/v[0]<=0.5).sort((a,b)=>a[1][1]/a[1][0]-b[1][1]/b[1][0]);
 const P=K.p,sid=K.sid;

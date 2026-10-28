@@ -2,7 +2,7 @@ K.init(()=>{
 const CF=K.cfg(),HL=CF.cmHighlight||null,hlRe=HL?new RegExp(HL.re):null;
 const D=KZ,app=document.getElementById('app'),H=K.hash();
 const subs=K.subs().filter(s=>s.fd);
-const LR={};D.labrows.forEach(g=>(LR[g.sid]=LR[g.sid]||[]).push(g));
+const LR={};K.lab.forEach(g=>(LR[g.sid]=LR[g.sid]||[]).push(g));
 const OT={};D.others.forEach(g=>(OT[g.sid]=OT[g.sid]||[]).push(g));
 const QS={};D.queries.forEach(q=>(QS[q.sid]=QS[q.sid]||[]).push(q));
 const T=s=>{if(!s)return null;s=String(s).slice(0,10);let m;if(/^\d{4}-\d{2}-\d{2}$/.test(s))return Date.parse(s);if(m=s.match(/^(\d{4})-(\d{2})-uk/))return Date.parse(`${m[1]}-${m[2]}-15`);if(m=s.match(/^(\d{4})-uk/))return Date.parse(`${m[1]}-07-01`);return null};

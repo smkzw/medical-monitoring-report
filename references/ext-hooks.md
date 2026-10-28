@@ -22,9 +22,17 @@
 
 ## 约定：`window.KZS`
 
-宿主写入 `data/sys.js`：`window.KZS = {project, snapshot, build, mode, thresholds, diff, qstate, csb, final, qc}`。
-字段可缺省，系统层脚本须对缺省字段安全降级。skill 模板本身**不读取** `KZS`——展示逻辑由宿主提供的
-`assets/ext/*.js` 完成（如总览项目信息条）；skill 页面与数据契约不变。
+宿主写入 `data/sys.js`：`window.KZS = {project, snapshot, build, mode, thresholds, diff, qstate, csb, final, qc, delta, riskdiff}`。
+字段可缺省，系统层脚本须对缺省字段安全降级。skill 模板只读取以下字段，其余展示逻辑由宿主提供的
+`assets/ext/*.js` 完成（如总览项目信息条）：
+- `thresholds`：用户未在本浏览器自选阈值时的默认档位（`K.thr()`：localStorage「kz.thr:<研究编号>」＞ `KZS.thresholds` ＞ `cfg.thresholds`）。
+  宿主在系统层载入后调 `K.thrInit(KZS.thresholds)`；切换阈值调 `K.setThr({dev|base})`——保存并**重新载入页面**（T_base 档位数据在页面脚本前载入）。
+- `delta`（记录级变化：`counts{域:{new,changed,deleted}}`、`labels`、`subjects{受试者:{域:计数}}`、`aeNew`、`aeWorse`、`warning`、`prevCutoff`、`exportType`）
+  → 总览「较上次」卡、参与者「本次有新数据」。
+- `riskdiff`（`basis:"prev_build"` 时生效；`lab/oth/ae/pd: {键: new|worse|milder|persisting}`、`resolved{类:[{sid,sum}]}`、`counts`）
+  → 各页徽标与「只看本次新增/加重」。键：检验风险行「受试者|指标名」、专项 qkey、AE「受试者|编号」（无编号用术语|开始日期）、潜在 PD「规则|受试者|访视或日期」（`K.dkey`）。
+
+声明了 `sys` 时，页面渲染（`K.init`）等 `sys.js` 载入后进行（最多 4 秒，载入失败照常渲染），以便页面读到上述字段。
 
 ## 宿主侧注意
 

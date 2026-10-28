@@ -1,6 +1,6 @@
 K.init(()=>{
 const D=KZ,app=document.getElementById('app'),H=K.hash();
-const lab=D.labrows,oth=D.others,aes=D.aes;
+const lab=K.lab,oth=D.others,aes=D.aes;
 app.innerHTML=`<div class="flex mb"><h1 style="font-size:18px">AE / MH 漏报风险</h1><span class="muted small">检验异常与AE/MH关联 · 方案阈值专项 · AE记录 · 同中心判定一致性</span><span class="sp"></span>${(K.cfg().blind||{}).on?K.p((K.cfg().blind||{}).tag||'盲态合并，不分组','blu'):''}</div>
 <div class="tabs" id="tabs"></div><div id="pane"></div>`;
 const pane=document.getElementById('pane');
@@ -12,21 +12,21 @@ K.tabs(document.getElementById('tabs'),tabs,H.tab||'lab',v=>{K.setHash({...(v===
 /* ---------- lab */
 function tabLab(){
   const st={risk:H.risk||null,cat:'',grp:'',site:H.c||'',q:''};
-  pane.innerHTML=`<div class="grid g4 mb">${['CSX','MH','NCS2','NA2','AE','REL','MHX-T'].filter(k=>k!=='NA2'||lab.some(g=>g.risk==='NA2')).filter(k=>k!=='REL'||lab.some(g=>g.risk==='REL')).filter(k=>k!=='MHX-T'||lab.some(g=>g.risk==='MHX-T')).map(k=>`<div class="box ${k==='CSX'?'red':k==='MH'?'org':''}" ${k==='REL'?'id="kz-rel-box"':''}><div class="flex">${K.risk(k)}<span class="sp"></span><b style="font-size:18px;color:var(--ink)" ${k==='REL'?'id="kz-rel-n"':''}>${k==='REL'?lab.filter(g=>g.risk==='REL'&&K.relRisk(g)).length:k==='MHX-T'?lab.filter(g=>g.risk==='MHX-T'&&K.mhxOn(g)).length:lab.filter(g=>g.risk===k).length}</b>${k==='REL'?`<small class="muted" id="kz-rel-b"> 未关联 · 已关联 ${lab.filter(g=>g.risk==='REL'&&K.relOn(g)&&!K.relRisk(g)).length}</small>`:''}</div><div class="xs muted mt" style="margin-top:3px">${K.RISK[k][2]}</div></div>`).join('')}</div>
+  pane.innerHTML=`<div class="grid g4 mb">${['CSX','MH','NCS2','NA2','AE','REL','MHX-T'].filter(k=>k!=='NA2'||lab.some(g=>g.risk==='NA2')).filter(k=>k!=='REL'||D.labrows.some(g=>g.risk==='REL')).filter(k=>k!=='MHX-T'||D.labrows.some(g=>g.risk==='MHX-T')).map(k=>`<div class="box ${k==='CSX'?'red':k==='MH'?'org':''}" ${k==='REL'?'id="kz-rel-box"':''}><div class="flex">${K.risk(k)}<span class="sp"></span><b style="font-size:18px;color:var(--ink)" ${k==='REL'?'id="kz-rel-n"':''}>${k==='REL'?lab.filter(g=>g.risk==='REL'&&K.relRisk(g)).length:k==='MHX-T'?lab.filter(g=>g.risk==='MHX-T'&&K.mhxOn(g)).length:lab.filter(g=>g.risk===k).length}</b>${k==='REL'?`<small class="muted" id="kz-rel-b"> 未关联 · 已关联 ${lab.filter(g=>g.risk==='REL'&&K.relOn(g)&&!K.relRisk(g)).length}</small>`:''}</div><div class="xs muted mt" style="margin-top:3px">${K.RISK[k][2]}</div></div>`).join('')}</div>
   <div class="card"><div class="tbar"><div class="chips" id="rk"></div><span class="sp"></span>${sel('cat',[['','全部来源'],['治疗后新发/加重检验异常','治疗后新发/加重（'+(K.cfg().ctcaeVersion||'分级')+'/参考范围）'],['较基线显著变化且超出参考范围','较基线显著变化']],'')}${sel('site',centerOpts,st.site)}<input class="s" id="q" placeholder="受试者 / 指标"></div>
-  ${lab.some(g=>g.risk==='REL')?'<div class="tbar" id="kz-thr"></div>':''}<div class="tbar"><div class="chips" id="grp"></div></div><div id="tb"></div>
+  ${D.labrows.some(g=>g.risk==='REL'||g.risk==='MHX-T')?'<div class="tbar" id="kz-thrbar"></div>':''}<div class="tbar"><div class="chips" id="grp"></div><span class="sp"></span><span id="chg-lab"></span></div><div id="tb"></div>
   <div class="legend mt"><span class="vchip cs">CS</span>异常有临床意义 <span class="vchip ncs">NCS</span>异常无临床意义 <span class="vchip n">值</span>正常/未评价 · 基线：按方案基线定义（${K.esc(((K.cfg().baseline||{}).labLabel)||'见检验检查趋势页各指标')}），缺失时按规则回退 · G=${K.esc(K.cfg().ctcaeVersion||'方案分级标准')} 数值分级（仅数值条目）</div></div>`;
   const groups=[...new Set(lab.map(g=>g.grp))];
   const cnt=k=>k==='REL'?lab.filter(g=>g.risk==='REL'&&K.relRisk(g)).length:k==='MHX-T'?lab.filter(g=>g.risk==='MHX-T'&&K.mhxOn(g)).length:lab.filter(g=>g.risk===k).length;
   const rk=K.chips(document.getElementById('rk'),Object.keys(K.RISK).map(k=>[k,K.RISK[k][0],cnt(k)]).filter(x=>x[2]),v=>{st.risk=v;draw()},{value:st.risk});
-  K.thrBar(document.getElementById('kz-thr'));
-  K.onThr(()=>{rk.set(st.risk);draw();const b=document.getElementById('kz-rel-n');if(b)b.textContent=cnt('REL');const bb=document.getElementById('kz-rel-b');if(bb)bb.textContent=' 未关联 · 已关联 '+lab.filter(g=>g.risk==='REL'&&K.relOn(g)&&!K.relRisk(g)).length});
+  K.thrBar(document.getElementById('kz-thrbar'));
+  const cfL=K.chgBar(document.getElementById('chg-lab'),'lab',()=>draw(),'检验异常');
   K.chips(document.getElementById('grp'),groups.map(g=>[g,g,lab.filter(x=>x.grp===g).length]),v=>{st.grp=v||'';draw()},{all:'全部分组'});
   document.getElementById('cat').onchange=e=>{st.cat=e.target.value;draw()};document.getElementById('site').onchange=e=>{st.site=e.target.value;draw()};document.getElementById('q').oninput=e=>{st.q=e.target.value.trim();draw()};
   const order={CSX:0,DISW:1,MH:2,NCS2:3,NA2:3,G2NF:3,NA:4,MHU:4,CSI:4,'MHX-T':5,AE:6,MHL:7,DIS:8,NCS:9,REL:5};
   const ord=r=>r.risk==='REL'&&(r.bind||'none')!=='none'?10:(order[r.risk]??11);
   const tb=K.table(document.getElementById('tb'),{rows:[],h:'640px',pageSize:80,cols:[
-    {k:'risk',t:'风险',s:r=>-ord(r),f:r=>K.risk(r.risk)+(r.risk==='REL'?' '+K.p(...K.relBind(r)):'')+(r.pdId?' '+K.pdPill(r.pdId):'')},
+    {k:'risk',t:'风险',s:r=>-ord(r),f:r=>K.risk(r.risk)+(r.risk==='REL'?' '+K.p(...K.relBind(r)):'')+(r.pdId?' '+K.pdPill(r.pdId):'')+K.dpill('lab',r)},
     {k:'sid',t:'受试者',f:r=>K.sid(r.sid)+` <span class="xs faint">${r.site}</span>`},
     {k:'test',t:'指标',f:r=>{if(r.risk!=='REL')return `<b style="color:var(--ink)">${K.esc(r.test)}</b>`;const t=K.thrOf(r.mid||('lab:'+r.test));return `<b style="color:var(--ink)">${K.esc(r.test)}</b> ${K.p('偏离≥'+Math.round(t.dev*100)+'% 较基线≥'+Math.round(t.base*100)+'%','line sq','当前所选阈值'+(t.ov?'（该指标单独设定）':'')+(t.tight?'（本研究对该指标收紧）':''))}`}},
     {k:'base',t:'基线',ns:1,f:r=>r.base?`<span class="vchip ${r.base[3]===2?'cs':r.base[3]===1?'ncs':'n'}"><i>${r.base[0]}</i>${K.esc(r.base[1]??'—')}</span>`:'—'},
@@ -37,7 +37,7 @@ function tabLab(){
     {k:'q',t:'质疑',s:r=>r.q.length,f:r=>r.q.map(K.qPill).join('')}],onRow:showLab,sort:'risk',dir:-1});
   /* REL 候选：满足当前所选阈值才进默认风险列表（计入 KPI/box）；未满足候选不隐藏——box 显示 n/候选 m，
      逐点偏离%/Δ% 在满足行与检验检查趋势页明细可见（03 §5「显示」行） */
-  function draw(){const q=st.q.toLowerCase();tb.set(lab.filter(g=>(((g.risk==='REL'&&!K.relOn(g))||(g.risk==='MHX-T'&&!K.mhxOn(g)))?false:(!st.risk||(g.risk===st.risk&&(st.risk!=='REL'||K.relRisk(g)))))&&(!st.cat||g.cat===st.cat)&&(!st.grp||g.grp===st.grp)&&(!st.site||g.site===st.site)&&(!q||g.sid.includes(q)||g.test.toLowerCase().includes(q))))}
+  function draw(){const q=st.q.toLowerCase();tb.set(lab.filter(g=>(!st.risk||(g.risk===st.risk&&(st.risk!=='REL'||K.relRisk(g))))&&(!st.cat||g.cat===st.cat)&&(!st.grp||g.grp===st.grp)&&(!st.site||g.site===st.site)&&(!q||g.sid.includes(q)||g.test.toLowerCase().includes(q))&&cfL(g)))}
   draw();
 }
 async function showLab(g){
@@ -56,17 +56,18 @@ async function showLab(g){
 /* ---------- others */
 function tabOth(){
   const cats=[...new Set(oth.map(o=>o.cat))];const st={cat:H.cat||null,dom:null,site:'',q:''};
-  pane.innerHTML=`<div class="card"><div class="tbar"><div class="chips" id="dm"></div><span class="sp"></span>${sel('site',centerOpts,'')}<input class="s" id="q" placeholder="受试者 / 关键词"></div><div class="tbar"><div class="chips" id="ct"></div></div><div id="tb"></div></div>`;
+  pane.innerHTML=`<div class="card"><div class="tbar"><div class="chips" id="dm"></div><span class="sp"></span>${sel('site',centerOpts,'')}<input class="s" id="q" placeholder="受试者 / 关键词"></div><div class="tbar"><div class="chips" id="ct"></div><span class="sp"></span><span id="chg-oth"></span></div><div id="tb"></div></div>`;
+  const cfO=K.chgBar(document.getElementById('chg-oth'),'oth',()=>draw(),'专项核查');
   K.chips(document.getElementById('dm'),K.DOM.map(d=>[d[0],d[0],oth.filter(o=>d[1].includes(o.cat)).length]).filter(x=>x[2]),v=>{st.dom=v;st.cat=null;cc();draw()},{all:'全部领域'});
   let ctc;function cc(){const list=cats.filter(c=>!st.dom||K.domOf(c)===st.dom);ctc=K.chips(document.getElementById('ct'),list.map(c=>[c,c,oth.filter(o=>o.cat===c).length]),v=>{st.cat=v;draw()},{all:'全部类别',value:st.cat})}cc();
   document.getElementById('site').onchange=e=>{st.site=e.target.value;draw()};document.getElementById('q').oninput=e=>{st.q=e.target.value.trim();draw()};
   const ord=c=>{const i=K.DOM.findIndex(d=>d[1].includes(c));return i*100+(K.DOM[i]?.[1].indexOf(c)||0)};
   const tb=K.table(document.getElementById('tb'),{rows:[],h:'680px',pageSize:200,group:r=>r.cat,groupHead:(g)=>{const n=oth.filter(o=>o.cat===g);const d=K.DOM.find(d=>d[1].includes(g));return `${K.p(d?d[0]:'其他',d?d[2]:'')} ${g} <span class="muted small">${n.length} 条 · 质疑 ${D.queries.filter(q=>q.cat===g).length}</span>`},
-    cols:[{k:'pr',t:'优先级',f:r=>K.pri(r.pr)+(r.pdId?' '+K.pdPill(r.pdId):'')},{k:'sid',t:'受试者',f:r=>K.sid(r.sid)},{k:'v',t:'访视',f:r=>`${K.p(r.v||'—','blu')} <span class="xs faint">${r.d||''}</span>`},
+    cols:[{k:'pr',t:'优先级',f:r=>K.pri(r.pr)+(r.pdId?' '+K.pdPill(r.pdId):'')+K.dpill('oth',r)},{k:'sid',t:'受试者',f:r=>K.sid(r.sid)},{k:'v',t:'访视',f:r=>`${K.p(r.v||'—','blu')} <span class="xs faint">${r.d||''}</span>`},
       {k:'sum',t:'信号',ns:1,f:r=>`<span>${K.hlNum(r.sum)}</span>`},{k:'rel',t:'已关联',ns:1,f:r=>r.rel.slice(0,3).map(x=>K.p(x[0]+' '+K.esc(x[1]),x[0]==='AE'?'grn':'org')).join(' ')},
       {k:'ctx',t:'背景',ns:1,f:r=>K.ctxTags(r.ctx)+(r.cro?K.p(((K.cfg().query||{}).extShort||'外部')+'已覆盖','line'):'')},{k:'q',t:'质疑',f:r=>r.q.map(K.qPill).join('')||(r.cro?'':'<span class="faint xs">未发</span>')}],
     onRow:r=>{if(r.q.length)K.showQ(r.q[0]);else K.drawer(`${r.sid} · ${r.cat}`,`<div class="box">${K.hlNum(r.sum)}</div><div class="mt">${(r.ctx||[]).map(c=>`<div class="note">· ${K.esc(c)}</div>`).join('')}</div><div class="mt">${K.p(K.loc(r.sh,r.row),'sq')} <a href="subjects.html#s=${r.sid}">参与者资料 ›</a></div>`)}});
-  function draw(){const q=st.q;tb.set(oth.filter(o=>(!st.dom||K.domOf(o.cat)===st.dom)&&(!st.cat||o.cat===st.cat)&&(!st.site||o.site===st.site)&&(!q||o.sid.includes(q)||o.sum.includes(q))).sort((a,b)=>ord(a.cat)-ord(b.cat)||b.pr-a.pr||a.sid.localeCompare(b.sid)))}
+  function draw(){const q=st.q;tb.set(oth.filter(o=>(!st.dom||K.domOf(o.cat)===st.dom)&&(!st.cat||o.cat===st.cat)&&(!st.site||o.site===st.site)&&(!q||o.sid.includes(q)||o.sum.includes(q))&&cfO(o)).sort((a,b)=>ord(a.cat)-ord(b.cat)||b.pr-a.pr||a.sid.localeCompare(b.sid)))}
   draw();
 }
 /* ---------- AE */
@@ -78,7 +79,7 @@ function tabAE(){
   pane.innerHTML=`<div class="grid g21 mb"><div class="card"><div class="hd"><h2>术语一致性</h2><span class="sub">同一临床概念使用的不同AE术语（跨受试者/中心），影响汇总与预期性判断</span></div>
    <table class="t"><tbody>${syn.map(([c,t])=>`<tr><td class="nowrap" style="width:140px"><b style="color:var(--ink)">${c}</b><div>${K.ibTags(c)}</div></td><td>${t.map(([n,k])=>`<span class="vchip n">${K.esc(n)}<i>×${k}</i></span>`).join('')}</td></tr>`).join('')}</tbody></table></div>
    <div class="card"><div class="hd"><h2>AE 结构</h2><span class="sub">给药后，${aes.filter(a=>!a.pre).length} 例次</span></div><div id="aep" class="chart" style="height:250px"></div></div></div>
-   <div class="card"><div class="tbar"><div class="chips" id="cc"></div></div><div class="tbar">${sel('g',[['','全部等级'],['1级','1级'],['2级','2级'],['3级','3级']],'')}${sel('rel',[['','全部相关性'],['rel','相关（可能/很可能/肯定）'],['unrel','无关/可能无关']],'')}${sel('site',centerOpts,'')}<label class="chip"><input type="checkbox" id="aesi" ${st.aesi?'checked':''}> AESI</label><label class="chip"><input type="checkbox" id="pre"> 首剂前</label><span class="sp"></span><span class="note">首剂前的 AE 不计入治疗期不良事件（TEAE）</span></div><div id="tb"></div></div>`;
+   <div class="card"><div class="tbar"><div class="chips" id="cc"></div></div><div class="tbar">${sel('g',[['','全部等级'],['1级','1级'],['2级','2级'],['3级','3级']],'')}${sel('rel',[['','全部相关性'],['rel','相关（可能/很可能/肯定）'],['unrel','无关/可能无关']],'')}${sel('site',centerOpts,'')}<label class="chip"><input type="checkbox" id="aesi" ${st.aesi?'checked':''}> AESI</label><label class="chip"><input type="checkbox" id="pre"> 首剂前</label><span id="chg-ae" style="margin-left:6px"></span><span class="sp"></span><span class="note">首剂前的 AE 不计入治疗期不良事件（TEAE）</span></div><div id="tb"></div></div>`;
   const grp=['1级','2级','3级'].map(g=>aes.filter(a=>!a.pre&&a.g===g).length);const rel=x=>/可能有关|很可能有关|肯定有关/.test(x)&&!/无关/.test(x);
   K.chart('#aep',{tooltip:{},series:[{type:'pie',radius:['38%','62%'],center:['28%','50%'],label:{formatter:'{b}\n{c}',fontSize:11},data:[{name:'1级',value:grp[0],itemStyle:{color:'#FFCC80'}},{name:'2级',value:grp[1],itemStyle:{color:'#E67E00'}},{name:'3级',value:grp[2],itemStyle:{color:'#8B0000'}}]},
     {type:'pie',radius:['38%','62%'],center:['74%','50%'],label:{formatter:'{b}\n{c}',fontSize:11},data:[{name:'相关',value:aes.filter(a=>!a.pre&&rel(a.rel)).length,itemStyle:{color:'#407AAA'}},{name:'无关/可能无关',value:aes.filter(a=>!a.pre&&!rel(a.rel)).length,itemStyle:{color:'#C9D7E6'}}]}],
@@ -86,13 +87,14 @@ function tabAE(){
   K.chips(document.getElementById('cc'),cats.map(c=>[c,c,aes.filter(a=>a.c===c).length]),v=>{st.c=v;draw()},{all:'全部类别',value:st.c});
   ['g','rel','site'].forEach(k=>document.getElementById(k).onchange=e=>{st[k]=e.target.value;draw()});document.getElementById('aesi').onchange=e=>{st.aesi=e.target.checked;draw()};document.getElementById('pre').onchange=e=>{st.pre=e.target.checked;draw()};
   const tb=K.table(document.getElementById('tb'),{rows:[],h:'600px',pageSize:100,sort:'s',dir:1,cols:[
-   {k:'sid',t:'受试者',f:r=>K.sid(r.sid)},{k:'t',t:'AE 术语',f:r=>`<b style="color:var(--ink)">${K.esc(r.t)}</b> ${K.p(r.c,'line')}`},{k:'ib',t:'IB/类效应',ns:1,f:r=>(r.ib&&r.ib.length)?r.ib.map(t=>K.p(t,/同SOC/.test(t)?'line':'red')).join(''):K.ibTags(r.c)},
+   {k:'sid',t:'受试者',f:r=>K.sid(r.sid)},{k:'t',t:'AE 术语',f:r=>`<b style="color:var(--ink)">${K.esc(r.t)}</b> ${K.p(r.c,'line')}${K.dpill('ae',r)}`},{k:'ib',t:'IB/类效应',ns:1,f:r=>(r.ib&&r.ib.length)?r.ib.map(t=>K.p(t,/同SOC/.test(t)?'line':'red')).join(''):K.ibTags(r.c)},
    {k:'s',t:'开始 → 结束',f:r=>`<span class="nowrap">${r.s} <span class="xs faint">${K.studyDay(r.s,r.fd)}</span></span><br><span class="xs muted">${r.e||'持续'}</span>`},
    {k:'g',t:'等级',f:r=>K.p(r.g,r.g==='3级'?'solid-red':r.g==='2级'?'red':'yel')+((r.chg||[]).length?' '+K.p('变更→'+r.chg.join('→'),'line'):'')},
    {k:'rel',t:'相关性',f:r=>K.p(r.rel,rel(r.rel)?'blu':'')},
    {k:'flags',t:'标记',ns:1,f:r=>[r.pre?K.p('首剂前','brn'):'',r.aesi?K.p('AESI','solid-red'):'',r.sae?K.p('SAE','solid-red'):'',r.dili?K.p('DILI','red'):'',r.wd?K.p('退出治疗','red'):''].join('')},
    {k:'act',t:'措施',f:r=>`<span class="small">${K.esc(r.act)}</span>`},{k:'out',t:'转归',f:r=>K.p(r.out.split('/')[0],/痊愈|好转/.test(r.out)?'grn':'line')},{k:'cm',t:'合并用药',f:r=>r.cm==='是'?K.p('是','org'):'<span class="faint">否</span>'}]});
-  function draw(){tb.set(aes.filter(a=>(!st.c||a.c===st.c)&&(!st.g||a.g===st.g)&&(!st.rel||(st.rel==='rel'?rel(a.rel):!rel(a.rel)))&&(!st.aesi||a.aesi)&&(!st.pre||a.pre)&&(!st.site||a.site===st.site)))}
+  const cfA=K.chgBar(document.getElementById('chg-ae'),'ae',()=>draw(),'AE');
+  function draw(){tb.set(aes.filter(a=>cfA(a)&&(!st.c||a.c===st.c)&&(!st.g||a.g===st.g)&&(!st.rel||(st.rel==='rel'?rel(a.rel):!rel(a.rel)))&&(!st.aesi||a.aesi)&&(!st.pre||a.pre)&&(!st.site||a.site===st.site)))}
   draw();
 }
 /* ---------- consistency */

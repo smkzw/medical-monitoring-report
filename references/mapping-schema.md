@@ -43,6 +43,9 @@ findings 另可映射 `reason`（CS 原因单选文本，mapping 级 `reason_map
 **列引用**：变量名 / 中文标签 / 列序号（int）；同名列用 `"名称#2"` 取第 2 次出现。单行表头写成「不良事件名称(AETERM)」时，括号内变量名或括号前标签均可引用。
 **行过滤**：spec `filter` 可为对象或数组（`eq` / `not` / `not_re`）；mapping 级 `row_filter` 对所有含该列的 sheet 生效，
 如 EDC 差异导出的已删除行：`"row_filter": [{"col": "Flag", "not_re": "^Deleted$"}]`。
+**变更标记**（差异导出合并用）：mapping 级 `change_flag: ["Flag", "变更标记", …]`（候选列名，取第一个存在的列）→ 每条记录带 `_chg`
+（原值，如 New/Changed/Deleted）；不写则不带。宿主据此把差异导出合并到上一次数据（工作台 lifecycle/delta.py），此时不应再用
+`row_filter` 过滤删除行。
 
 ## 宽表 tests
 ```json

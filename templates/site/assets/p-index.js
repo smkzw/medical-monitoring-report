@@ -3,7 +3,7 @@ const CF=K.cfg(),SD=CF.study||{},QC=CF.query||{};const D=KZ,app=document.getElem
 const dosed=S.filter(s=>s.fd);const ae=dosed.reduce((a,s)=>a+s.nae,0);
 const allAE=[];/* from subs only counts; AE detail per category built from labrows? use counts in core subs */
 const st=m.status;
-const lab=D.labrows,oth=D.others;
+const lab=K.lab,oth=D.others;
 const rc=k=>lab.filter(g=>g.risk===k).length;
 const aesiSubs=S.filter(s=>s.aesi>0).length;
 /* mm4：方案偏离（KZ.pd）——入排/用药/访视类专项信号归入方案偏离，医学风险分层只保留医学判断类 */
@@ -16,7 +16,7 @@ app.innerHTML=`
  <div class="kpi"><div class="l">筛选 / 随机并给药</div><div class="v">${m.n}<small>/ ${m.dosed} 例</small></div><div class="s">${Object.entries(st).map(([k,v])=>K.p(k+' '+v,K.STC[k]??'')).join('')}</div></div>
  <div class="kpi blu"><div class="l">中心（有给药 / 全部）</div><div class="v">${D.centers.filter(c=>c.dosed).length}<small>/ ${D.centers.length}</small></div><div class="s">${(SD.tags||[]).map(t=>Array.isArray(t)?K.p(K.esc(t[0]),t[1]||'line'):K.p(K.esc(t),'line')).join('')}</div></div>
  <div class="kpi"><div class="l">不良事件（给药者）</div><div class="v">${ae}<small>例次 · ${dosed.filter(s=>s.nae).length} 例</small></div><div class="s">${K.p('SAE '+S.reduce((a,s)=>a+s.sae,0),'grn')}${K.p('AESI '+S.reduce((a,s)=>a+s.aesi,0)+' 例次/'+aesiSubs+' 例','red')}${K.p('≥2级 '+S.filter(s=>s.maxg>=2).length+' 例','org')}</div></div>
- <div class="kpi risk"><div class="l">检验异常 → 需核对 AE/病史</div><div class="v">${['CSX','DISW','MH','MHU','NCS2','NA2','G2NF','NA'].reduce((a,k)=>a+rc(k),0)}<small>受试者×指标</small></div><div class="s">${['CSX','DISW','MH','MHU','NCS2','NA2','G2NF','NA'].filter(k=>rc(k)).map(k=>`<a href="safety.html#tab=lab&risk=${k}">${K.p(K.RISK[k][0]+' '+rc(k),K.RISK[k][1])}</a>`).join('')}${lab.some(g=>g.risk==='REL')?`<a href="safety.html#tab=lab&risk=REL" id="kz-rel-kpi">${K.p('较基线显著变化·未关联 '+lab.filter(g=>g.risk==='REL'&&K.relRisk(g)).length+'（已关联 '+lab.filter(g=>g.risk==='REL'&&K.relOn(g)&&!K.relRisk(g)).length+'）',K.RISK.REL[1])}</a>`:''}${lab.some(g=>g.risk==='MHX-T')?` <a href="safety.html#tab=lab&risk=MHX-T" id="kz-mhxt-kpi">${K.p('疑似病史漏记·首剂前 '+lab.filter(g=>g.risk==='MHX-T'&&K.mhxOn(g)).length+'/'+lab.filter(g=>g.risk==='MHX-T').length,K.RISK['MHX-T'][1])}</a>`:''}</div></div>
+ <div class="kpi risk"><div class="l">检验异常 → 需核对 AE/病史</div><div class="v">${['CSX','DISW','MH','MHU','NCS2','NA2','G2NF','NA'].reduce((a,k)=>a+rc(k),0)}<small>受试者×指标</small></div><div class="s">${['CSX','DISW','MH','MHU','NCS2','NA2','G2NF','NA'].filter(k=>rc(k)).map(k=>`<a href="safety.html#tab=lab&risk=${k}">${K.p(K.RISK[k][0]+' '+rc(k),K.RISK[k][1])}</a>`).join('')}${lab.some(g=>g.risk==='REL')?`<a href="safety.html#tab=lab&risk=REL" id="kz-rel-kpi">${K.p('较基线显著变化·未关联 '+lab.filter(g=>g.risk==='REL'&&K.relRisk(g)).length+'（已关联 '+lab.filter(g=>g.risk==='REL'&&K.relOn(g)&&!K.relRisk(g)).length+'）',K.RISK.REL[1])}</a>`:''}${lab.some(g=>g.risk==='MHX-T')?` <a href="safety.html#tab=lab&risk=MHX-T" id="kz-mhxt-kpi">${K.p('疑似病史漏记·首剂前 '+lab.filter(g=>g.risk==='MHX-T').length,K.RISK['MHX-T'][1])}</a>`:''}</div></div>
  ${kpiPD}
  <div class="kpi grn"><div class="l">申办方医学质疑${QC.label?'（'+K.esc(QC.label)+'）':''}</div><div class="v">${D.queries.length}<small>条</small></div><div class="s">${D.cro.length?K.p((QC.extShort||'外部质疑')+' '+D.cro.length+' 条已查重','line'):''}${K.p('冲突澄清 '+D.queries.filter(q=>q.cro==='冲突澄清').length,'red')}</div></div>
 </div>
@@ -86,6 +86,5 @@ const todo=(D.todo&&D.todo.length?D.todo:[
 document.getElementById('todo').innerHTML=`<table class="t"><tbody>${todo.map(t=>`<tr class="click" onclick="location.href='${t[2]}'"><td style="width:90px">${t[0]}</td><td>${t[1]}</td><td class="faint">›</td></tr>`).join('')}</tbody></table>`;
 /* 审阅要点：折叠区首次展开时渲染（与 methods.html 同一渲染器） */
 const mf=document.getElementById('mfold');if(mf)mf.addEventListener('toggle',()=>{if(mf.open&&!mf.dataset.done&&K.renderMethods){mf.dataset.done=1;K.renderMethods(document.getElementById('mbody'),{embed:true})}});
-K.onThr(()=>{const a=document.getElementById('kz-rel-kpi');if(a)a.innerHTML=K.p('较基线显著变化·未关联 '+lab.filter(g=>g.risk==='REL'&&K.relRisk(g)).length+'（已关联 '+lab.filter(g=>g.risk==='REL'&&K.relOn(g)&&!K.relRisk(g)).length+'）',K.RISK.REL[1]).trim();
-  const m=document.getElementById('kz-mhxt-kpi');if(m)m.innerHTML=K.p('疑似病史漏记·首剂前 '+lab.filter(g=>g.risk==='MHX-T'&&K.mhxOn(g)).length+'/'+lab.filter(g=>g.risk==='MHX-T').length,K.RISK['MHX-T'][1]).trim();});
+{const dc=K.deltaCard(),kp=app.querySelector('.kpis');if(dc&&kp)kp.insertAdjacentHTML('afterend',dc)}
 });
