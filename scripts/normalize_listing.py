@@ -150,6 +150,9 @@ def read_spec(spec, books, M):
     lr = spec.get('label_row', M.get('label_row', 1))
     vr = spec.get('var_row', M.get('var_row', 2))
     ds = spec.get('data_start', M.get('data_start', 3))
+    if M.get('allow_missing_sheets') and spec['sheet'] not in book.wb.sheetnames:   # 差异导出可只含有变化的表单
+        print(f"  - {alias}:{spec['sheet']} 不在本次文件中，跳过")
+        return []
     labels, vars_, data = book.sheet(spec['sheet'], lr, vr, ds)
     cols = {k: col_index(c, labels, vars_) for k, c in spec.get('cols', {}).items()}
     hlk = ('value', 'clin', 'desc', 'link', 'grade', 'rel', 'term', 'aesi', 'serious', 'action', 'indication', 'start', 'end', 'date')

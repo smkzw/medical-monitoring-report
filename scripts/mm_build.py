@@ -1931,17 +1931,20 @@ def main():
     KZ, csb_candidates = analyze(C)
     out = Path(a.out)
     aud = Path(a.audit) if a.audit else out.parent.parent / 'analysis'
-    KZ['cfg']['thrTiers'] = tier_variants(a, KZ, out, aud)
-    write_outputs(C, KZ, csb_candidates, out, aud)
+    X = dict(zip(('ex', 'pdex'), build_ex(C)))
+    KZ['cfg']['thrTiers'] = tier_variants(a, KZ, X, out, aud)
+    write_outputs(C, KZ, X, csb_candidates, out, aud)
 
 
 # 用户 2026-10-28：阈值切换后整份报告（各页列表、计数、质疑、潜在 PD）都要跟着变。T_base 影响构建期分层（较基线加重/研究疾病加重/
 # 判定不一致等）及其质疑与潜在 PD，页面无法即时重算，故构建时每档各算一遍；页面按所选档位载入（assets/kz-tier.js）。
 THR_TIERS = (0.2, 0.3, 0.5)
-TIER_KEYS = ('labrows', 'others', 'queries', 'subs', 'pd', 'centers', 'cons')   # 随 T_base 变化的数据；todo/unres 由工作台追加，不覆盖
+TIER_KEYS = ('labrows', 'others', 'queries', 'subs', 'pd', 'centers', 'cons', 'review', 'methods')   # 随 T_base 变化的数据
+# 质疑/潜在 PD 按顺序编号，档位不同编号会位移：按编号索引的原文（extra.js 的 ex/pdex）随档位一起替换（X）。
+# todo 由工作台在构建后追加条目：档位只替换 skill 生成的前 todoBase 条，追加的保留（kz.js 合并）；unres 只由工作台写，不随档位。
 
 
-def tier_variants(a, KZ, out, aud):
+def tier_variants(a, KZ, X, out, aud):
     """非默认档各重跑一遍分析；只写与默认档不同的键（core.b20.js 等），查询事实卡另存 query_cards.b20.json 供工作台撰写。"""
     b0 = float(KZ['cfg']['thresholds'].get('base', 0.3))
     files = {}
@@ -1953,6 +1956,11 @@ def tier_variants(a, KZ, out, aud):
         V, _ = analyze(C)
         diff = {k: V[k] for k in TIER_KEYS if V.get(k) != KZ.get(k)}
         diff['meta'] = {'qs': V['meta']['qs']}
+        if V.get('todo') != KZ.get('todo'):
+            diff['todo'], diff['todoBase'] = V.get('todo') or [], len(KZ.get('todo') or [])
+        XV = dict(zip(('ex', 'pdex'), build_ex(C)))
+        if XV != X:
+            diff['X'] = {k: XV[k] for k in XV if XV[k] != X.get(k)}
         name = f'core.b{round(tb * 100)}.js'
         Path(out).mkdir(parents=True, exist_ok=True)
         (Path(out) / name).write_text(f'window.KZV={{"{tb}":' + json.dumps(diff, ensure_ascii=False, separators=(',', ':'), default=str) + '};',
@@ -2043,12 +2051,11 @@ def analyze(C):
     return KZ, csb_candidates
 
 
-def write_outputs(C, KZ, csb_candidates, out, aud):
+def write_outputs(C, KZ, X, csb_candidates, out, aud):
     S = C.subj
     js_write(out / 'core.js', 'KZ', KZ)
     js_write(out / 'trend.js', 'KZT', C.KZT)
-    ex, pdex = build_ex(C)
-    js_write(out / 'extra.js', 'KZX', {'soa': C.soa, 'soacols': C.soacols, 'ex': ex, 'pdex': pdex})
+    js_write(out / 'extra.js', 'KZX', {'soa': C.soa, 'soacols': C.soacols, 'ex': X['ex'], 'pdex': X['pdex']})
     js_write(out / 'grading.js', 'KZG', {'label': C.GL, 'system': C.G.t.get('system'), 'version': C.G.t.get('version'), 'source': C.G.t.get('source', ''),
                                          'items': {k: v for k, v in C.G.items.items() if k in set(C.cmap.values())}, 'map': C.cmap, 'fac': C.fac})
     build_subject_files(C, out)

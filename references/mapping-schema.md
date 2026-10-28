@@ -45,7 +45,7 @@ findings 另可映射 `reason`（CS 原因单选文本，mapping 级 `reason_map
 如 EDC 差异导出的已删除行：`"row_filter": [{"col": "Flag", "not_re": "^Deleted$"}]`。
 **变更标记**（差异导出合并用）：mapping 级 `change_flag: ["Flag", "变更标记", …]`（候选列名，取第一个存在的列）→ 每条记录带 `_chg`
 （原值，如 New/Changed/Deleted）；不写则不带。宿主据此把差异导出合并到上一次数据（工作台 lifecycle/delta.py），此时不应再用
-`row_filter` 过滤删除行。
+`row_filter` 过滤删除行。`allow_missing_sheets: true`：spec 指向的 sheet 不在文件中时跳过（差异导出可只含有变化的表单）；缺省报错。
 
 ## 宽表 tests
 ```json

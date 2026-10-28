@@ -12,7 +12,10 @@ const C0=()=>(window.KZ&&window.KZ.cfg)||{};
 K.cfg=()=>C0();
 /* 阈值档位：kz-tier.js 已按所选 T_base 载入该档的分析结果（window.KZV），覆盖默认档的对应数据（检验风险、专项核查、质疑、潜在 PD 等） */
 (()=>{const V=window.KZV,Z=window.KZ;if(!V||!Z)return;const k=Object.keys(V)[0],v=V[k]||{};
-  Object.keys(v).forEach(x=>{if(x==='meta')Object.assign(Z.meta||(Z.meta={}),v.meta);else Z[x]=v[x]});K.tier=k})();
+  Object.keys(v).forEach(x=>{if(x==='meta')Object.assign(Z.meta||(Z.meta={}),v.meta);
+    else if(x==='X'){if(window.KZX)Object.assign(KZX,v.X)}                                  /* 按编号索引的质疑/潜在 PD 原文，随档位替换 */
+    else if(x==='todo')Z.todo=v.todo.concat((Z.todo||[]).slice(v.todoBase||0));            /* 保留工作台追加的待办 */
+    else if(x!=='todoBase')Z[x]=v[x]});K.tier=k})();
 K.VIS=(((window.KZ||{}).cfg||{}).visits||{}).order||['V1','V2','D1','USV','ET'];
 K.VUNS=(((window.KZ||{}).cfg||{}).visits||{}).unsched||['USV'];K.VET=(((window.KZ||{}).cfg||{}).visits||{}).early||['ET'];
 K.isAgg=v=>!K.VUNS.includes(v)&&!K.VET.includes(v);
@@ -63,8 +66,9 @@ K.deltaCard=()=>{const S=window.KZS||{},DL=S.delta,R=K.RD();if(!DL)return '';
 K.shName=sh=>{const s=String(sh||'').replace(/^[^:]*:/,''),n=((C0().sheetNames)||{})[s];return n?`${n}（${s}）`:s};
 K.loc=(sh,row)=>`${K.shName(sh)}${row!=null&&row!==''?' 第'+row+'行':''}`;
 K.thrKey='kz.thr:'+((C0().study||{}).code||'');
-K._thrSel=(()=>{try{return JSON.parse(localStorage.getItem(K.thrKey)||'null')}catch(e){return null}})();   /* 用户所选档位跨页、跨次打开保留 */
-K.thr=()=>{const c=(C0().thresholds)||{},S=window.KZS,src=K._thrSel||((S&&S.thresholds)?S.thresholds:{}),sel={...c,...src};
+/* 存储 {dev,base,src}：src=user 用户在本浏览器自选（最高优先）；src=project 工作台项目阈值的本地副本（供页面脚本前载入档位用，项目设置变了会更新） */
+K._thrSel=(()=>{try{return JSON.parse(localStorage.getItem(K.thrKey)||'null')}catch(e){return null}})();
+K.thr=()=>{const c=(C0().thresholds)||{},S=window.KZS,u=K._thrSel,src=(u&&u.src==='user')?u:(S&&S.thresholds)?S.thresholds:(u||{}),sel={...c,...src};
   return {dev:sel.dev??c.dev??.3,base:sel.base??c.base??.3,per_metric:sel.per_metric??c.per_metric??{}}};
 K.thrOf=mid=>{const t=K.thr(),pm=(t.per_metric||{})[mid]||{},ti=((C0().metricTight)||{})[mid]||{};
   const d=pm.dev??t.dev,b=pm.base??t.base;
@@ -77,14 +81,16 @@ K.thrBar=(el)=>{if(!el)return;const t=K.thr(),o=[['0.2','20%'],['0.3','30%'],['0
   K.seg(el.querySelector('#kz-tdev'),o,String(t.dev),v=>K.setThr({dev:+v}));K.seg(el.querySelector('#kz-tbase'),o,String(t.base),v=>K.setThr({base:+v}))};                 /* 当前所选阈值下该 REL 候选是否构成风险项 */
 K.mhxOn=g=>!!g&&g.risk==='MHX-T'&&!g.off;   /* M13：偏离≥T_dev、≥2 级或定性异常（K.applyThr 已逐点过滤） */
 /* 切换阈值：保存后重新载入页面（档位数据在页面脚本之前载入，全部页面从同一口径重新渲染）；与当前相同则不动 */
-K.setThr=sel=>{const cur=K.thr(),nx={...cur,...sel};if(nx.dev===cur.dev&&nx.base===cur.base)return cur;
-  K._thrSel={dev:nx.dev,base:nx.base};try{localStorage.setItem(K.thrKey,JSON.stringify(K._thrSel))}catch(e){}
+K._thrSave=(th,src)=>{K._thrSel={dev:th.dev,base:th.base,src};try{localStorage.setItem(K.thrKey,JSON.stringify(K._thrSel))}catch(e){}};
+K.setThr=sel=>{const cur=K._thrApplied||K.thr(),nx={...K.thr(),...sel};if(nx.dev===cur.dev&&nx.base===cur.base)return cur;
+  K._thrSave(nx,'user');
   if(window.KZS)KZS.thresholds={...KZS.thresholds,...K._thrSel};location.reload();return nx};
-/* 工作台系统层载入后告知项目阈值：用户未自选过时按项目阈值显示 */
-K.thrInit=th=>{if(!K._thrSel&&th&&(th.dev!=null||th.base!=null))K.setThr({...(th.dev!=null?{dev:th.dev}:{}),...(th.base!=null?{base:th.base}:{})})};
+/* 工作台系统层载入后告知项目阈值：用户未自选过、且与本页渲染所用阈值不同时，存为项目副本并重新载入（档位数据须在页面脚本前载入） */
+K.thrInit=th=>{if(!th||(K._thrSel&&K._thrSel.src==='user'))return;const a=K._thrApplied||{},nx={dev:th.dev??a.dev,base:th.base??a.base};
+  if(nx.dev===a.dev&&nx.base===a.base)return;K._thrSave(nx,'project');location.reload()};
 /* 当前阈值下的检验风险视图：REL/MHX-T 只保留达到所选阈值的异常点，全部点都不达标的整行不进入任何页面（g.off）。
  * 各页列表与计数统一用 K.lab（按下标引用 KZ.labrows 的地方不受影响）。定性结果与 ≥2 级的首剂前异常不受偏离比例阈值限制。 */
-K.applyThr=()=>{const L=(window.KZ||{}).labrows||[];L.forEach(g=>{if(g.risk!=='REL'&&g.risk!=='MHX-T')return;g._pts=g._pts||g.pts;const t=K.thrOf(g.mid||('lab:'+g.test));
+K.applyThr=()=>{K._thrApplied=(({dev,base})=>({dev,base}))(K.thr());const L=(window.KZ||{}).labrows||[];L.forEach(g=>{if(g.risk!=='REL'&&g.risk!=='MHX-T')return;g._pts=g._pts||g.pts;const t=K.thrOf(g.mid||('lab:'+g.test));
     g.pts=g._pts.filter(p=>g.risk==='REL'?(p[10]!=null&&p[6]!=null&&p[10]>=t.dev&&Math.abs(p[6])>=t.base*100):(p[10]==null||p[10]>=t.dev||(p[4]!=null&&p[4]>=2)));
     g.off=!g.pts.length;if(!g.off)g.mg=Math.max(0,...g.pts.map(p=>p[4]||0))});
   K.lab=L.filter(g=>!g.off)};
