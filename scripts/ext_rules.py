@@ -146,8 +146,11 @@ def m13_mhx_t(C):
             if T.get('metric') and re.search(T['metric'], mid) and T.get('dev') is not None:
                 dev_t = min(dev_t, float(T['dev']))
         floor = min(0.20, dev_t)
+        d_ = metric_dir(mid)
         pre = [r for r in rows
                if not r['post'] and r.get('clin') in (1, None)
+               and not (d_ == 'up' and r.get('value') is not None and r.get('lo') is not None and r['value'] < r['lo'])
+               and not (d_ == 'down' and r.get('value') is not None and ref_hi(r) is not None and r['value'] > ref_hi(r))
                and ((r.get('dev') or 0) >= floor or (r.get('grade') or 0) >= 2
                     or (r.get('value') is None and (qual_level(r.get('raw')) or 0) >= 2))
                and (sid, r['sheet'], r['row']) not in elig_rows
@@ -384,12 +387,13 @@ def m21_ae_course(C):
             open_abn = [r for r in labs if (r.get('clin') or 0) >= 1 and r.get('date') and (not last_d or r['date'] >= last_d)]
             if open_abn:
                 r0 = open_abn[-1]
-                add_ext(C, sid, 'AE转归与检验走势核对', 'M21', 2,
+                dn = daily_open(C, sid)                  # 用户 2026-10-28：未出组的受试者在日常阶段降级为提示
+                add_ext(C, sid, 'AE转归与检验走势核对', 'M21', 1 if dn else 2,
                         f"AE「{a['t']}」（{a['s']} 起，未结束），末次访视（{last_d or '—'}）关联检验 "
                         f"{C.metric[r0['mid']]['label']} 仍异常、未见随访安排",
                         None, last_d, a['sh'], a['row'], C.metric[r0['mid']]['label'],
                         rel=[['AE', a['t'], a['s'], a['n']]],
-                        ctx=['异常未恢复且 AE 未结束（提示）'],
+                        ctx=['异常未恢复且 AE 未结束（提示）'] + ([DAILY_NOTE] if dn else []),
                         rule={'query': False, 'ask': '请确认随访安排或更新 AE 转归。'},
                         bkey=f"{a.get('n')}|{C.metric[r0['mid']]['label']}|未恢复", wb=a.get('wb') or '')
 
@@ -420,6 +424,38 @@ def date_order(C):
 
 
 # --------------------------------------------------------------------------- M23 CSB 确定性＋候选
+# 指标的不利方向（医学常识默认表；study.json analysis.metricDir 优先）。未列出的指标两个方向都算（血红蛋白、血小板、白细胞、电解质、体重等）
+DIR_DEFAULT = [
+    (r'高密度脂蛋白|HDL|白蛋白|ALB(?![A-Za-z])|总蛋白|前白蛋白|肾小球滤过|eGFR|网织红细胞血红蛋白', 'down'),
+    (r'丙氨酸氨基转移酶|ALT(?![A-Za-z])|天门?冬氨酸氨基转移酶|AST(?![A-Za-z])|谷氨酰转[移肽]酶|GGT|碱性磷酸酶|ALP(?![A-Za-z])|胆红素|BIL(?![A-Za-z])|'
+     r'肌酐|CREA|Cr(?![A-Za-z])|尿素|BUN|尿酸|甘油三酯|TG(?![A-Za-z])|总胆固醇|TC(?![A-Za-z])|低密度脂蛋白|LDL|肌酸激酶|肌酸磷酸激酶|CK(?![A-Za-z])|CPK|'
+     r'乳酸脱氢酶|LDH|葡萄糖|GLU|糖化血红蛋白|HbA1c|C反应蛋白|CRP|血沉|ESR|淀粉酶|脂肪酶|D-?二聚体|纤维蛋白(原)?降解|IgE|嗜酸性粒细胞|'
+     r'收缩压|舒张压|QTc|尿蛋白|尿糖|尿潜血|隐血|尿红细胞|尿白细胞|尿胆原|酮体|BNP|肌钙蛋白|肌红蛋白', 'up'),
+]
+_MDIR: list = []
+
+
+def set_metric_dir(user: dict | None):
+    """构建开始时调用：项目配置（{正则: up|down|both}）在前，默认表在后。"""
+    _MDIR[:] = [(re.compile(k), v) for k, v in (user or {}).items()] + [(re.compile(k), v) for k, v in DIR_DEFAULT]
+
+
+def metric_dir(mid_or_label) -> str | None:
+    s = str(mid_or_label or '')
+    d = next((v for rx_, v in _MDIR if rx_.search(s)), None)
+    return None if d in (None, 'both') else d
+
+
+def daily_open(C, sid) -> bool:
+    """日常监查阶段且受试者尚未出组（无研究结束日期、状态不是完成/退出/终止/死亡/失访）：后续数据可能尚未录入。"""
+    s = C.subj.get(sid) or {}
+    return C.cfg.get('dataStage') == 'daily' and not s.get('eos_d') and \
+        not re.search(r'完成|退出|终止|死亡|失访|筛选失败|出组', str(s.get('status') or ''))
+
+
+DAILY_NOTE = '受试者尚未出组，后续访视数据可能尚未录入（日常监查阶段仅作提示）'
+
+
 def grade_up(bg, cg):
     """按分级判加重：基线已 ≥1 级后再升级，或升到 ≥2 级。0 级 → 1 级不单独算（避免略超上限即判加重）。"""
     return (cg or 0) > (bg or 0) and ((bg or 0) >= 1 or (cg or 0) >= 2)
@@ -437,6 +473,8 @@ def worse_vs_base(r, b, t_base):
         return None
     hi, lo = ref_hi(r), r.get('lo')                  # 血压无参考范围时用默认上限（与 REL/步骤 4 同口径）
     above, below = hi is not None and v > hi, lo is not None and v < lo
+    d = metric_dir(r.get('mid'))                     # 只按不利方向判加重：HDL 升高、ALT 降低都不算
+    above, below = above and d != 'down', below and d != 'up'
     if bv == 0:                                      # 基线为 0（如乙肝表面抗原 0→199.68）：现超出范围即视为加重
         return '基线为 0，现超出参考范围' if above else None
     pct = (v - bv) / abs(bv)
@@ -624,6 +662,8 @@ def _worsening(r, t_base):
     v, bv = r.get('value'), b.get('value')
     if v is not None and bv not in (None, 0):
         hi, lo = ref_hi(r), r.get('lo')
+        d = metric_dir(r.get('mid'))                 # 只按不利方向（与 worse_vs_base 同口径）
+        hi, lo = (None if d == 'down' else hi), (None if d == 'up' else lo)
         pct = (v - bv) / abs(bv)
         if hi is not None and v > hi and pct >= t_base:
             flags.append(f"较基线升高 {pct * 100:.0f}%")

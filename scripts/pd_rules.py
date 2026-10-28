@@ -18,6 +18,7 @@ import datetime as dt
 import re
 from collections import Counter, defaultdict
 
+import ext_rules
 from common import days, fmt, is_full_date, yes, zero_dose
 
 # (分类码, 名称, 层面, 说明, CDISC DVCAT（SDTM CT C225352；与 TransCelerate 7 类一一对应）)
@@ -337,9 +338,11 @@ class _PD:
                     if not any(str(r.get('ver') or '').strip() == str(v['ver']) or (is_full_date(r.get('date')) and r['date'] >= v['effective'])
                                for r in by.get(sid, [])):
                         last = sorted(by.get(sid, []), key=lambda r: r.get('date') or '')
+                        dn = ext_rules.daily_open(C, sid)
                         self.add('ICF-02', sid, f"知情同意 {v['ver']} 版 {v['effective']} 生效且要求再签，受试者其后仍在研（至 {end}），未见新版签署记录"
                                  + (f"（最近签署 {last[-1].get('ver') or '?'} 版 {last[-1].get('date')}）" if last else ''),
-                                 date=v['effective'], src=[[_sh(r), r['row'], '知情同意'] for r in last[-1:]])
+                                 date=v['effective'], src=[[_sh(r), r['row'], '知情同意'] for r in last[-1:]],
+                                 **({'grade': '待判定', 'why': ext_rules.DAILY_NOTE + '：新版签署记录可能尚未录入'} if dn else {}))
         else:
             self.ran['ICF-02'] = 'unconfigured' if not vers else 'no-data'
         self.ran['RAND-01'] = self.ran['RAND-02'] = 'ran'
@@ -570,8 +573,10 @@ class _PD:
                     continue
                 pct = tot_q / (tot_d * per) * 100 if tot_d else None
                 if pct is not None and (pct < lo or pct > hi):
+                    dn = ext_rules.daily_open(C, sid)
                     self.add('IP-03', sid, f"累计给药 {tot_d} 天、实际 {fmt(tot_q)}（应 {fmt(tot_d * per)}），依从性 {pct:.0f}%，超出方案范围 {fmt(lo)}%–{fmt(hi)}%",
-                             src=[[_sh(ex[0]), ex[0]['row'], '给药']], date=ex[-1].get('end') or ex[-1].get('start'))
+                             src=[[_sh(ex[0]), ex[0]['row'], '给药']], date=ex[-1].get('end') or ex[-1].get('start'),
+                             **({'grade': '待判定', 'why': ext_rules.DAILY_NOTE + '：给药/发药回收记录可能尚未录全'} if dn else {}))
         else:
             self.ran['IP-03'] = 'unconfigured'
 

@@ -136,7 +136,8 @@ def load(study_p, norm_p):
     TH = C.cfg.get('thresholds') or {}
     TH.setdefault('dev', 0.3); TH.setdefault('base', 0.3); TH.setdefault('per_metric', {})
     C.cfg['thresholds'] = TH
-    C.mdir = C.A.get('metricDir') or {}        # {metricRe: 'up'|'down'} 单向不利指标
+    ext_rules.set_metric_dir(C.A.get('metricDir'))   # 指标不利方向：项目配置优先，其次医学常识默认表
+    C.mdir = C.A.get('metricDir') or {}        # {metricRe: 'up'|'down'} 单向不利指标（方法卡计数用）
     C.mthr = C.A.get('metricThreshold') or []  # 项目收紧：有效值=min(所选,收紧值)，两参数各自（须带方案/IB 原文）
     C.G = ctcae.load(C.cfg, C.dir)  # grading system/version from the protocol (cfg.grading or cfg.ctcaeVersion) — never defaulted
     C.cfg['ctcaeVersion'] = C.G.label
@@ -375,14 +376,15 @@ def ib_match(C, rec):
         if opp and re.search(opp, rec['t']):
             continue
         serious_only = bool(re.match(r'严重|重要|重度', term))
+        severe = bool(rec.get('sae') or (grade_int(rec.get('g')) or 0) >= 3)
         hit = (e.get('pt') and rec.get('pt') == e['pt']) or (e['_re'] and e['_re'].search(rec['t']))
-        if hit and serious_only and not (rec.get('sae') or (grade_int(rec.get('g')) or 0) >= 3):
-            out.append(name + '（同类，非严重）')
-        elif hit:
+        if hit and serious_only and not severe:      # 用户 2026-10-28：「严重感染」类风险点只认严重或 ≥3 级的 AE
+            continue
+        if hit:
             out.append(name)
-        elif rec.get('soc') and rec['soc'] in [re.sub(r'/\d+$', '', s.strip()) for s in re.split(r'[；;]', e.get('soc') or '')
-                                               if s.strip() and not s.strip().startswith('各类检查')]:
-            out.append(name + '（同SOC）')                 # 「心脏器官疾病/10007541；血管与淋巴管类疾病/…」多 SOC 写法拆开比对
+        elif severe and rec.get('soc') and rec['soc'] in [re.sub(r'/\d+$', '', s.strip()) for s in re.split(r'[；;]', e.get('soc') or '')
+                                                          if s.strip() and not s.strip().startswith('各类检查')]:
+            out.append(name + '（同SOC，严重/≥3级）')           # 同 SOC 只保留严重或 ≥3 级                 # 「心脏器官疾病/10007541；血管与淋巴管类疾病/…」多 SOC 写法拆开比对
     return list(dict.fromkeys(out))
 
 
@@ -675,6 +677,8 @@ def build_labrows(C):
             elif not wf:
                 risk = 'MHL'
                 ctx.append(f'已关联病史「{mhn}」，较基线未明显加重（病史延续）')
+            if risk == 'MHL' and any(c.startswith('同期 AE') for c in ctx):   # 用户 2026-10-28：只做提醒，不作为风险
+                ctx.append('提醒：同期另有可能对应的 AE 未关联，可请研究者确认是否关联（不作为风险）')
             elif dae:
                 risk = 'MHL'
                 ctx.append(f"已关联研究疾病病史，较基线加重（{wf}），加重已记录为 AE「{dae[0]['t']}」（{dae[0]['s']}），请关联"
@@ -730,7 +734,7 @@ def rel_candidates(C):
             continue
         dev_f, base_f = thr_eff(C, mid)
         dev_f, base_f = min(0.20, dev_f), min(0.20, base_f)      # 最低档候选地板：项目收紧低于 20% 时取收紧值
-        mdir = next((d for mre, d in C.mdir.items() if re.search(mre, mid)), None)
+        mdir = ext_rules.metric_dir(mid)
         cand = []
         for r in rows:
             if not r['post'] or r.get('value') is None or not r.get('dev') or r.get('pct') is None:
