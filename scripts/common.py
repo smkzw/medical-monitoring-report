@@ -112,7 +112,7 @@ def clin_code(v, patterns=None):
     if v is None or str(v).strip() == '':
         return None
     s = str(v).strip()
-    for pat, code in (patterns or CLIN_DEFAULT):
+    for pat, code in list(patterns or []) + CLIN_DEFAULT:   # 项目映射优先，匹配不到时回退通用写法（「异常，无临床意义」「NCS」等）
         if re.search(pat, s, re.I):
             return code
     return None

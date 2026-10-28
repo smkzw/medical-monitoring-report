@@ -24,7 +24,7 @@ async function one(id){
   document.getElementById('sp').onchange=e=>one(e.target.value);
   const d=await K.sub(id);if(!d)return;
   const s=K.subBy(id),lr=LR[id]||[],ot=OT[id]||[],qs=QS[id]||[];
-  document.getElementById('hd').innerHTML=`${K.status(d.status)}${K.p('D1 '+d.fd,'blu')}${d.ld?K.p('末次给药 '+d.ld,'line'):''}${d.eot?K.p('EOT '+d.eot.why,'brn'):''}${lr.filter(g=>g.risk==='CSX').length?K.p('CS未关联 '+lr.filter(g=>g.risk==='CSX').length,'solid-red'):''}${qs.length?K.p('质疑 '+qs.length,'org'):''}`;
+  document.getElementById('hd').innerHTML=`${K.status(d.status)}${K.p('D1 '+d.fd,'blu')}${d.ld?K.p('末次给药 '+d.ld,'line'):''}${d.eot?K.p('治疗结束：'+d.eot.why,'brn'):''}${lr.filter(g=>g.risk==='CSX').length?K.p('CS未关联 '+lr.filter(g=>g.risk==='CSX').length,'solid-red'):''}${qs.length?K.p('质疑 '+qs.length,'org'):''}`;
   const lanes=[],bars=[],pts=[];
   const lane=(name,grp)=>{lanes.push({name,grp});return lanes.length-1};
   // visits

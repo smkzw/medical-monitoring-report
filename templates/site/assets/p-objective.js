@@ -2,7 +2,7 @@ K.init(()=>{
 const D=KZ,T=KZT,app=document.getElementById('app'),H=K.hash();
 const CF=K.cfg(),VL=K.VIS,D1I=VL.indexOf((CF.visits||{}).d1||'D1');
 const SJ=T.subjects;const dosed=i=>SJ[i][3]===1;
-const LRk={};D.labrows.forEach(g=>{LRk[g.sid+'|'+g.test]=g});
+const LRk={};D.labrows.forEach(g=>{const k=g.sid+'|'+g.test;if(!LRk[k]||(g.pr||0)>(LRk[k].pr||0))LRk[k]=g});   /* 同一指标多层结果取风险最高的（旧版被低风险层覆盖） */
 const vk=r=>VL[r[5]]+(r[5]===D1I&&r[16]===1||(r[17]&&/后/.test(r[17]))?'·后':'');
 const ORDER=VL.filter(K.isAgg).flatMap(v=>[v,v+'·后']);
 const AGG=r=>K.isAgg(VL[r[5]]); // 中心/全试验层面不含计划外/提前退出访视
@@ -22,7 +22,7 @@ app.innerHTML=`<div class="flex mb"><h1 style="font-size:18px">检验检查趋�
 let cur=H.m&&H.m.startsWith('q:')?{qual:H.m.slice(2),id:H.m}:T.metrics.find(m=>m.id===H.m)||T.metrics[0],mode=H.v||'val',hc=H.c||'';
 function mlist(){const q=document.getElementById('ms').value.trim();
   document.getElementById('ml').innerHTML=groups.map(g=>{const ms=T.metrics.filter(m=>m.group===g&&(!q||m.label.includes(q)));if(!ms.length)return '';return `<div class="xs muted" style="padding:6px 10px 2px;font-weight:600">${g}</div>`+ms.map(m=>`<div class="it ${m.id===cur.id?'on':''}" data-id="${K.esc(m.id)}" style="padding:4px 10px"><span class="small" style="flex:1;color:var(--ink)">${K.esc(m.label.replace(/（(.*)）/,' $1'))}</span>${m.nab?`<span class="xs ${m.nab>=10?'':'faint'}" style="color:${m.nab>=10?'var(--brand-d)':''}" title="给药后超范围人数">${m.nab}</span>`:''}</div>`).join('')}).join('')+
-   `<div class="xs muted" style="padding:6px 10px 2px;font-weight:600">定性（尿检/白带）</div>`+T.qual.tests.filter(t=>!q||t.includes(q)).map(t=>`<div class="it ${cur.qual===t?'on':''}" data-q="${K.esc(t)}" style="padding:4px 10px"><span class="small" style="color:var(--ink)">${K.esc(t)}</span></div>`).join('');
+   `<div class="xs muted" style="padding:6px 10px 2px;font-weight:600">定性/描述性结果</div>`+T.qual.tests.filter(t=>!q||t.includes(q)).map(t=>`<div class="it ${cur.qual===t?'on':''}" data-q="${K.esc(t)}" style="padding:4px 10px"><span class="small" style="color:var(--ink)">${K.esc(t)}</span></div>`).join('');
   document.querySelectorAll('#ml .it').forEach(it=>it.onclick=()=>{if(it.dataset.id){cur=T.metrics.find(m=>m.id===it.dataset.id)}else cur={qual:it.dataset.q,id:'q:'+it.dataset.q};mlist();draw()})}
 document.getElementById('ms').oninput=mlist;mlist();
 const mn=document.getElementById('mn');
@@ -69,7 +69,7 @@ function draw(){
    ${isCT?'':`<span class="xs muted" style="margin-left:auto">阈值 ① <input id="th1" type="number" min="1" step="5" value="${TH[0]}" class="s" style="width:56px;padding:2px 4px">% ② <input id="th2" type="number" min="1" step="5" value="${TH[1]}" class="s" style="width:56px;padding:2px 4px">%</span>`}</div>
    <table class="t mt shift" style="text-align:center"><thead><tr><th style="text-align:left">基线 \\ 基线后最差</th>${CL.map(c=>`<th style="text-align:center">${c}</th>`).join('')}</tr></thead><tbody>${RL.map((rl,a)=>`<tr><td style="text-align:left"><b>${rl}</b></td>${CL.map((c,b)=>{const n=SHc.filter(x=>x.bl===a&&x.wl===b).length,na=SH.filter(x=>x.bl===a&&x.wl===b).length,k=cellC(a,b);
      return `<td class="${k&&n?'hit':''}" data-a="${a}" data-b="${b}" style="${k===2?'background:#F3E0E0;color:var(--risk)':k===1?'background:#FFF4E2;color:#B86400':''};${k&&n?'font-weight:700;cursor:pointer;text-decoration:underline dotted':''}">${n}${hc?`<span class="xs faint" style="font-weight:400">/${na}</span>`:''}</td>`}).join('')}</tr>`).join('')}</tbody></table>
-   <div class="flex wrap mt" style="gap:6px">${[['c1','①',isCT?'基线正常→≥1级，或基线异常→升级≥1级':`|Δ%| ≥ ${TH[0]}%`,'org'],['c2','②',isCT?'基线正常→≥3级，或基线异常→升级≥2级':`|Δ%| ≥ ${TH[1]}%`,'red']].map(([k,n,t,c])=>{const m=SHc.filter(x=>x[k]).length;return `<span class="p ${c}" data-k="${k}" style="cursor:pointer" title="点击查看受试者">${n} ${t}：${m} 人${SHc.length?'（'+(m/SHc.length*100).toFixed(0)+'%）':''}</span>`}).join('')}<span class="xs faint">n=${SHc.length}${hc?' / 整体 '+SH.length:''} · 不含 USV / ET</span></div>`;
+   <div class="flex wrap mt" style="gap:6px">${[['c1','①',isCT?'基线正常→≥1级，或基线异常→升级≥1级':`|Δ%| ≥ ${TH[0]}%`,'org'],['c2','②',isCT?'基线正常→≥3级，或基线异常→升级≥2级':`|Δ%| ≥ ${TH[1]}%`,'red']].map(([k,n,t,c])=>{const m=SHc.filter(x=>x[k]).length;return `<span class="p ${c}" data-k="${k}" style="cursor:pointer" title="点击查看受试者">${n} ${t}：${m} 人${SHc.length?'（'+(m/SHc.length*100).toFixed(0)+'%）':''}</span>`}).join('')}<span class="xs faint">n=${SHc.length}${hc?' / 整体 '+SH.length:''} · 不含计划外/提前退出访视</span></div>`;
   // center stats：给药后个体均值（当前口径）均值漏斗 + 给药后超范围比例漏斗
   const inC=(i,s)=>!s||SJ[i][1]===s;
   const sMean=i=>{const a=subj[i].post.map(vfn).filter(x=>x!=null);return a.length?K.mean(a):null};
@@ -100,7 +100,7 @@ function draw(){
   <div class="card mb"><div class="xs muted">个体轨迹（研究日）· ${hc?`橙色加粗 = ${hc} 中心，其余淡化`:'选择中心后加粗显示该中心'} · 深红 = 离群/阈值受试者 · 点击线查看参与者</div><div class="chart" id="b2" style="height:260px"></div></div>
   <div class="card mb"><div class="sec-t" style="margin-top:0"><h2>中心偏离</h2><span class="muted small">漏斗图：中心值与整体比较，虚线 ±2SE = 需关注，点线 ±3SE = 明显偏离；n&lt;2 不判 · 点击中心切换选择</span></div>
    <div class="grid g12"><div><div class="xs muted">给药后个体均值（${modeL}）· 整体 ${K.fmt(FM.mu)} · n=${FM.N}</div><div class="chart" id="f1" style="height:260px"></div></div><div><div class="xs muted">给药后超范围比例 · 整体 ${(totAb*100).toFixed(0)}% · n=${FP.N}</div><div class="chart" id="f2" style="height:260px"></div></div></div></div>
-  <div class="grid g2"><div class="card"><div class="sec-t" style="margin-top:0"><h2>受试者离群 / 方案阈值</h2><span class="muted small">${MR.map(x=>K.esc(x.note||'')).filter(Boolean).join('；')}${MR.some(x=>x.note)?' · ':''}同访视变化量稳健 z≥3.5${hc?` · 仅 ${hc} 中心`:''}</span></div><div id="ot"></div></div>
+  <div class="grid g2"><div class="card"><div class="sec-t" style="margin-top:0"><h2>受试者离群 / 方案阈值</h2><span class="muted small">${MR.map(x=>K.esc(x.note||'')).filter(Boolean).join('；')}${MR.some(x=>x.note)?' · ':''}同访视变化幅度明显离群${hc?` · 仅 ${hc} 中心`:''}</span></div><div id="ot"></div></div>
    <div class="card"><div class="sec-t" style="margin-top:0"><h2>中心对比</h2><span class="muted small">给药后均值 · 超范围比例（整体 ${(totAb*100).toFixed(0)}%）· 点击行选择中心</span></div><div id="ct"></div></div></div>`;
   K.seg(document.getElementById('md'),[['val','原值'],['chg','较基线Δ'],['pct','Δ%']],mode,v=>{mode=v;draw()});
   const pick=s=>{hc=hc===s?'':s;draw()};

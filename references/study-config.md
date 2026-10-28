@@ -79,6 +79,10 @@ mm4 新增：`calibers:[[主题, 采用口径, 状态, 规则id, 说明]]`（关
   mm4 起由工作台确定性生成（`mm3/protocol/efficacy.py`：方案终点 × listing 量表/检验/检查指标），不再手填；`src` 可指向 lab/exam 指标（如 Hb、肌瘤体积）；`agg:"max"` 用于终点写「最大的…」时同访视多条记录取最大。基线取方案基线访视（D1/首次给药前）；该指标没有 D1 访视时取给药前最后一次。lab/exam 来源的测量值做量级检查（同一受试者某次与本人其余访视中位数相差 ≥10 倍 → pr3 query「有效性数据量级异常」，疑似单位/录入错误，同时在有效性页列出；量表不查）。
 - `diseaseTerms`：研究疾病缩写（如 `["AD"]`，工作台从方案「特应性皮炎（AD）」写法编译），用于识别备注里的研究疾病归因。
 - `clinConsistTol`：临床意义判定一致性的「相近」容差（默认 0.1）。
+- `expectedAE`：`[{term, label, re, pt, soc, basis, src: ib|protocol, loc, labs: [[analyte, label, direction]]}]` 产品风险（工作台从 IB 风险表/方案风险章节编译）：AE 按术语/PT 匹配打「IB重要潜在风险·…」标记（同 SOC 的标「同SOC」），检验按风险的检验表现在背景中注明。
+- `queryTexts`：`{qkey: {h, text}}` 工作台模型按事实卡写好的质疑句子；`h` 与本次构建的事实卡哈希一致才采用，否则用程序措辞。事实卡输出在 `analysis/query_cards.json`。
+- `formNames`：`{表单代码: 中文名}`，缺省读 EDC 导出的目录页（TOC）；页面证据位置显示「血生化（LBCH）第 n 行」。
+- `cfg.dataStage`：数据阶段 `daily`（日常监查，数据滚动录入）/ `prelock`（锁库前全量）/ `cfdi`（锁库后核查前）；工作台入口选择后写入。`daily` 下不判定计划访视缺失（VIS-02）与「无记录」类评估缺失（ASMT-01），有效性关键访视只提示「暂未见记录」。缺省按全量处理。
 - `effNotes`：`[文本]` 生成说明（未对上终点的量表、主要终点无 listing 数据等），有效性页页头显示；没有指标时页面显示「未生成有效性趋势」＋原因，不再是「未配置」。
 - `effRules`：`[{metric, op, v, label, cls, st, visits, qcat}]`；`effRulesText` 页面说明。
 

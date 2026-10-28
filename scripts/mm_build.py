@@ -9,6 +9,7 @@ See references/data-contract.md for every field, references/analysis-rules.md fo
 """
 import argparse
 import datetime as dt
+import hashlib
 import json
 import re
 from collections import Counter, defaultdict
@@ -102,6 +103,13 @@ def cmp(op, a, b):
     return {'>=': a >= b, '>': a > b, '<=': a <= b, '<': a < b, '==': a == b}.get(op, False)
 
 
+def _num(v):
+    try:
+        return float(str(v).replace(',', '').strip())
+    except (TypeError, ValueError):
+        return None
+
+
 def fill(tpl, **kw):
     def rep(m):
         v = kw.get(m.group(1))
@@ -137,6 +145,11 @@ def load(study_p, norm_p):
     for dom in ('subjects', 'visits', 'exposure', 'ae', 'mh', 'cm', 'proc', 'findings', 'efficacy', 'pd', 'extq', 'groups',
                 'icf', 'sample', 'dispense'):   # mm4：知情同意记录 / 样本采集 / 发药回收（可选域，PD 执行层面核查用）
         setattr(C, dom, load_json(N / f'{dom}.json', []) or [])
+    # 表单中文名：EDC 目录页 ＜ study.json analysis.formNames；分组名缺省（等于表单代码）时用中文名，避免页面出现「OTH」
+    C.A['formNames'] = {**(C.src.get('formNames') or {}), **(C.A.get('formNames') or {})}
+    for f in C.findings:
+        if f.get('sheet') in C.A['formNames'] and f.get('group') in (None, '', f.get('sheet')):
+            f['group'] = C.A['formNames'][f['sheet']]
     align_visit_codes(C)
     vis = C.cfg.setdefault('visits', {})
     C.VIS = vis.get('order') or sorted({f['visit'] for f in C.findings if f.get('visit')})
@@ -295,6 +308,7 @@ def build_events(C):
                '_aesi_term': bool(aesi_hit), '_aesi_def': aesi_hit, 'pt': a.get('pt') or '', 'soc': a.get('soc') or '',
                'rpt': a.get('rpt') or '', 'aware': a.get('aware') or ''}
         rec['te'] = (not rec['pre']) and bool(s['fd']) and (not C.teEnd.get(sid) or not is_full_date(rec['s']) or rec['s'] <= C.teEnd[sid])
+        rec['ib'] = ib_match(C, rec)
         C.ae_by[sid].append(rec)
         C.aes.append(rec)
     C.mh_by = defaultdict(list)
@@ -327,6 +341,51 @@ def ae_summary(C):
 
 
 # ----------------------------------------------------------------------------- findings
+# IB/方案列明的产品风险（analysis.expectedAE，工作台从 IB 风险表编译）：AE 按术语/PT 匹配，按 SOC 匹配的标「同类」；检验按风险的检验表现匹配
+LAB_ALIAS = {'CK': '肌酸激酶|CK|CPK', 'CPK': '肌酸激酶|CK|CPK', 'HGB': '血红蛋白|Hb|HGB', 'HB': '血红蛋白|Hb|HGB', 'WBC': '白细胞', 'NEUT': '中性粒细胞',
+             'ANC': '中性粒细胞', 'LYM': '淋巴细胞', 'LYMPH': '淋巴细胞', 'PLT': '血小板', 'ALT': '丙氨酸氨基转移酶|ALT', 'AST': '天门冬氨酸氨基转移酶|天冬氨酸|AST',
+             'TBIL': '总胆红素', 'TG': '甘油三酯', 'TC': '总胆固醇', 'LDL': '低密度脂蛋白', 'CREA': '肌酐', 'QTCF': 'QTc'}
+
+
+def _exp_list(C):
+    if not hasattr(C, '_exp'):
+        C._exp = []
+        for e in C.A.get('expectedAE') or []:
+            labs = []
+            for a, lab, d in e.get('labs') or []:
+                pat = LAB_ALIAS.get(str(a or '').upper()) or (re.escape(str(a)) if a else None)
+                if not pat and lab:
+                    pat = re.escape(re.sub(r'(升高|降低|增高|减少|下降|异常)$', '', str(lab))[:6])
+                if pat:
+                    labs.append((re.compile(pat, re.I), d))
+            C._exp.append({**e, '_re': re.compile(e['re']) if e.get('re') else None, '_labs': labs})
+    return C._exp
+
+
+def ib_match(C, rec):
+    out = []
+    for e in _exp_list(C):
+        name = f"{e['label']}·{e['term']}"
+        if (e['_re'] and e['_re'].search(rec['t'])) or (e.get('pt') and (rec.get('pt') == e['pt'] or e['pt'] in rec['t'])):
+            out.append(name)
+        elif rec.get('soc') and rec['soc'] in [re.sub(r'/\d+$', '', s.strip()) for s in re.split(r'[；;]', e.get('soc') or '')
+                                               if s.strip() and not s.strip().startswith('各类检查')]:
+            out.append(name + '（同SOC）')                 # 「心脏器官疾病/10007541；血管与淋巴管类疾病/…」多 SOC 写法拆开比对
+    return list(dict.fromkeys(out))
+
+
+def ib_lab_tags(C, mid, label, pts):
+    up = any(r.get('value') is not None and r.get('hi') is not None and r['value'] > r['hi'] for r in pts)
+    dn = any(r.get('value') is not None and r.get('lo') is not None and r['value'] < r['lo'] for r in pts)
+    out = []
+    for e in _exp_list(C):
+        for rx_, d in e['_labs']:
+            if rx_.search(label) and (d not in ('high', 'low') or (d == 'high' and up) or (d == 'low' and dn)):
+                out.append(f"{e['label']}：{e['term']}")
+                break
+    return out
+
+
 def build_findings(C):
     """Attach metric id, post flag, baseline, Δ, Δ%, toxicity grade (cfg.grading) to every finding."""
     conv = C.A.get('unitConv', {})  # {"lab:血红蛋白": {"g/dL": 10}} — overrides the grading table's unit factors
@@ -562,7 +621,8 @@ def build_labrows(C):
             if risk == 'CSX' and any('disease' in (r.get('reason') or '') for r in cs_pts):
                 ctx.append('部分 CS 点归因研究疾病')
         elif mg >= 2:
-            risk = 'AE' if has_ae else 'NA2' if unassessed else 'NCS2'
+            # 表单没有临床意义字段（如体重）时不是「未评价」：单列一层，请研究者评估是否需记录 AE（D001 QC：体重 2 级曾要求补一个不存在的字段）
+            risk = 'AE' if has_ae else ('NA2' if C.metric[mid].get('hasClin') else 'G2NF') if unassessed else 'NCS2'
         elif any(r.get('clin') is None and r.get('oor') for r in P) and C.metric[mid].get('hasClin'):
             # mm4：给药后超出参考范围但未评价临床意义（该表单有临床意义字段）→ 请研究者评价（临床意义决定是否需记 AE）
             risk = 'NA'
@@ -590,20 +650,28 @@ def build_labrows(C):
             t_base = float(C.cfg['thresholds'].get('base', 0.3))
 
             dz_mh = bool(dz) and any(l[0] == 'MH' and dz.search(l[1] or '') for l in links)
-            worse = any(worse_vs_base(r, b, t_base) or (dz_mh and ext_rules.stated_worse(r)) for r in P if r.get('clin') == 2)
-            dae = disease_ae(sid, mid, [r for r in P if r.get('clin') == 2]) if worse and dz_mh else []
-            if dae:
-                ctx.append(f"研究疾病病史，加重已记录为 AE「{dae[0]['t']}」（{dae[0]['s']}，未关联，提示关联）"
+            wf = next((w for w in (worse_vs_base(r, b, t_base) or (dz_mh and ext_rules.stated_worse(r)) for r in P if r.get('clin') == 2) if w), None)
+            dae = disease_ae(sid, mid, [r for r in P if r.get('clin') == 2]) if wf and dz_mh else []
+            mhn = '、'.join(l[1] for l in links if l[0] == 'MH')
+            # 用户 2026-10-28：已关联病史＝研究者已作判定；是否加重由系统判断——未加重不作风险（MHL），加重才提示/发 query（MH）
+            if not wf:
+                risk = 'MHL'
+                ctx.append(f'已关联病史「{mhn}」，较基线未明显加重（病史延续）')
+            elif dae:
+                risk = 'MHL'
+                ctx.append(f"已关联研究疾病病史，较基线加重（{wf}），加重已记录为 AE「{dae[0]['t']}」（{dae[0]['s']}），请关联"
                            f"{ext_rules.onset_note(C, mid, dae[0], [r for r in P if r.get('clin') == 2])}")
             else:
-                ctx.append('较基线加重：需判断是否给药后加重（AE）' if worse else '与基线同级或变化未达阈值：病史延续可能')
+                ctx.append(f'较基线加重（{wf}）：仅关联病史「{mhn}」，未见对应 AE')
+        if risk not in ('NCS', 'AE', 'MHL', 'NA'):        # IB/方案列明风险的检验表现只在需关注的层提示，避免给 NCS/已关联行加噪音
+            ctx += ib_lab_tags(C, mid, C.metric[mid]['label'], P)
         for l in links:
             if not l[4]:
                 ctx.append(f'关联对象不存在：{l[0]}+{l[3]}')
         f0 = P[0]
         C.labrows.append({
             'sid': sid, 'site': C.subj[sid]['site'], 'cat': cat, 'test': C.metric[mid]['label'], 'mid': mid, 'grp': f0.get('group') or '',
-            'pr': {'CSX': 4, 'MH': 3, 'NCS2': 3, 'NA2': 3, 'DISW': 3, 'NA': 3}.get(risk, 1),
+            'pr': {'CSX': 4, 'MH': 3, 'NCS2': 3, 'NA2': 3, 'G2NF': 3, 'DISW': 3, 'NA': 3}.get(risk, 1),
             'base': [b.get('visit'), b.get('raw'), b.get('unit') or '', b.get('clin')] if b else None,
             'pts': [[r.get('visit'), r.get('date'), r.get('raw'), r.get('unit') or '', r.get('grade'), r.get('clin'),
                      None if r.get('pct') is None else round(r['pct'], 1), r['sheet'], r['row'], r.get('desc') or '',
@@ -669,6 +737,22 @@ def rel_candidates(C):
                 exist['ctx'].append(f"双阈值：{r.get('visit')} 偏离参考范围 {r['dev']:.0%}，较基线 {r['pct']:+.0f}%")
             continue
         worst = max(cand, key=lambda r: r['dev'])
+        # 用户 2026-10-28：较基线显著变化必须区分是否已关联 AE/病史，避免把已关联的也当成「未关联」
+        links = []
+        for r in cand:
+            for l in resolve_links(C, sid, r.get('links') or []):
+                if l[:2] not in [x[:2] for x in links]:
+                    links.append(l)
+        er = (exist or {}).get('risk')
+        bind = 'AE' if any(l[0] == 'AE' for l in links) or er == 'AE' else 'MH' if any(l[0] == 'MH' for l in links) or er == 'MHL' \
+            else 'DIS' if er == 'DIS' else 'none'
+        if exist is not None and not links:
+            links = [x + [True] for x in (exist.get('rel') or [])]
+        cl = {r.get('clin') for r in cand}
+        judg = 'CS' if 2 in cl else 'NA' if None in cl else 'NCS' if cl == {1} else 'N'
+        bctx = {'AE': '已关联AE：该变化已有对应 AE 记录', 'MH': '已关联病史：病史延续，供参考', 'DIS': '研究者归因研究疾病，供参考'}.get(bind) or \
+            {'NCS': '未关联AE/病史，研究者判定NCS：较基线变化明显，请结合临床判断是否需记录AE', 'NA': '未关联AE/病史，未评价临床意义',
+             'N': '未关联AE/病史，研究者判定正常', 'CS': '未关联AE/病史，研究者判定CS'}[judg]
         C.labrows.append({
             'sid': sid, 'site': C.subj[sid]['site'], 'cat': '较基线显著变化且超出参考范围', 'test': C.metric[mid]['label'], 'mid': mid,
             'grp': cand[0].get('group') or '', 'pr': 2,
@@ -676,7 +760,7 @@ def rel_candidates(C):
             'pts': [[r.get('visit'), r.get('date'), r.get('raw'), r.get('unit') or '', r.get('grade'), r.get('clin'),
                      None if r.get('pct') is None else round(r['pct'], 1), r['sheet'], r['row'], r.get('desc') or '',
                      None if r.get('dev') is None else round(r['dev'], 4), r.get('wb') or ''] for r in cand],
-            'rel': [], 'ctx': [f"双阈值候选：偏离上下限 ≥{dev_f:.0%} 且同向较基线变化 ≥{base_f:.0%}（按当前所选阈值即时重分类）"],
+            'rel': [l[:4] for l in links], 'bind': bind, 'judg': judg, 'ctx': [bctx],
             'q': [], 'fid': [], 'cro': '', 'mg': max([r.get('grade') or 0 for r in cand] + [0]), 'risk': 'REL',
             'qkey': f"lab|{sid}|REL|{wb_sheet(C, worst.get('sheet'))}|{mid}|{worst.get('visit') or ''}"})
     C.labrows.sort(key=lambda g: (-g['pr'], g['sid'], g['test']))
@@ -1081,23 +1165,25 @@ def pd_reconcile(C):
 
 
 # ----------------------------------------------------------------------------- queries
-QT = {  # default query wording (Chinese, fact first, then the ask). Override in study.json analysis.queryTemplates
-    'CSX': ('CS未关联AE/MH', '{visit}（{date}）{test} {raw} {unit}（参考范围 {rng}{gtxt}），研究者判定「异常有临床意义」，但未关联不良事件或病史。',
-            '请核实该异常是否应记录为不良事件；如判断为既往疾病延续，请在病史中补充并关联；如判定有误请更正临床意义评价。'),
-    'MH': ('CS仅关联病史·加重核对', '{visit}（{date}）{test} {raw} {unit}，研究者判定「异常有临床意义」，仅关联病史「{mh}」；基线（{bvis}）为 {braw}{unit}。',
-           '请评估给药后是否较基线加重；如属加重，请记录为不良事件并关联。'),
-    'CSX_DIS': ('CS未关联·研究疾病表现较基线加重', '{visit}（{date}）{test} {raw} {unit}（参考范围 {rng}{gtxt}），研究者判定「异常有临床意义」，未关联不良事件或病史；该异常可见于研究疾病（{bg}），但较基线进一步加重（{wf}）。',
-                '请评估是否为给药后加重：如是，请记录为不良事件并关联；如属研究疾病自然波动，请在原因中注明并关联相应病史；如判定有误请更正临床意义评价。'),
-    'CSX_AE': ('CS未关联·同期疑似AE', '{visit}（{date}）{test} {raw} {unit}（参考范围 {rng}{gtxt}），研究者判定「异常有临床意义」；同期已记录 {cand}，但该检查记录未关联。',
-               '请确认两者是否为同一事件；如是，请在该记录的关联字段中关联该 AE（如表单无关联字段，请在异常描述中注明 AE 编号）；如否，请评估是否需另行记录不良事件。'),
-    'NCS2': ('NCS但达分级≥2级', '{visit}（{date}）{test} {raw} {unit}，按 {gl} 数值达 {grade} 级（{gterm}），研究者判定「异常无临床意义」。',
-             '请说明判定依据（如复查结果、标本因素）或更正临床意义评价；如判定有临床意义，请评估是否需记录 AE。'),
-    'NA': ('超出参考范围·未评价临床意义', '{visit}（{date}）{test} {raw} {unit}（参考范围 {rng}），该结果超出参考范围，未见研究者临床意义评价。',
-           '请评价该结果的临床意义；如判定有临床意义，请评估是否需记录不良事件并关联。'),
-    'DISW': ('CS归因研究疾病·给药后加重', '{visit}（{date}）{test} {raw} {unit}（参考范围 {rng}{gtxt}），研究者判定「异常有临床意义」并归因研究疾病；基线（{bvis}）为 {braw}{unit}。',
-             '该异常较基线明显加重（或研究者备注为加重），且未见覆盖该期间的「研究疾病加重」类不良事件记录。请评估是否需记录为不良事件（如研究疾病加重；不良事件定义不论与研究药物的因果关系）；如判断仍属研究疾病自然病程，请在异常描述中说明依据。'),
-    'NA2': ('未评价临床意义·达分级≥2级', '{visit}（{date}）{test} {raw} {unit}（参考范围 {rng}），按 {gl} 数值达 {grade} 级（{gterm}），该结果未见研究者临床意义评价。',
-            '请评估该结果的临床意义；如判定有临床意义，请评估是否需记录 AE 并关联。'),
+QT = {  # 默认 query 措辞：写给 CRC，一句话＝异常点＋冲突点＋建议（不写日期：query 已定位到 listing 行）。可用 analysis.queryTemplates 覆盖
+    'CSX': ('CS未关联AE/MH', '{btxt}{visit}访视{test}{move}{raw}{unit}（参考范围 {rng}{gtxt}），判定为CS，但未关联AE或病史，',
+            '请核实是否需记录AE，或补充病史并关联。'),
+    'MH': ('CS仅关联病史·加重核对', '{btxt}{visit}访视{test}{move}{raw}{unit}（{wf}），判定为CS，仅关联病史「{mh}」，未见对应AE，',
+           '请评估是否为给药后加重、需记录AE。'),
+    'CSX_DIS': ('CS未关联·研究疾病表现较基线加重', '{btxt}{visit}访视{test}{move}{raw}{unit}（{wf}），判定为CS，该指标异常可见于{bg}，但较基线明显加重且未记录AE，',
+                '请评估是否需记录AE。'),
+    'CSX_AE': ('CS未关联·同期疑似AE', '{visit}访视{test}为{raw}{unit}，判定为CS，同期已记录{cand}，但该检验未关联，',
+               '请确认是否为同一事件并完成关联。'),
+    'NCS2': ('NCS但达分级≥2级', '{btxt}{visit}访视{test}{move}{raw}{unit}（{gl} {grade}级）判定为NCS，',
+             '请核实临床意义判定。'),
+    'NA': ('超出参考范围·未评价临床意义', '{visit}访视{test}为{raw}{unit}，超出参考范围（{rng}），未评价临床意义，',
+           '请补充临床意义评价。'),
+    'DISW': ('CS归因研究疾病·给药后加重', '{btxt}{visit}访视{test}{move}{raw}{unit}（{wf}），判定为CS并归因研究疾病，但未记录研究疾病加重AE，',
+             '请评估是否需记录AE。'),
+    'G2NF': ('达分级≥2级·表单无临床意义评价', '{btxt}{visit}访视{test}{move}{raw}{unit}（{gl} {grade}级），该表单没有临床意义评价，',
+             '请评估是否需记录AE。'),
+    'NA2': ('未评价临床意义·达分级≥2级', '{btxt}{visit}访视{test}{move}{raw}{unit}（{gl} {grade}级），未评价临床意义，',
+            '请补充临床意义评价，并评估是否需记录AE。'),
 }
 
 
@@ -1144,11 +1230,11 @@ def build_queries(C):
             C.sheet_groups[f['sheet']].add(f['group'])
     T = dict(QT)
     T.update({k: tuple(v) for k, v in C.A.get('queryTemplates', {}).items()})
-    risks = C.A.get('queryRisks', ['CSX', 'MH', 'NCS2', 'NA2', 'DISW', 'NA'])
+    risks = list(C.A.get('queryRisks', ['CSX', 'MH', 'NCS2', 'NA2', 'DISW', 'NA'])) + ['G2NF']
     Q = []
     common = defaultdict(list)
 
-    def new_q(sid, cat, sh, row, v, d, test, fact, ask, ev, src, qkey=''):
+    def new_q(sid, cat, sh, row, v, d, test, fact, ask, ev, src, qkey='', card=None):
         # PR-8: evidence rows and the query sheet column use the per-workbook unique id ('wb:sheet')
         # so same-name sheets in different workbooks never share attribution; display keeps the id
         # (front-end filter chips / source review show 'wb:sheet'-style traceability).
@@ -1158,6 +1244,7 @@ def build_queries(C):
         if same and C.A.get('mergeSameCell', True):  # one EDC cell → one query; append the extra fact/ask
             same['parts'] += [['另：' + fact, 0], [ask, 1]]
             same['text'] = ''.join(x[0] for x in same['parts'])
+            same['_cards'].append(card or {'问题': cat, '事实': fact, '建议': ask})
             same['cat2'] = same.get('cat2', []) + [cat]
             src['q'].append(same['id'])
             return same
@@ -1166,7 +1253,8 @@ def build_queries(C):
             return None
         ev = [[ev_sh(C, e[0], src_wb)] + list(e[1:]) for e in ev]
         q = {'id': f'Q{len(Q) + 1:03d}', 'sid': sid, 'site': C.subj[sid]['site'], 'cat': cat, 'sh': sh_id, 'row': row, 'v': v or '', 'd': d or '', 'test': test or '',
-             'text': fact + ask, 'parts': [[fact, 0], [ask, 1]], 'ev': ev, 'cro': st, 'flags': [], '_cro': cro, 'qkey': qkey}
+             'text': fact + ask, 'parts': [[fact, 0], [ask, 1]], 'ev': ev, 'cro': st, 'flags': [], '_cro': cro, 'qkey': qkey,
+             '_cards': [card or {'问题': cat, '事实': fact, '建议': ask}]}
         if ask and ask not in common[cat]:
             common[cat].append(ask)
         Q.append(q)
@@ -1179,29 +1267,31 @@ def build_queries(C):
     for g in C.labrows:
         if g['risk'] not in risks:
             continue
-        if g['risk'] == 'MH' and not any('较基线加重' in c for c in g['ctx']):
-            continue
         cat, ft, ask = T[g['risk']]
         cand = [c for c in g['ctx'] if c.startswith('同期 AE')]
         bg = next((b for rx, b in ind_bg if rx.search(g.get('mid') or '')), None) if g['risk'] == 'CSX' else None
         if g['risk'] == 'CSX' and cand:  # a plausible AE exists but the finding is not linked → ask to link instead of "report AE"
             cat, ft, ask = T.get('CSX_AE', T['CSX'])
-            ft = ft.replace('{cand}', '；'.join(re.sub(r'可能对应，但检验页未关联', '', c).replace('同期 ', '') for c in cand))
+            ft = ft.replace('{cand}', '、'.join(re.sub(r'可能对应，但检验页未关联', '', c).replace('同期 ', '') for c in cand))
         elif bg:                         # mm4：研究疾病表现且较基线进一步加重（未加重的已归 DIS，不发 query）
             cat, ft, ask = T.get('CSX_DIS', T['CSX'])
-            wf = next((c.split('但较基线进一步加重：', 1)[1] for c in g['ctx'] if '但较基线进一步加重：' in c), '较基线变化见明细')
-            ft = ft.replace('{bg}', re.sub(r'（医学常识）$', '', bg.split('：')[0])).replace('{wf}', wf)
-        P = [p for p in g['pts'] if (g['risk'] in ('NCS2', 'NA2') and (p[4] or 0) >= 2) or (g['risk'] not in ('NCS2', 'NA2') and p[5] == 2)] or g['pts']
+            ft = ft.replace('{bg}', re.sub(r'[↑↓]|（医学常识）$', '', bg.split('：')[0]))
+        P = [p for p in g['pts'] if (g['risk'] in ('NCS2', 'NA2', 'G2NF') and (p[4] or 0) >= 2) or (g['risk'] not in ('NCS2', 'NA2', 'G2NF') and p[5] == 2)] or g['pts']
         p = P[0]
         f = next((r for r in C.F[(g['sid'], g['mid'])] if r['sheet'] == p[7] and r['row'] == p[8]), {})
         mh = '、'.join(l[1] for l in g['rel'] if l[0] == 'MH')
         lo_, hi_ = f.get('lo'), f.get('hi')
         rng = f"{fmt(lo_)}–{fmt(hi_)}" if lo_ is not None and hi_ is not None else f"≤{fmt(hi_)}" if hi_ is not None else f"≥{fmt(lo_)}" if lo_ is not None else '未提供'
+        b_ = g['base'] or []
+        bv, cv = _num(b_[1] if b_ else None), _num(p[2])
+        btxt = f"基线{b_[1]}{p[3]}{'（正常）' if len(b_) > 3 and b_[3] == 0 else ''}，" if b_ and b_[1] not in (None, '') else ''
+        move = '升高至' if bv is not None and cv is not None and cv > bv else '下降至' if bv is not None and cv is not None and cv < bv else '为'
+        wf = next((m.group(1) for c in g['ctx'] for m in [re.search(r'较基线(?:进一步)?加重[（：]([^）；]+)', c)] if m), '较基线明显加重')
         fact = fill(ft, visit=p[0], date=p[1], test=g['test'], raw=p[2], unit=p[3], lo=fmt(f.get('lo')) if f.get('lo') is not None else '—',
-                    hi=fmt(f.get('hi')) if f.get('hi') is not None else '—', gtxt=f"，{C.GL} {p[4]} 级" if p[4] else '', grade=p[4], gterm=f.get('gterm', ''), rng=rng, gl=C.GL,
-                    mh=mh, bvis=(g['base'] or [None])[0], braw=(g['base'] or [None, '—'])[1])
-        if len(P) > 1:
-            fact += f"（同类异常另有 {len(P) - 1} 次：{'、'.join(str(x[0]) for x in P[1:4])}{'…' if len(P) > 4 else ''}）"
+                    hi=fmt(f.get('hi')) if f.get('hi') is not None else '—', gtxt=f"，{C.GL} {p[4]}级" if p[4] else '', grade=p[4], gterm=f.get('gterm', ''), rng=rng, gl=C.GL,
+                    mh=mh, bvis=b_[0] if b_ else None, braw=b_[1] if b_ else '—', btxt=btxt, move=move, wf=wf)
+        if len(P) > 1:                                   # 同类异常其余访视：放在建议前，句子仍以「，」接建议
+            fact = fact.rstrip('，') + f"（另有 {len(P) - 1} 次同类异常：{'、'.join(str(x[0]) for x in P[1:4])}{'等' if len(P) > 4 else ''}），"
         row_wb = (p[11] if len(p) > 11 else '') or g.get('wb') or ''
         g['wb'] = row_wb                             # PR-8：证据行归属＝被选行（CS/阈值行）的工作簿（原位回写）
         qk = g.get('qkey', '')
@@ -1209,18 +1299,48 @@ def build_queries(C):
             parts = qk.split('|')
             parts[3] = f"{row_wb}:{p[7]}"            # qkey 的 wb:sheet 段与被选行一致
             qk = '|'.join(parts)
-        new_q(g['sid'], cat, p[7], p[8], p[0], p[1], g['test'], fact, ask, [[x[7], x[8], x[0], g['test']] for x in P], g, qk)
+        card = {'问题': {'CSX': '判CS但未关联AE或病史', 'MH': '判CS且只关联病史，系统判定较基线加重，未见对应AE', 'NCS2': '数值达CTCAE≥2级但研究者判NCS',
+                       'NA': '超出参考范围但未评价临床意义', 'NA2': '数值达CTCAE≥2级但未评价临床意义', 'G2NF': '数值达CTCAE≥2级，该表单没有临床意义评价',
+                       'DISW': '研究者归因研究疾病，但较基线明显加重且未记录研究疾病加重AE'}.get(g['risk'], cat),
+                '指标': g['test'], '访视': p[0], '数值': f"{p[2]}{p[3] or ''}", '参考范围': rng}
+        if cand:
+            card['问题'], card['同期已记录AE'] = '判CS未关联检验，同期已有可能对应的AE', '、'.join(re.sub(r'可能对应，但检验页未关联', '', c).replace('同期 ', '') for c in cand)
+        if bg:
+            card['问题'], card['研究疾病表现'] = '该指标异常可见于研究疾病，但较基线明显加重且未记录AE', re.sub(r'[↑↓]|（医学常识）$', '', bg.split('：')[0])
+        if b_ and b_[1] not in (None, ''):
+            card['基线'] = f"{b_[1]}{p[3] or ''}" + ('（正常）' if len(b_) > 3 and b_[3] == 0 else '')
+        if p[4]:
+            card['CTCAE'] = f"{p[4]}级"
+        card['研究者判定'] = {2: 'CS', 1: 'NCS', 0: '正常'}.get(p[5], '未评价')
+        if g['risk'] in ('MH', 'CSX_DIS', 'DISW') or bg:
+            card['较基线'] = wf
+        if mh:
+            card['已关联病史'] = mh
+        if f.get('desc'):
+            card['研究者备注'] = str(f['desc'])[:40]
+        if len(P) > 1:
+            card['其他同类异常访视'] = '、'.join(str(x[0]) for x in P[1:4])
+        card['建议动作'] = ask
+        new_q(g['sid'], cat, p[7], p[8], p[0], p[1], g['test'], fact, ask, [[x[7], x[8], x[0], g['test']] for x in P], g, qk, card)
     for o in C.others:
         R = o['_rule']
         if o['pr'] < C.A.get('queryMinPr', 3) or R.get('query') is False:
             continue
         ask = R.get('ask') or C.A.get('askByCat', {}).get(o['cat']) or '请核实并更正，或提供医学说明。'
-        new_q(o['sid'], o['cat'], o['sh'], o['row'], o['v'], o['d'], o['test'], o['sum'] + '。', ask, [[o['sh'], o['row'], o['v'], o['test']]], o, o.get('qkey', ''))
+        new_q(o['sid'], o['cat'], o['sh'], o['row'], o['v'], o['d'], o['test'], o['sum'].rstrip('。；，') + '，', ask, [[o['sh'], o['row'], o['v'], o['test']]], o, o.get('qkey', ''),
+              {'问题': o['cat'], '事实': o['sum'].rstrip('。；，'), **({'指标': o['test']} if o.get('test') else {}), **({'访视': o['v']} if o.get('v') else {}), '建议动作': ask})
     for m in C.S.get('queries_manual', []) or []:  # MM-written queries: {sid, cat, sh, row, v, d, test, fact, ask}
         if m.get('sid') in C.subj:
             new_q(m['sid'], m['cat'], m.get('sh', ''), m.get('row'), m.get('v'), m.get('d'), m.get('test'), m['fact'], m.get('ask', ''),
                   [[m.get('sh', ''), m.get('row'), m.get('v', ''), m.get('test', '')]], {'q': [], 'cro': ''},
                   f"man|{m['sid']}|{m['cat']}|{wb_sheet(C, m.get('sh', ''))}|{m.get('v', '')}|{m.get('d', '')}|{m.get('test', '')}")
+    # 工作台用模型按事实卡撰写的句子（analysis.queryTexts：{qkey: {h: 卡片哈希, text}}）；卡片变了就不用旧句子，回落程序措辞
+    QT_ = C.A.get('queryTexts') or {}
+    for q in Q:
+        q['card_h'] = hashlib.sha1(json.dumps(q['_cards'], ensure_ascii=False, sort_keys=True).encode('utf-8')).hexdigest()[:16]
+        hit = QT_.get(q.get('qkey') or q['id'])
+        if hit and hit.get('h') == q['card_h'] and hit.get('text'):
+            q['text'], q['parts'], q['writer'] = hit['text'], [[hit['text'], 0]], 'model'
     C.queries = Q
     C.qcommon = dict(common)
 
@@ -1467,7 +1587,11 @@ def build_eff(C):
         had = {v['sid'] for v in C.visits if v.get('visit') == kv}
         for sid in had & C.pop:
             if kv not in data.get(sid, {'v': {}})['v'].get(m['id'], {}):
-                anomalies.append({'sid': sid, 'site': C.subj[sid]['site'], 'k': f'{kv} {m["label"]}缺失', 'c': '', 'v': kv, 't': f'{kv} 访视已发生，但未见 {m["label"]} 数据', 'st': '核对是否未录入/未评估'})
+                if C.cfg.get('dataStage') == 'daily':  # 滚动录入阶段：只提示「未见记录」，不当作缺失
+                    anomalies.append({'sid': sid, 'site': C.subj[sid]['site'], 'k': f'{kv} {m["label"]}未见记录', 'c': '', 'v': kv,
+                                      't': f'{kv} 访视已有记录，但暂未见 {m["label"]}（数据仍在录入中）', 'st': '后续数据更新后复核'})
+                else:
+                    anomalies.append({'sid': sid, 'site': C.subj[sid]['site'], 'k': f'{kv} {m["label"]}缺失', 'c': '', 'v': kv, 't': f'{kv} 访视已发生，但未见 {m["label"]} 数据', 'st': '核对是否未录入/未评估'})
     C.KZeff = {'metrics': [{k: v for k, v in m.items() if k not in ('src', 'derive', 'baseVisit')} | {'note': m.get('note', '')} for m in M],
                'data': list(data.values()), 'anomalies': anomalies, 'rulesText': C.A.get('effRulesText', ''),
                'notes': C.A.get('effNotes') or []}   # mm4：未生成/未对上的原因（宿主按方案终点×listing 生成）
@@ -1576,21 +1700,31 @@ BUILTIN_METHODS = [
     ('M01', 'CS 未关联 AE/MH', '检验/VS/ECG 页结果、参考范围、临床意义、动态关联字段', '给药后新发或加重的异常被判 CS，但关联字段为空 → 漏报 AE 风险最高', '漏报 AE', '发 query：请评估记录 AE 或补充病史并关联'),
     ('M02', 'CS 仅关联病史', '同上 + 病史页', '仅关联 MH 时比较给药后与规定基线的等级/数值，加重者提示应记 AE', '以病史替代 AE', '较基线加重者发 query；同级者仅提示'),
     ('M03', 'NCS 但 {GL} ≥2 级', '数值 + {GL} 数值条目', '数值达 ≥2 级仍判 NCS 时请研究者说明依据；无 {GL} 数值条目者不自动分级', '判定尺度偏松', '发 query：说明依据或更正'),
-    ('M04', '基线定义', '方案规定基线（cfg.baselineRules：指定访视/首剂或随机前最近/多次均值，可按指标分别定义）', '规定基线缺失时按规则回退（默认首剂前最近有效值）并注明「替代基线」', '基线错配', '仅提示，不单独发 query'),
+    ('M04', '基线定义', '方案规定的基线（指定访视、首次给药或随机前最近一次、或多次均值，可按指标分别规定）', '规定基线缺失时按规则回退（默认首剂前最近有效值）并注明「替代基线」', '基线错配', '仅提示，不单独发 query'),
     ('M05', '同中心判定一致性', '同中心同指标同单位/范围/方向，数值相差 ≤5%', '一例 CS 一例 NCS 时提示判定尺度不一致；不以多数判定作为标准', '中心判定偏差', '先核对症状/复查/处置差异'),
-    ('M06', '方案阈值专项', 'analysis.thresholdRules', '方案原文定义的 AE/AESI/停药/回看阈值逐点比对，并核对是否有对应 AE/AESI 记录', '漏报 AESI', '按规则 pr 决定是否发 query'),
+    ('M06', '方案阈值专项', '方案规定的 AE/AESI/停药/回看阈值', '方案原文定义的 AE/AESI/停药/回看阈值逐点比对，并核对是否有对应 AE/AESI 记录', '漏报 AESI', '按方案要求的严重程度决定是否发质疑'),
     ('M07', 'AE 记录质量', 'AE 页', '给药前事件相关性、AE 等级 vs 关联检验 {GL} 等级、合并用药标记、AESI 标记、同术语重叠记录', '记录不一致', '发 query 或提示'),
-    ('M08', '禁限用药 / 洗脱期', 'CM 页 + 方案禁用药清单', '药名正则匹配 + 用药时段与首剂前窗口/治疗期重叠；洗脱期按知情/首剂回推', '方案偏离', '发 query 并核对 PD listing'),
+    ('M08', '禁限用药 / 洗脱期', 'CM 页 + 方案禁用药清单', '按方案禁用药名单匹配药名＋用药时段与首剂前窗口/治疗期重叠；洗脱期按知情/首剂回推', '方案偏离', '发 query 并核对 PD listing'),
     ('M09', '入排关键数值', '筛选期检验/人口学', '筛选期数值符合排除标准但已随机/给药', '入组不合格', '优先核实'),
     ('M10', '访视窗', '访视页日期', '研究日 = 访视日 − 首剂日 + 1；按方案窗判断', '超窗', '提示 / 核对 PD'),
     ('M11', '中心偏离', '中心层面汇总（不含计划外/提前退出访视）', '漏斗图 ±2SE 需关注 / ±3SE 明显偏离；n<2 不判', '中心系统性偏差', '中心层面沟通，不对个例发 query'),
-    ('M13', '多指标组合规则', 'analysis.comboRules', '方案定义的组合标准（如 Hy’s law：ALT/AST ≥3×ULN 且 TBIL ≥2×ULN 且 ALP <2×ULN）同日/窗口内同时满足', '漏报 AESI/SAE', '按规则 pr 决定是否发 query'),
-    ('M14', 'AE/SAE/AESI 报告时限', 'AE 页（获知/报告日期）+ analysis.reportRules', '报告日期 − 获知（或发生）日期 > 方案时限', '报告延迟', '发 query 或提示'),
-    ('M12', '有效性数据合理性', 'analysis.efficacy / effRules', '按方案终点定义派生（绝对值/较基线/百分比），离群与关键访视缺失提示；盲态下不分组', '终点数据质量', '核对源数据/测量'),
-    ('M15', '方案偏离·执行层面', '知情同意记录、访视日期、SoA 各评估、给药记录（日期/时刻/途径/空腹/数量）、样本采集时刻', '按方案访视窗与锚点、SoA、给药与样本时点、知情时序逐受试者推断潜在偏离（程序早于知情、未再次知情、访视超窗/缺失、评估缺失/未做、访视内顺序、给药前样本晚于给药、依从性、停药后给药）；关键访视/关键评估升级为重要；缺参数的检查不运行并标「未配置」', '方案执行偏离', '发 query 或交 CRA 核实；属实录入 PD log'),
+    ('M13', '多指标组合规则', '方案规定的组合判定标准（如 Hy’s law）', '方案定义的组合标准（如 Hy’s law：ALT/AST ≥3×ULN 且 TBIL ≥2×ULN 且 ALP <2×ULN）同日/窗口内同时满足', '漏报 AESI/SAE', '按方案要求的严重程度决定是否发质疑'),
+    ('M14', 'AE/SAE/AESI 报告时限', 'AE 页（获知/报告日期）＋方案规定的报告时限', '报告日期 − 获知（或发生）日期 > 方案时限', '报告延迟', '发 query 或提示'),
+    ('M12', '有效性数据合理性', '方案终点对应的 EDC 量表/检验/检查', '按方案终点定义派生（绝对值/较基线/百分比），离群与关键访视缺失提示；盲态下不分组', '终点数据质量', '核对源数据/测量'),
+    ('M15', '方案偏离·执行层面', '知情同意记录、访视日期、SoA 各评估、给药记录（日期/时刻/途径/空腹/数量）、样本采集时刻', '按方案访视窗与锚点、SoA、给药与样本时点、知情时序逐受试者推断潜在偏离（程序早于知情、未再次知情、访视超窗/缺失、评估缺失/未做、访视内顺序、给药前样本晚于给药、依从性、停药后给药）；关键访视/关键评估升级为重要；方案未给出参数或 listing 缺字段的检查不执行，并写明原因', '方案执行偏离', '发 query 或交 CRA 核实；属实录入 PD log'),
     ('M16', '方案偏离·科学层面', '入排数值、合并用药与禁用清单、检验异常与 AE/病史、停药阈值、SAE 报告日期', '入排不符仍入组（入组前末次有效值）、洗脱期不足、禁用药、潜在 AE 漏记（CS 未关联 AE 或病史加重）、SAE/AESI 报告超时、达停药标准未停药；重要＝可能显著影响受试者权益/安全/福祉或关键数据可靠性（ICH E3 Q&A R1；E6(R3)）', '入组/用药/安全报告偏离', '按分级：重要优先核实；潜在 AE 漏记先发 query'),
-    ('M17', '已记录 PD 比对与分级', 'PD listing（类别、描述、日期、严重程度）', '原文类别归一到统一分类（对应 CDISC DVCAT），严重/轻微/根据实际情况判定 → 重要/一般/待判定；与潜在 PD 按同受试者、同类别、日期 ±窗口逐事件比对：已记录 / 未见记录', 'PD 漏录、分级不一致', '未见记录的潜在 PD 交 CRA 核实后补录'),
+    ('M17', '已记录 PD 比对与分级', 'PD listing（类别、描述、日期、严重程度）', '原文类别归一到统一分类，严重/轻微/根据实际情况判定 → 重要/一般/待判定；与潜在 PD 按同受试者、同类别、日期 ±窗口逐事件比对：已记录 / 未见记录', 'PD 漏录、分级不一致', '未见记录的潜在 PD 交 CRA 核实后补录'),
 ]
+
+
+# 审阅要点各专项域的判读路径与核查方法（旧版所有域共用「方案原文→阈值/窗口/药名」一条路径，检验记录质量挂到入排/访视方法卡）
+DOMAIN_FLOW = {
+    '方案阈值专项': ([['方案原文', '方案规定的阈值/组合标准'], ['逐点比对', '达到阈值的检验结果'], ['对应记录', '是否已记录 AE/AESI'], ['处理', '按严重程度发质疑或提示']], ['M06', 'M13']),
+    '合并用药': ([['方案禁用清单', '药名与禁用时段'], ['用药记录', '用药起止与首剂/治疗期是否重叠'], ['用药原因', '是否有对应病史/AE'], ['处理', '发质疑并核对方案偏离']], ['M08']),
+    '入排/访视': ([['方案入排与访视窗', '数值条件、访视目标日与窗口'], ['逐受试者比对', '入组前末次值、实际访视日'], ['处理', '核实入组资格/超窗原因']], ['M09', 'M10']),
+    '检验记录质量': ([['记录完整性', '参考范围、单位、临床意义是否填写'], ['判定一致性', '相近结果的临床意义判定是否一致'], ['处理', '请中心补充或统一判定']], ['M05']),
+    '检验异常·绑定核查': ([['关联字段', '检验记录关联的 AE/病史是否存在、是否对应'], ['时间与方向', '异常与关联事件的时间、升降方向'], ['处理', '请核实关联或补充记录']], ['M01', 'M02']),
+}
 
 
 def calibers(C):
@@ -1608,7 +1742,7 @@ def calibers(C):
     def row(topic, val, pat, note='', key=None, configured=True):
         r = rid(pat) if pat else ''
         # 有方案规则但口径未落到配置（例如方案未写基线取值方法）→ 待确认，而不是把 skill 默认值标成「方案规定」
-        stt = '待确认' if re.search(key or topic, unres) or (r and not configured) else ('方案规定' if r else ('项目配置' if configured else '默认采用'))
+        stt = '待确认' if re.search(key or topic, unres) or (r and not configured) else ('方案规定' if r else ('项目约定' if configured else '报告默认做法'))
         return [topic, val, stt, r, note]
     rows = []
     pop = {'dosed': '已给药受试者（至少一次给药）', 'randomized': '已随机受试者', 'all': '全部筛选受试者'}.get(A.get('population', 'dosed'), A.get('population'))
@@ -1617,11 +1751,11 @@ def calibers(C):
                   + (f"（{'/'.join(b.get('visits') or [])}）" if b.get('visits') else '') for b in (cfg.get('baselineRules') or []))
     if not bl and cfg.get('baseline'):
         bl = '；'.join(f"{k}：{v}" for k, v in cfg['baseline'].items() if not k.endswith('Tpt') and k != 'labLabel')
-    rows.append(row('基线定义', bl or '首剂前最近有效值（skill 默认）', r'^R-BL-|基线定义', '规定基线缺失时回退并标「替代基线」', configured=bool(bl)))
+    rows.append(row('基线定义', bl or '首次给药前最近一次有效值（报告默认）', r'^R-BL-|^R-BASE-|基线定义|基线 *[=：]', '规定的基线缺失时用首次给药前最近一次有效值替代，并标「替代基线」', configured=bool(bl)))
     rows.append(row('分级标准', C.GL, r'CTCAE|分级标准|毒性分级', '无数值条目或单位不可换算的指标不自动分级'))
     ap = A.get('aePeriod') or {}
-    ref = {'ld': '末次给药', 'fd': '首次给药', 'eos_d': '研究结束', 'lo': '末次观察'}
-    rows.append(row('AE 收集期', f"至{ref.get(ap.get('ref'), ap.get('ref'))}后 {ap.get('days')} 天" if ap else '方案未规定（全程）', r'收集期|AE.{0,6}收集|TEAE', '收集期后的检验异常不生成漏报风险', configured=bool(ap)))
+    ref = {'ld': '末次给药', 'fd': '首次给药', 'eos_d': '研究结束访视', 'lo': '末次观察'}
+    rows.append(row('AE 收集期', (f"至{ref.get(ap.get('ref'), ap.get('ref'))}" + (f"后 {ap.get('days')} 天" if ap.get('days') else '')) if ap else '方案未规定（全程）', r'收集期|AE.{0,6}收集|TEAE', '收集期后的检验异常不生成漏报风险', configured=bool(ap)))
     te = A.get('teae') or {}
     rows.append(row('TEAE 定义', f"首剂后至{ref.get(te.get('ref'), te.get('ref'))}后 {te.get('days')} 天内发生或加重" if te else '首剂后发生或加重', r'TEAE|治疗期间出现', '', configured=bool(te)))
     rr = '；'.join(x.get('label') or f"{x.get('flag')} {x.get('days')} 天" for x in (A.get('reportRules') or []))
@@ -1632,9 +1766,9 @@ def calibers(C):
     anc = sorted({(w.get('anchor', 'fd') if isinstance(w, dict) else 'fd') for w in W.values()})
     an = {'fd': '首剂', 'rand': '随机', 'icf': '知情同意', 'ld': '末次给药'}
     rows.append(row('访视窗锚点', f"{len(W)} 个访视；锚点：{'、'.join(an.get(a, '前一访视 ' + a) for a in anc)}" if W else '未配置访视窗', r'^R-VW|访视窗|时间窗', '', configured=bool(W)))
-    rows.append(['计划外 / 提前退出', '不纳入汇总、中心统计与访视均值；个例页保留并标注', '默认采用', '', 'skill 原则 6'])
+    rows.append(['计划外 / 提前退出访视', '不纳入汇总、中心统计与访视均值；个例页保留并标注', '报告默认做法', '', '避免计划外复查拉偏访视均值'])
     TH = cfg.get('thresholds') or {}
-    rows.append(['双阈值（REL）', f"偏离上下限 T_dev {float(TH.get('dev', .3)):.0%} · 较基线 T_base {float(TH.get('base', .3)):.0%}（页面可切换）", '默认采用', '', '超出范围且同向较基线变化达阈值才计风险项'])
+    rows.append(['较基线显著变化', f"超出参考范围 ≥{float(TH.get('dev', .3)):.0%} 且较基线同向变化 ≥{float(TH.get('base', .3)):.0%}（AE/MH 风险页可切换 20%/30%/50%）", '报告默认做法', '', '已关联 AE/病史的单独标注，未关联的才计入需关注'])
     dp = ST.get('diseaseProgressionNotAE') or {}
     if dp:
         rows.append(['研究疾病进展不作 AE', '已确认' if dp.get('confirmed') else '方案有条款，待确认', '方案规定' if dp.get('confirmed') else '待确认', '', dp.get('quote', '')[:60]])
@@ -1656,23 +1790,20 @@ def defaults(C):
         col = {'方案阈值专项': 'red', '不良事件记录': 'org', '合并用药': 'brn', '入排/访视': 'blu', '检验异常·绑定核查': 'org', '检验记录质量': ''}
         tax['domains'] = [[k, v, col.get(k, '')] for k, v in grp.items()] + [['检验异常', list(dict.fromkeys(QT[k][0] for k in QT)), 'org']]
     meths = C.S.get('methods') or [{'id': m[0], 'domain': m[1].replace('{GL}', C.GL), 'data': m[2].replace('{GL}', C.GL), 'principle': m[3].replace('{GL}', C.GL),
-                                    'risk': m[4], 'action': m[5], 'source': '引擎内置规则'} for m in BUILTIN_METHODS]
+                                    'risk': m[4], 'action': m[5], 'source': '报告内置核查方法'} for m in BUILTIN_METHODS]
     # 双阈值方法学卡（F-THR-7：方法学页写入当前 T_dev/T_base；选择器档位变化时以顶栏/信息条为准）
     TH = C.cfg['thresholds']
     _pm = TH.get('per_metric') or {}
     _tight = '；'.join(f"{t2.get('metric')}→dev {float(t2['dev']):.0%}" for t2 in C.mthr if t2.get('dev') is not None) + \
              ''.join(f"；{t2.get('metric')}→base {float(t2['base']):.0%}" for t2 in C.mthr if t2.get('base') is not None)
-    meths.insert(0, {'id': 'M-THR', 'domain': '双阈值风险判定（T_dev / T_base）',
-                     'data': '检验/VS/ECG 数值行：偏离参考范围比例（高于上限 (x−ULN)/ULN、低于下限 (LLN−x)/LLN）＋同向较基线变化 |x−基线|/|基线|',
-                     'principle': (f"给药后超出参考范围且偏离 ≥T_dev（构建配置 {float(TH['dev']):.0%}）且同向较基线变化 "
-                                   f"≥T_base（构建配置 {float(TH['base']):.0%}）→ REL 风险项（pr2，不自动发 query，可转 query）；"
-                                   "范围内变化不论较基线变化多大都不计风险（明细可见 Δ%）；超出范围但 Δ<T_base（基线已异常）不算新风险；"
-                                   "同一源行已有 pr≥3 条目时 REL 只作该条目上下文"
-                                   + (f"；按指标覆盖 per_metric：{len(_pm)} 项" if _pm else "")
-                                   + (f"；项目收紧 metricThreshold：{_tight}（有效值=min(所选,收紧值)）" if C.mthr else "")
-                                   + (f"；单向不利指标 metricDir：{len(C.mdir)} 项" if C.mdir else "")),
-                     'risk': '漏检显著变化', 'action': '构建按最低档 20% 写全量候选，页面按所选 T_dev/T_base 即时重分类（不重新构建）',
-                     'source': '引擎内置规则（双阈值）'})
+    meths.insert(0, {'id': 'M-THR', 'domain': '较基线显著变化',
+                     'data': '检验、生命体征、心电图数值：超出参考范围的幅度，以及与基线相比的同向变化',
+                     'principle': (f"给药后超出参考范围 ≥{float(TH['dev']):.0%} 且较基线同向变化 ≥{float(TH['base']):.0%} 时列为「较基线显著变化」"
+                                   "（阈值可在 AE/MH 风险页切换 20%/30%/50%）；在参考范围内的变化不计；已关联 AE/病史的单独标注，只有未关联的计入需关注"
+                                   + (f"；{len(_pm)} 项指标使用本研究单独设定的阈值" if _pm else "")
+                                   + (f"；本研究对部分指标收紧阈值：{_tight}" if C.mthr else "")),
+                     'risk': '漏检显著变化', 'action': '仅提示，不自动发质疑；由医学监察员结合临床判断',
+                     'source': '报告内置核查方法'})
     C.methods = meths
     if C.S.get('review'):
         C.review = C.S['review']
@@ -1709,9 +1840,9 @@ def defaults(C):
                 continue
             n = sum(o['cat'] in d[1] for o in C.others)
             C.review.append({'k': 'd' + str(len(C.review)), 't': d[0], 'sh': sorted({o['sh'] for o in C.others if o['cat'] in d[1] and o['sh']})[:4], 'ib': [], 'f': d[1],
-                             'flow': [['方案原文', '规则库定位'], ['逐点比对', '阈值/窗口/药名'], ['对应记录', 'AE / AESI / PD'], ['处理', '按优先级发 query 或提示']],
+                             'flow': DOMAIN_FLOW.get(d[0], DOMAIN_FLOW['方案阈值专项'])[0],
                              'ab': {'个体': [[c, 'org', f"{sum(o['cat'] == c for o in C.others)} 条"] for c in d[1]]}, 'ex': ex_for(d[1]),
-                             'm': ['M06'] if d[0] == '方案阈值专项' else ['M08'] if d[0] == '合并用药' else ['M09', 'M10'], 'r': [], 'todo': [],
+                             'm': DOMAIN_FLOW.get(d[0], DOMAIN_FLOW['方案阈值专项'])[1], 'r': [], 'todo': [],
                              'go': [['safety.html#tab=oth', f'专项核查 {n} 条']]})
         P = C.pdd or {}
         if P:
@@ -1740,7 +1871,7 @@ def defaults(C):
                   ['优先核实', 'red', f"{sum(o['pr'] == 4 for o in C.others)} 条专项信号优先核实", 'safety.html#tab=oth'],
                   ['AESI', 'red', f"{sum(a['aesi'] for a in C.aes if not a['pre'])} 例次 AESI", 'safety.html#tab=ae&aesi=1'],
                   ['一致性', 'grn', f"同中心判定对照 {len(C.cons)} 组：需核实 {sum(c['st'] == '需核实' for c in C.cons)}", 'safety.html#tab=cons'],
-                  ['质疑', 'org', f"{len(C.queries)} 条已写入 listing 首列", 'queries.html']]
+                  ['质疑', 'org', f"{len(C.queries)} 条医学质疑已写入交付表格", 'queries.html']]
         an = Counter(x['k'] for x in C.KZeff['anomalies'])
         if an:
             C.todo.insert(4, ['有效性', 'blu', '；'.join(f'{k} {v}' for k, v in an.most_common(2)), 'efficacy.html'])
@@ -1813,6 +1944,13 @@ def main():
     alld = [d for d in (f.get('date') for f in C.findings) if is_full_date(d)]
     cutoff = C.cfg.get('study', {}).get('cutoff') or (max(alld) if alld else '')
     ibtag = C.S.get('ibtag') or {}
+    sn = dict(C.A.get('formNames') or {})
+    for f in C.findings:
+        sn.setdefault(f.get('sheet'), f.get('group') or '')
+    for dom, nm in (('ae', '不良事件'), ('mh', '病史'), ('cm', '合并用药'), ('exposure', '给药记录'), ('visits', '访视')):
+        for r in getattr(C, dom):
+            sn.setdefault(r.get('sheet'), nm)
+    C.cfg['sheetNames'] = {k: v for k, v in sn.items() if k and v and v != k}
     KZ = {'cfg': C.cfg, 'meta': {'cutoff': cutoff, 'qs': len(C.queries), 'counts': {k: len(getattr(C, k)) for k in ('subjects', 'visits', 'exposure', 'ae', 'mh', 'cm', 'findings', 'efficacy', 'pd', 'extq')},
                                  'status': dict(stc), 'n': len(S), 'centers': len(C.centers), 'dosed': len(C.pop), 'built': dt.datetime.now().strftime('%Y-%m-%d %H:%M'),
                                  'sources': C.cfg.get('footer', {}).get('left', '')},
@@ -1835,6 +1973,8 @@ def main():
     build_subject_files(C, out)
     aud = Path(a.audit) if a.audit else out.parent.parent / 'analysis'
     dump_json(KZ['queries'], aud / 'queries.json')
+    dump_json([{'qkey': q.get('qkey') or q['id'], 'id': q['id'], 'cat': q['cat'], 'h': q['card_h'], 'cards': q['_cards'], 'text': q['text'],
+                'writer': q.get('writer', 'template')} for q in C.queries], aud / 'query_cards.json')   # 交工作台撰写（模型只措辞，不判定）
     dump_json(KZ['labrows'], aud / 'labrows.json')
     dump_json(KZ['others'], aud / 'others.json')
     dump_json(C.cons, aud / 'cons.json')

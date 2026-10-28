@@ -56,6 +56,23 @@ class Book:
         return self._cache[key]
 
 
+def form_names(book):
+    """EDC 导出常带目录页（TOC/目录：表单编号 → 表单名称），用于把 LBCH、OTH 等代码显示成中文表单名。"""
+    out = {}
+    names = set(book.wb.sheetnames)
+    for n in book.wb.sheetnames:
+        ws = book.wb[n]
+        rows = list(ws.iter_rows(min_row=1, max_row=400, values_only=True))
+        head = ' '.join(str(x) for x in (rows[0] if rows else []) if x)
+        if not (re.fullmatch(r'TOC|目录|Contents?|表单目录', n.strip(), re.I) or re.search(r'表单名称|Form\s*Name', head, re.I)):
+            continue
+        for r in rows[1:]:
+            c = [str(x).strip() for x in r if x not in (None, '')]
+            if len(c) >= 2 and c[0] in names and c[0] != n:
+                out[c[0]] = c[1]
+    return out
+
+
 def col_index(ref, labels, vars_):
     """列引用：变量名 / 中文标签 / 列序号（int，0 起）；同名列用「名称#n」取第 n 次出现（1 起），如「其他，请描述#2」。"""
     if ref is None:
@@ -274,7 +291,8 @@ def main():
         by_name.setdefault(m['sheet'], []).append(sid_key)
     dump_json({'workbooks': {k: b.path for k, b in books.items()}, 'label_row': M.get('label_row', 1),
                'var_row': M.get('var_row', 2), 'data_start': M.get('data_start', 3),
-               'sheets': SHEETS, 'sheets_by_name': by_name}, out / '_source.json')
+               'sheets': SHEETS, 'sheets_by_name': by_name,
+               'formNames': {k: v for b in books.values() for k, v in form_names(b).items()}}, out / '_source.json')
 
 
 if __name__ == '__main__':

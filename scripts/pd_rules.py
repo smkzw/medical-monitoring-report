@@ -52,6 +52,37 @@ GRADE_STD = [(r'严重|重要|重大|major|important|critical', '重要'), (r'�
 # 既有引擎信号 → PD 分类（others.cat / labrows.risk）
 SIG_CAT = {'入排标准核对': ('ELIG', 'ELIG-01'), '入排洗脱用药核对': ('ELIG', 'ELIG-02'), '禁限用药核对': ('CM', 'CM-01'),
            '访视超窗核对': ('VIS', 'VIS-01')}
+# 方案「可沿用既往结果」条目常写检测品牌/英文名，listing 写中文通用名：按同一检测的常见写法扩展（医学同义，非研究特判）
+PRE_ICF_SYN = [(r'结核|QuantiFERON|T-?SPOT|IGRA|干扰素释放', r'γ-?干扰素释放|干扰素释放试验|IGRA|QuantiFERON|T-?SPOT|结核感染T细胞|结核'),
+               (r'乙肝|乙型肝炎|HBsAg|HBV', r'乙肝|乙型肝炎|HBsAg|HBV'), (r'丙肝|丙型肝炎|HCV', r'丙肝|丙型肝炎|HCV'),
+               (r'HIV|人类免疫缺陷', r'HIV|人类免疫缺陷|艾滋'), (r'梅毒|TPPA|RPR', r'梅毒|TPPA|RPR')]
+ICF_TIP = ('数据层面无法区分该检查是为本研究而做，还是受试者常规诊疗中已做、按方案可沿用的结果。'
+           '请 CRA 核对源文件（检查申请/医嘱时间、是否为常规诊疗）：属方案允许沿用的既往结果则不构成偏离。')
+
+
+def _pre_icf_rx(item):
+    ext = [b for a, b in PRE_ICF_SYN if re.search(a, item, re.I)]
+    return re.compile('|'.join([item] + ext), re.I)
+
+
+# 未执行的原因（用户 2026-10-28：写清是方案没写、listing 缺字段，还是阶段不判定，不能只写「未配置」）
+REASON = {
+    'ICF-02': {'unconfigured': '方案正文未给出知情同意书各版本的生效日期及是否需再签（属伦理/版本管理信息），补充版本表后可执行',
+               'no-data': 'listing 中没有知情同意书版本记录'},
+    'VIS-01': {'unconfigured': '方案中未找到可用的访视窗'},
+    'VIS-02': {'unconfigured': '方案中未找到访视窗，或方案访视名称与 listing 对不上', 'stage-off': '日常监查阶段数据仍在录入，「无记录」不等于访视缺失'},
+    'ASMT-01': {'unconfigured': '方案流程表（SoA）的评估项目尚未与 EDC 表单建立对应，暂不判定「应做未做」（SoA 完成度矩阵照常展示）',
+                'no-data': 'listing 中没有可与访视比对的评估记录', 'stage-off': '日常监查阶段数据仍在录入，「无记录」不等于未做'},
+    'ASMT-02': {'unconfigured': '方案流程表（SoA）的评估项目尚未与 EDC 表单建立对应', 'no-data': 'listing 中没有「是否进行」类记录'},
+    'ASMT-03': {'unconfigured': '方案未规定访视内评估的先后顺序，或 listing 没有评估时刻'},
+    'IP-01': {'unconfigured': '方案中未找到可核对的给药途径、频次或剂量'},
+    'IP-03': {'unconfigured': '方案中未找到依从性计算方法与允许范围'},
+    'IP-04': {'unconfigured': '方案未要求空腹给药，或给药记录中没有「是否空腹」字段'},
+    'SAMP-01': {'no-data': 'listing 中没有样本采集时刻或给药时刻'}, 'SAMP-02': {'no-data': 'listing 中没有样本采集时刻或给药时刻'},
+    'CM-02': {'unconfigured': '方案未规定补救治疗最早可用时间'}, 'CM-03': {'unconfigured': '方案未规定使用补救治疗后须停用研究药物'},
+    'SAFE-02': {'no-data': 'AE listing 没有获知日期/报告日期，无法判断报告是否超时'},
+    'ELIG-01': {'unconfigured': '方案入排标准中没有可用数据核对的数值条件'},
+}
 LAB_PD = {'CSX': '研究者判 CS 但未关联 AE/病史', 'DISW': '归因研究疾病但给药后较基线加重', 'MH': '仅关联病史且较基线加重'}
 
 # 规则目录：id → (类别, 标题, 默认分级, 处理, 依据/逻辑, 所需数据)；DVDECOD 见 RULE_DV（CDISC C225353，用于对接 PD log / SDTM DV）
@@ -79,7 +110,7 @@ RULES = {
     'SAFE-01': ('SAFE', '潜在 AE 漏记（检验/检查异常）', '待判定', '发 query', '给药后新发或加重、研究者判有临床意义的异常未关联 AE（或仅关联病史且加重）；经确认未记录 AE 方构成 PD，严重/≥3 级/AESI 者重要', '检验/检查＋AE/病史'),
     'SAFE-02': ('SAFE', 'SAE/AESI 报告超时', '重要', 'CRA 核实', '报告日期 − 获知日期 > 方案时限', 'AE（获知/报告日期）'),
     'SAFE-03': ('SAFE', '方案阈值事件未见对应 AE', '待判定', '发 query', '达到方案规定需记录 AE/AESI 的阈值，但时间窗内未见对应 AE', '检验/检查＋AE'),
-    'WD-01': ('WD', '达到停药标准后仍继续给药', '重要', 'CRA 核实', '方案规定的永久停药阈值（thresholdRules[].stop）触发后仍有给药', '检验＋给药'),
+    'WD-01': ('WD', '达到停药标准后仍继续给药', '重要', 'CRA 核实', '方案规定的永久停药标准触发后仍有给药', '检验＋给药'),
 }
 RULE_DV = {'ICF-01': 'INFORMED CONSENT SIGNED/DATED AFTER STUDY PROCEDURES INITIATED',
     'ICF-02': 'INFORMED CONSENT NOT SIGNED/DATED PER LOCAL REGULATORY GUIDELINES',
@@ -178,9 +209,11 @@ class _PD:
             [r.get('date') or '' for r in C.visits if is_full_date(r.get('date'))] + [''])
         crit = self.P.get('criticalVisits') or []
         self.crit_visits = set(crit)
+        # 数据阶段（工作台入口选择）：daily 日常监查（滚动录入）/ prelock 锁库前全量 / cfdi 锁库后核查前；缺省按全量
+        self.stage = C.cfg.get('dataStage') or 'prelock'
         self.crit_items = re.compile(self.P['criticalItems']) if self.P.get('criticalItems') else None
 
-    def add(self, rule, sid, fact, *, date=None, visit=None, src=None, grade=None, why='', sig=None, action=None, ctx=None):
+    def add(self, rule, sid, fact, *, date=None, visit=None, src=None, grade=None, why='', sig=None, action=None, ctx=None, tip=''):
         cat, title, g0, act0, _, _ = RULES[rule]
         # 分级优先级：个案判定（关键访视升级、例外条款降为待判定等）> 本研究 PD 界定表（analysis.pd.grades）> 规则默认
         pg = (self.P.get('grades') or {}).get(rule)
@@ -192,7 +225,7 @@ class _PD:
         it = {'id': '', 'sid': sid, 'site': s.get('site', ''), 'cat': cat, 'layer': TAX[cat][2], 'rule': rule, 'title': title,
               'dv': RULE_DV.get(rule, ''),
               'fact': fact, 'date': date or '', 'visit': visit or '', 'grade': g, 'why': why or ('规则默认分级：' + g0),
-              'action': action or act0, 'src': src or [], 'sig': sig, 'ctx': ctx or [], 'status': '', 'matched': ''}
+              'action': action or act0, 'src': src or [], 'sig': sig, 'ctx': ctx or [], 'status': '', 'matched': '', 'tip': tip}
         self.items.append(it)
         return it
 
@@ -225,8 +258,6 @@ class _PD:
         for i, g in enumerate(C.labrows):
             if g['risk'] not in LAB_PD:
                 continue
-            if g['risk'] == 'MH' and not any('较基线加重' in c for c in g.get('ctx') or []):
-                continue
             pts = [p for p in g['pts'] if p[5] == 2] or g['pts']
             p = pts[0]
             gmax = max([x[4] or 0 for x in g['pts']] + [0])
@@ -237,13 +268,17 @@ class _PD:
             self.add('SAFE-01', g['sid'], f"{p[0]}（{p[1]}）{g['test']} {p[2]} {p[3]}：{LAB_PD[g['risk']]}",
                      date=p[1], visit=p[0], src=[[(f"{x[11]}:{x[7]}" if len(x) > 11 and x[11] else x[7]), x[8], g['test']] for x in pts[:4]], grade=grade, why=why,
                      sig=['lab', i, g.get('qkey', '')], action='发 query', ctx=list(g.get('ctx') or [])[:4])
+        if not any(a.get('aware') or a.get('rpt') for a in C.aes):
+            self.ran.setdefault('SAFE-02', 'no-data')      # AE listing 无获知/报告日期：不能判报告是否超时
+        if not C.A.get('visitWindows'):
+            self.ran.setdefault('VIS-01', 'unconfigured')
         for c in ('ELIG-01', 'ELIG-02', 'CM-01', 'VIS-01', 'SAFE-01', 'SAFE-02', 'SAFE-03'):
             self.ran.setdefault(c, 'ran')
 
     # ------------------------------------------------------------------ 知情同意 / 随机
     def icf(self):
         C, P = self.C, self.P
-        allow = [(re.compile(a['item']), a.get('ref', 'icf'), int(a.get('days', 0))) for a in (P.get('preIcfAllowed') or []) if a.get('item')]
+        allow = [(_pre_icf_rx(a['item']), a.get('ref', 'icf'), int(a.get('days', 0))) for a in (P.get('preIcfAllowed') or []) if a.get('item')]
         self.ran['ICF-01'] = 'ran'
         for sid in sorted(C.pop):
             s = C.subj[sid]
@@ -258,15 +293,17 @@ class _PD:
                 if f['sid'] != sid or not is_full_date(f.get('date')) or f['date'] >= icf:
                     continue
                 tag = f"{f.get('group') or f['sheet']}|{f['test']}|{f['sheet']}"
-                ok = False
+                ok, out_win = False, None
                 for rx, ref, n in allow:
                     if rx.search(tag):
                         rd = s.get('fd') if ref == 'fd' else icf
                         if is_full_date(rd) and (days(rd, f['date']) or 0) <= n:
                             ok = True
                             break
+                        anchor = '首剂' if ref == 'fd' else '知情'
+                        out_win = f"方案允许沿用{anchor}前 {n} 天内的结果，该记录距{anchor} {days(rd, f['date']) if is_full_date(rd) else '?'} 天"
                 if not ok:
-                    early.append((f['date'], f"{f.get('group') or f['sheet']}·{f['test']}", _sh(f), f['row']))
+                    early.append((f['date'], f"{f.get('group') or f['sheet']}·{f['test']}", _sh(f), f['row'], out_win))
             for e in C.exposure:
                 if e['sid'] == sid and is_full_date(e.get('start')) and e['start'] < icf:
                     early.append((e['start'], '研究药物给药', _sh(e), e['row']))
@@ -277,7 +314,9 @@ class _PD:
                 g_rs = '待判定' if rs else None           # 重复筛选：早于本次知情的记录可能来自首次筛选（方案允许范围内沿用不构成偏离）
                 kinds = sorted({x[1].split('·')[0] for x in early})
                 days_ = sorted({x[0] for x in early})
-                self.add('ICF-01', sid, f"知情同意签署 {icf}，但 {d0[0]} 已有{d0[1]}；早于知情的记录共 {len(early)} 条，涉及 {'、'.join(kinds[:4])}{'等' if len(kinds) > 4 else ''}（{len(days_)} 个日期）",
+                win = next((x[4] for x in early if len(x) > 4 and x[4]), None)
+                self.add('ICF-01', sid, f"知情同意签署 {icf}，但 {d0[0]} 已有{d0[1]}；早于知情的记录共 {len(early)} 条，涉及 {'、'.join(kinds[:4])}{'等' if len(kinds) > 4 else ''}（{len(days_)} 个日期）"
+                         + (f"；{win}" if win else ''), tip=ICF_TIP,
                          date=d0[0], src=[[x[2], x[3], x[1]] for x in early[:4]],
                          grade=g_rs, why=(f"重复筛选（首次筛选编号 {s.get('prev_sid') or '未填'}）：核实早于本次知情的记录是否为首次筛选所做、"
                                           "且沿用符合方案；否则按知情同意偏离处理") if rs else
@@ -321,6 +360,9 @@ class _PD:
     # ------------------------------------------------------------------ 访视缺失
     def missed_visits(self):
         C = self.C
+        if self.stage == 'daily':                       # 用户 2026-10-28：滚动录入阶段 listing 不一定最新，「无记录」不等于缺失
+            self.ran['VIS-02'] = 'stage-off'
+            return
         W = C.A.get('visitWindows') or {}
         if not W:
             self.ran['VIS-02'] = 'unconfigured'
@@ -376,14 +418,15 @@ class _PD:
             # 不生成评估缺失类潜在 PD（SoA 完成度矩阵照常展示供人工判断）
             self.ran['ASMT-01'] = self.ran['ASMT-02'] = 'unconfigured'
             return
-        self.ran['ASMT-01'] = self.ran['ASMT-02'] = 'ran'
+        self.ran['ASMT-01'] = 'stage-off' if self.stage == 'daily' else 'ran'   # 滚动录入阶段不判「无记录」；明确记录为未做（ASMT-02）照常
+        self.ran['ASMT-02'] = 'ran'
         for row in C.soa:
             name = row['name']
             crit = bool(self.crit_items and self.crit_items.search(name))
             for vis, cell in row['cells'].items():
                 if cell[6] or vis not in row['exp']:
                     continue
-                for sid in cell[4]:
+                for sid in (cell[4] if self.stage != 'daily' else []):
                     if sid not in C.pop:
                         continue
                     self.add('ASMT-01', sid, f"{vis} 已完成访视，但未见「{name}」记录" + ('' if proto else '（按本研究多数受试者的完成情况推断为该访视应做项目）'),
@@ -671,7 +714,7 @@ def run(C):
     for it in E.items:
         by_site[it['site']][it['cat']] += 1
     rules = [{'id': rid, 'cat': r[0], 'title': r[1], 'grade': (E.P.get('grades') or {}).get(rid) or r[2], 'action': r[3], 'dv': RULE_DV.get(rid, ''),
-              'logic': re.sub(r'（analysis\.[^）]*）', '', r[4]), 'cfg': '；'.join(re.findall(r'analysis\.[\w.\[\]]+', r[4])), 'data': r[5], 'state': E.ran.get(rid, 'unconfigured'),
+              'logic': re.sub(r'（analysis\.[^）]*）', '', r[4]), 'cfg': '；'.join(re.findall(r'analysis\.[\w.\[\]]+', r[4])), 'data': r[5], 'state': E.ran.get(rid, 'unconfigured'), 'reason': (REASON.get(rid) or {}).get(E.ran.get(rid, 'unconfigured'), ''),
               'n': sum(1 for x in E.items if x['rule'] == rid)} for rid, r in RULES.items()]
     C.pdd = {'taxonomy': [list(t) for t in TAXONOMY], 'potential': E.items, 'confirmed': conf, 'rules': rules,
              'notDetectable': [list(x) for x in NOT_DETECTABLE], 'cutoff': E.cutoff, 'hasListing': bool(C.pd),

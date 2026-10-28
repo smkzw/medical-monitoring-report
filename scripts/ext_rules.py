@@ -106,10 +106,11 @@ def _load_lists(C):
     C.cmInd = [(re.compile(a), re.compile(b)) for a, b in (A.get('cmIndicationMap') or [])]
     C.indBg = [(re.compile(a), str(b or '')) for a, b in (A.get('indicationBackground') or [])]
     C.cmProto = [re.compile(p, re.I) for p in (A.get('cmProtocolRequired') or [])]
+    NEED = {'mhMatch': ('检验指标↔病史对应表', '异常是否已有病史解释'), 'cmIndicationMap': ('合并用药↔用药原因对应表', '用药原因未在病史/AE 中记录'),
+            'indicationBackground': ('研究疾病常见检查表现', '异常是否属研究疾病表现')}
     missing = [k for k, v in (('mhMatch', C.mhMatch), ('cmIndicationMap', C.cmInd), ('indicationBackground', C.indBg)) if not v]
-    if missing:
-        C.todo_hint = (f"词表未配置：{'、'.join(missing)}"
-                       "（M13 病史漏记、M17 用药适应症、CSB 研究疾病线索 未启用——对应规则零命中，不猜医学对应关系）")
+    if missing:                                     # 只列真正缺的项，说清楚因此少核查了什么
+        C.todo_hint = '未提供' + '；'.join(f"{NEED[k][0]}：本次未核查「{NEED[k][1]}」" for k in missing)
 
 
 def mh_terms_hit(C, mid, mh_list):
@@ -175,7 +176,7 @@ def m13_mhx_t(C):
             'pts': [[r.get('visit'), r.get('date'), r.get('raw'), r.get('unit') or '', r.get('grade'), r.get('clin'),
                      None if r.get('pct') is None else round(r['pct'], 1), r['sheet'], r['row'], r.get('desc') or '',
                      None if r.get('dev') is None else round(r['dev'], 4), r.get('wb') or ''] for r in pre],
-            'rel': [], 'ctx': ctx or ['首剂前偏离且病史未记录；CS 部分由 M23 核查绑定'],
+            'rel': [], 'ctx': ctx or ['首剂前已超出参考范围，病史未记录'],
             'q': [], 'fid': [], 'cro': '', 'mg': max([r.get('grade') or 0 for r in pre] + [0]), 'risk': 'MHX-T',
             'qkey': f"lab|{sid}|MHX-T|{wbs}|{mid}|{worst.get('visit') or ''}"})
 
@@ -201,7 +202,7 @@ def m16_qual(C):
                 add_ext(C, sid, '定性结果核对', 'M16', 1,
                         f"{r.get('visit')}（{r.get('date')}）{test}「{r.get('raw')}」（±/弱阳性/微量）",
                         r.get('visit'), r.get('date'), r['sheet'], r['row'], test,
-                        ctx=['弱阳性最高提示（pr1）；研究者判 CS 者走 M01'],
+                        ctx=['弱阳性，仅作提示（研究者判为有临床意义的另按「CS 未关联」核查）'],
                         rule={'ask': '请结合复测与临床判断是否需关注。'}, bkey=f"{mid}|{r.get('visit')}|{r.get('date')}", wb=r.get('wb') or '')
             elif lv == 2 and base_lv == 0 and (r.get('clin') or 0) != 2:
                 # 研究者判定优先：已评价为正常/NCS 的新发定性异常只作提示（pr1，不发 query）；未评价才请研究者评价（pr3）
@@ -209,7 +210,7 @@ def m16_qual(C):
                 add_ext(C, sid, '定性结果核对', 'M16-NEW', 1 if assessed else 3,
                         f"{r.get('visit')}（{r.get('date')}）{test}「{r.get('raw')}」，该指标基线（首剂前最近一次）为阴性",
                         r.get('visit'), r.get('date'), r['sheet'], r['row'], test,
-                        ctx=['定性新发异常（基线阴性 → ≥+）；判 CS 者由 M01/M23 分层'] +
+                        ctx=['定性结果新出现阳性（基线阴性 → ≥+）'] +
                             (['研究者已评价为' + ('正常' if r.get('clin') == 0 else '异常无临床意义') + '（研究者判定优先，仅提示）'] if assessed else []),
                         rule={'ask': '请评估该新发定性异常的临床意义，必要时复测。'}, bkey=f"{mid}|{r.get('visit')}|{r.get('date')}", wb=r.get('wb') or '')
 
@@ -375,7 +376,7 @@ def m21_ae_course(C):
                         f"（{w0.get('visit')}（{w0.get('date')}）{_val(_raw_or_val(w0), w0.get('unit'))}，{C.GL} {w0.get('grade')} 级）",
                         w0.get('visit'), w0.get('date'), w0['sheet'], w0['row'], C.metric[w0['mid']]['label'],
                         rel=[['AE', a['t'], a['s'], a['n']]],
-                        ctx=['检验走势与 AE 转归不一致（pr2 提示，可转 query）'],
+                        ctx=['检验走势与 AE 转归不一致（提示，必要时可发质疑）'],
                         rule={'query': False, 'ask': '请评估是否需更新 AE 转归或补充随访检验。'},
                         bkey=f"{a.get('n')}|{C.metric[w0['mid']]['label']}", wb=w0.get('wb') or '')
         else:                                           # ② 末次访视异常未恢复、AE 未结束且无随访安排
@@ -388,7 +389,7 @@ def m21_ae_course(C):
                         f"{C.metric[r0['mid']]['label']} 仍异常、未见随访安排",
                         None, last_d, a['sh'], a['row'], C.metric[r0['mid']]['label'],
                         rel=[['AE', a['t'], a['s'], a['n']]],
-                        ctx=['异常未恢复且 AE 未结束（pr2 提示）'],
+                        ctx=['异常未恢复且 AE 未结束（提示）'],
                         rule={'query': False, 'ask': '请确认随访安排或更新 AE 转归。'},
                         bkey=f"{a.get('n')}|{C.metric[r0['mid']]['label']}|未恢复", wb=a.get('wb') or '')
 
@@ -578,13 +579,13 @@ def clin_consistency(C):
         parts = []
         for m, ps in items[:3]:
             a, b = max(ps, key=lambda p: p[1].get('date') or '')
-            parts.append(f"{C.metric[m]['label']} " + '，'.join(
-                f"{x.get('visit')}（{x.get('date')}）{_val(_raw_or_val(x), x.get('unit'))} 判「{'异常有临床意义' if x.get('clin') == 2 else '异常无临床意义'}」" for x in (a, b)))
-        more = f"；另有 {len(items) - 3} 项同类情况" if len(items) > 3 else ''
-        add_ext(C, sid, '临床意义判定不一致', 'CLIN-INC', 3, '；'.join(parts) + f"——结果相近但临床意义判定不同{more}",
+            parts.append(f"{C.metric[m]['label']}：" + '，'.join(
+                f"{x.get('visit')}访视{_val(_raw_or_val(x), x.get('unit'))}判为{'CS' if x.get('clin') == 2 else 'NCS'}" for x in (a, b)))
+        more = f"（另有 {len(items) - 3} 项同类情况）" if len(items) > 3 else ''
+        add_ext(C, sid, '临床意义判定不一致', 'CLIN-INC', 3, '；'.join(parts) + f"，结果相近但判定不同{more}",
                 late.get('visit'), late.get('date'), late['sheet'], late['row'], C.metric[mid]['label'],
                 ctx=['判定一致性核对（不构成方案偏离）'],
-                rule={'ask': '请核实上述判定的依据并统一；如判定确有不同，请说明理由（如症状、复查结果、标本因素）；如判定有临床意义，请评估是否需记录不良事件或病史。'},
+                rule={'ask': '请核实并统一临床意义判定；如判定确有不同，请注明理由。'},
                 bkey=f"{sh}|clin", wb=late.get('wb') or '')
 
 
@@ -635,7 +636,7 @@ def m23_csb(C):
     exempt = dp.get('confirmed') is True and str(dp.get('quote') or '').strip()
     handled = set()                                      # M01/M02 已产 query 或已判通过的 CS 行
     for g in C.labrows:
-        if g['risk'] in ('CSX', 'MH', 'CSX_AE', 'AE', 'DIS', 'DISW', 'CSI'):
+        if g['risk'] in ('CSX', 'MH', 'MHL', 'CSX_AE', 'AE', 'DIS', 'DISW', 'CSI'):
             for p in g['pts']:
                 handled.add((g['sid'], p[7], p[8]))
     candidates, seen = [], set()
@@ -661,7 +662,7 @@ def m23_csb(C):
                 if exempt:
                     candidates.append(_candidate(C, r, binding, known, worse, flags, disease_hint(C, mid) or '研究者归因研究疾病'))
                     continue
-                _csb_query(C, r, 'CSW', None, f"；研究者归因研究疾病，但较基线明显加重（{wf}），未见覆盖该日期的研究疾病加重类不良事件", flags)
+                _csb_query(C, r, 'CSW', None, f"并归因研究疾病，较基线明显加重（{wf}），但未记录研究疾病加重AE", flags)
                 continue
             if link:
                 pool = C.ae_by[sid] if link[0] == 'AE' else C.mh_by[sid]
@@ -670,7 +671,7 @@ def m23_csb(C):
                     binding['link'] = {'type': link[0], 'no': link[3], 'term': link[1], 'exists': False, 'match': None}
                     page = '不良事件页' if link[0] == 'AE' else '病史页'
                     emit = ('LINK', {'type': link[0], 'no': link[3], 'term': link[1]},
-                            f"，关联字段为 {link[3]}，{page}未见该编号记录")
+                            f"，关联的{'AE' if link[0] == 'AE' else '病史'}编号 {link[3]} 在{page}中不存在")
                 else:
                     # 对应性（noise 修正）：宿主预判 linkVerdicts（知识库：器官系统/方向/标本/时间）优先——
                     # implausible＝有正面反证 → LINK；plausible → 视同对应；unknown → 步骤 5 Q3。
@@ -691,7 +692,7 @@ def m23_csb(C):
                                        'why': (lv or {}).get('why') or ''}
                     if match is False:                   # 词表确认不对应 → LINK
                         emit = ('LINK', {'type': link[0], 'no': link[3], 'term': ev.get('t', '')},
-                                f"，关联{'不良事件' if link[0] == 'AE' else '病史'} {link[3]}「{ev.get('t', '')}」")
+                                f"，关联的{'AE' if link[0] == 'AE' else '病史'}「{ev.get('t', '')}」与该异常不对应")
                     elif match is True:
                         if link[0] == 'AE':
                             continue                     # 步骤 1：关联 AE → 通过（等级一致性 M07 核）
@@ -729,7 +730,7 @@ def m23_csb(C):
                         if not r['post'] or (known and not worse):
                             continue                     # 病史可解释 → 通过
                         if known and worse:
-                            emit = ('CSW', mmhs[0], f"；病史 {mmhs[0]['no']}「{mmhs[0]['term']}」存在，但给药后较基线恶化")
+                            emit = ('CSW', mmhs[0], f"，病史有「{mmhs[0]['term']}」但给药后较基线加重，未见对应AE")
             dh = disease_hint(C, mid)
             if emit is None and not link and r['post'] and known and worse and not (exempt and dh) and not judgment_only(C, r, rows, t_base):
                 emit = ('CSW' if _base_abn(r) else 'CSX', None, None)   # 步骤 4：确定性恶化直接 query（D19/D21）
@@ -741,43 +742,55 @@ def m23_csb(C):
     return candidates
 
 
-QT_CSB_ASK = {
+QT_CSB_ASK = {                                   # 写给 CRC：一句话建议
     'LINK': '请核实关联是否正确。',
-    'CSX_AE': ('请确认两者是否为同一事件；如是，请在该记录的关联字段中关联该 AE（如表单无关联字段，'
-               '请在异常描述中注明 AE 编号）；如否，请评估是否需另行记录不良事件。'),
-    'MH': '请评估给药后是否较基线加重；如属加重，请记录为不良事件并关联。',
-    'CSW': '请确认是否需记录为不良事件；如已记录，请完成关联。',
-    'CSX': ('请核实该异常是否应记录为不良事件；如判断为既往疾病延续，请在病史中补充并关联；'
-            '如判定有误请更正临床意义评价。'),
+    'CSX_AE': '请确认是否为同一事件并完成关联。',
+    'MH': '请评估是否为给药后加重、需记录AE。',
+    'CSW': '请评估是否需记录AE；如已记录，请完成关联。',
+    'CSX': '请核实是否需记录AE，或补充病史并关联。',
 }
 CSB_PR = {'CSW': 4, 'CSX': 4, 'CSX_AE': 4, 'MH': 3, 'LINK': 3}
-CSB_CAT = {'LINK': '关联不对应（CSB）', 'CSX_AE': 'CS未关联·同期疑似AE', 'MH': 'CS仅关联病史·加重核对',
+CSB_CAT = {'LINK': '关联的AE/病史不对应', 'CSX_AE': 'CS未关联·同期疑似AE', 'MH': 'CS仅关联病史·加重核对',
            'CSW': 'CS较基线加重·请确认AE', 'CSX': 'CS未关联AE/MH'}
 
 
+def _obs(C, r):
+    """检查结果的一句话描述：数值型「指标 数值单位」；体检/影像等定性记录用异常描述，不重复「异常有临床意义」字样。"""
+    lab = C.metric[r['mid']]['label']
+    if r.get('value') is not None:
+        return f"{lab}{_val(_raw_or_val(r), r.get('unit'))}"
+    raw, desc = str(r.get('raw') or ''), str(r.get('desc') or '').strip()
+    if re.search(r'临床意义|^异常$|^正常$', raw):
+        return f"{lab}异常" + (f"（{desc[:30]}{'…' if len(desc) > 30 else ''}）" if desc else '')
+    return f"{lab}「{raw[:30]}」"
+
+
+def _base_txt(r):
+    b = r.get('base') or {}
+    if b.get('value') is not None:
+        return f"基线{_val(b.get('value'), b.get('unit') or r.get('unit'))}，"
+    if b.get('clin') == 0 or re.search(r'^正常|未见异常', str(b.get('raw') or '')):
+        return '基线正常，'
+    return f"基线{str(b.get('raw'))[:20]}，" if b.get('raw') else ''
+
+
 def _csb_query(C, r, kind, rec, extra, flags):
-    cs = '研究者判定「异常有临床意义」'
-    if kind == 'MH':
-        b = r.get('base') or {}
-        fact = (f"{r.get('visit')}（{r.get('date')}）{C.metric[r['mid']]['label']} "
-                f"{_val(_raw_or_val(r), r.get('unit'))}，{cs}，仅关联病史「{(rec or {}).get('t', '')}」；"
-                f"基线（{b.get('visit', '')}）为 {_val(b.get('value'), b.get('unit') or r.get('unit'))}。")
+    head = f"{r.get('visit')}访视{_obs(C, r)}"
+    if r.get('value') is not None and (r.get('base') or {}).get('value') is not None:
+        bv, v = r['base']['value'], r['value']
+        head = f"{r.get('visit')}访视{C.metric[r['mid']]['label']}{'升高至' if v > bv else '下降至' if v < bv else '为'}{_val(_raw_or_val(r), r.get('unit'))}"
+    if kind == 'LINK':
+        fact = f"{head}判定为CS{extra or ''}，"
+    elif kind == 'CSX_AE':
+        fact = f"{head}判定为CS，同期已记录AE「{(rec or {}).get('term', '')}」（{(rec or {}).get('start', '')}），但未关联，"
+    elif kind == 'MH':
+        fact = f"{_base_txt(r)}{head}判定为CS，仅关联病史「{(rec or {}).get('t', '')}」，较基线加重且未见对应AE，"
+    elif kind == 'CSW':
+        why = extra or ('（' + '、'.join(f for f in flags if not f.startswith('给药前'))[:40] + '）' if flags else '')
+        fact = f"{_base_txt(r)}{head}判定为CS{why}，"
     else:
-        head = _head(C, r)
-        if kind == 'LINK':
-            fact = f"{head}，{cs}{extra or ''}。"
-        elif kind == 'CSX_AE':
-            fact = f"{head}，{cs}；同期已记录 AE「{(rec or {}).get('term', '')}」（{(rec or {}).get('start', '')}），但该检查记录未关联。"
-        else:
-            b = r.get('base')
-            if b and (b.get('value') is not None or b.get('raw')):
-                base_txt = f"；基线 {b.get('visit')}（{b.get('date')}）{_val(b.get('value') if b.get('value') is not None else b.get('raw'), b.get('unit') or r.get('unit'))}"
-            elif kind == 'CSW':
-                base_txt = '；基线未见有效记录'
-            else:
-                base_txt = ''
-            fact = f"{head}，{cs}{extra or ''}{base_txt}。"
-    add_ext(C, r['sid'], CSB_CAT[kind], kind, CSB_PR[kind], fact.rstrip('。'),
+        fact = f"{_base_txt(r)}{head}判定为CS，但未关联AE或病史，"
+    add_ext(C, r['sid'], CSB_CAT[kind], kind, CSB_PR[kind], fact.rstrip('，'),
             r.get('visit'), r.get('date'), r['sheet'], r['row'], C.metric[r['mid']]['label'],
             ctx=flags, rule={'ask': QT_CSB_ASK[kind]},
             bkey=f"{r['mid']}|{r.get('visit')}|{r.get('date')}", wb=r.get('wb') or '')

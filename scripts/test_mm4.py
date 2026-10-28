@@ -119,6 +119,25 @@ class ClinConsistency(unittest.TestCase):
         self.assertTrue(judgment_only(C, b, [a, b], 0.3))                             # 只是改判，不按潜在 AE 漏记
 
 
+class Batch6(unittest.TestCase):
+    """用户 2026-10-28：知情前可沿用结果的同义词、EDC 目录页表单名、表单无临床意义字段。"""
+    def test_pre_icf_synonyms(self):
+        from pd_rules import _pre_icf_rx
+        rx = _pre_icf_rx(r'结核|QuantiFERON\-TB|T\-SPOT\.TB')
+        self.assertTrue(rx.search('LBTUB|γ-干扰素释放试验|LBTUB'))
+        self.assertFalse(_pre_icf_rx('胸部CT').search('糖化血红蛋白'))
+
+    def test_form_names_from_toc(self):
+        import openpyxl
+        from normalize_listing import Book, form_names
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / 'edc.xlsx'
+            wb = openpyxl.Workbook(); ws = wb.active; ws.title = 'TOC'
+            ws.append(['Sheet名称（表单编号）', '表单名称']); ws.append(['LBCH', '血生化']); ws.append(['OTH', '其他检查']); ws.append(['XX', '不存在的表'])
+            wb.create_sheet('LBCH'); wb.create_sheet('OTH'); wb.save(p)
+            self.assertEqual(form_names(Book(str(p))), {'LBCH': '血生化', 'OTH': '其他检查'})
+
+
 class QualLevel(unittest.TestCase):
     def test_plus_minus_spellings_are_weak(self):
         from ext_rules import qual_level
