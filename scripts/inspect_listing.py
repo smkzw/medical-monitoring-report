@@ -16,6 +16,8 @@ from pathlib import Path
 
 import openpyxl
 
+from common import open_workbook_lenient
+
 DOMAIN_RE = [  # (domain, sheet-name/label regex)
     ('subjects', r'^(DM|人口学|受试者信息|筛选|知情|ENR|RAND|随机)'), ('subjects', r'^(DS|完成|结束|退出|EOS|EOT|研究总结)'),
     ('visits', r'^(SV|访视日期|访视)'),
@@ -111,8 +113,9 @@ def main():
     for spec in a.books:
         alias, path = spec.split('=', 1) if '=' in spec else (Path(spec).stem[:8], spec)
         draft['workbooks'][alias] = str(Path(path).resolve())
-        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        wb, notes = open_workbook_lenient(path, read_only=True, data_only=True)
         inv.append(f'## {alias} · {Path(path).name}\n\n| 表 | 识别 | 表头行 | 行数 | 受试者列 | 布局 | 主要变量 |\n|---|---|---|---|---|---|---|')
+        inv.extend(f'> ! {n}' for n in notes)    # PLAN §21 P1：带伤文件回退提示（表名+原因）留在 inventory 可见
         for ws in wb.worksheets:
             rows = list(ws.iter_rows(values_only=True))
             if not rows:

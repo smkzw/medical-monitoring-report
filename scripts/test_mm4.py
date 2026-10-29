@@ -794,5 +794,142 @@ class IbUmbrellaDowngrade(unittest.TestCase):
         self.assertEqual(ib_match(C, {'t': '中性粒细胞计数减少', 'pt': '', 'soc': '各类检查', 'sae': True, 'g': '3级'}), [])
 
 
+class _SynthXlsx:
+    """纯合成 xlsx 夹具（zipfile 手写 XML，零真实数据）：可注入非法 autoFilter 与截断 dimension。"""
+
+    NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
+    RNS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
+
+    @classmethod
+    def _col(cls, i):
+        s, i = '', i + 1
+        while i:
+            i, r = divmod(i - 1, 26)
+            s = chr(65 + r) + s
+        return s
+
+    @classmethod
+    def _sheet_xml(cls, rows, dimension, autofilter):
+        body = []
+        for ri, r in enumerate(rows, 1):
+            cells = ''.join(
+                f'<c r="{cls._col(ci)}{ri}"><v>{v}</v></c>' if isinstance(v, (int, float))
+                else f'<c r="{cls._col(ci)}{ri}" t="inlineStr"><is><t>{v}</t></is></c>'
+                for ci, v in enumerate(r))
+            body.append(f'<row r="{ri}">{cells}</row>')
+        af = f'<autoFilter ref="{autofilter}"/>' if autofilter else ''
+        return (f'<worksheet xmlns="{cls.NS}"><dimension ref="{dimension}"/>'
+                f'<sheetData>{"".join(body)}</sheetData>{af}</worksheet>')
+
+    @classmethod
+    def build(cls, path, sheets):
+        """sheets: [(sheet_name, dimension_ref, autofilter_ref|None, rows)]"""
+        import zipfile
+        overrides = ''.join(
+            f'<Override PartName="/xl/worksheets/sheet{i}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+            for i in range(1, len(sheets) + 1))
+        ct = (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+              f'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+              f'<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+              f'<Default Extension="xml" ContentType="application/xml"/>'
+              f'<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+              f'{overrides}</Types>')
+        rels = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+                '</Relationships>')
+        tags = ''.join(f'<sheet name="{n}" sheetId="{i}" r:id="rId{9 + i}"/>' for i, (n, *_r) in enumerate(sheets, 1))
+        wb = (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+              f'<workbook xmlns="{cls.NS}" xmlns:r="{cls.RNS}"><sheets>{tags}</sheets></workbook>')
+        wbr = ''.join(
+            f'<Relationship Id="rId{9 + i}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet{i}.xml"/>'
+            for i in range(1, len(sheets) + 1))
+        wbr = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+               f'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">{wbr}</Relationships>')
+        with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as z:
+            z.writestr('[Content_Types].xml', ct)
+            z.writestr('_rels/.rels', rels)
+            z.writestr('xl/workbook.xml', wb)
+            z.writestr('xl/_rels/workbook.xml.rels', wbr)
+            for i, (_n, dim, af, rows) in enumerate(sheets, 1):
+                z.writestr(f'xl/worksheets/sheet{i}.xml', cls._sheet_xml(rows, dim, af))
+
+
+class XlsxTaintTolerance(unittest.TestCase):
+    """PLAN §21 P1：EDC 全量导出常带非法 autoFilter（ref="1:1"，65/66 表命中）＋截断 dimension（A1）——
+    普通模式 load_workbook 抛 ValueError、read_only 静默每表只读声明行数（近空读）。
+    xlsx 读取入口必须宁可慢也要读全：回退普通模式；普通模式仍抛错则 zipfile 副本剥离非法 autoFilter
+    后再读，并留含表名与回退原因的日志。夹具全合成（zipfile 手写），不进仓库。"""
+
+    ROWS = [['受试者编号', '不良事件名称', '开始日期'],
+            ['SUBJID', 'AETERM', 'AESTDAT'],
+            ['S001', '头痛', '2026-05-01'],
+            ['S002', '恶心', '2026-05-02'],
+            ['S001', '皮疹', '2026-05-03']]
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dir = Path(tempfile.mkdtemp(prefix='mm_test_xlsx_'))
+        _SynthXlsx.build(cls.dir / 'tainted.xlsx', [('AE', 'A1:A1', '1:1', cls.ROWS)])       # 双伤
+        _SynthXlsx.build(cls.dir / 'dim_only.xlsx', [('LBHEMA', 'A1:A1', None, cls.ROWS)])   # 仅维度截断
+        _SynthXlsx.build(cls.dir / 'clean.xlsx', [('DM', 'A1:C5', 'A1:C1', cls.ROWS)])       # 正常（合法 AF＋真实维度）
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.dir, ignore_errors=True)
+
+    def test_fixture_reproduces_both_symptoms(self):
+        """夹具自证（修前行为快照）：普通模式抛 ValueError；read_only 静默只读 1 行。"""
+        import openpyxl
+        with self.assertRaises(ValueError):
+            openpyxl.load_workbook(self.dir / 'tainted.xlsx')
+        wb = openpyxl.load_workbook(self.dir / 'tainted.xlsx', read_only=True, data_only=True)
+        self.assertEqual(len(list(wb['AE'].iter_rows(values_only=True))), 1)
+        wb.close()
+
+    def test_tainted_reads_all_rows_with_fallback_log(self):
+        from common import open_workbook_lenient
+        notes = []
+        wb, ns = open_workbook_lenient(self.dir / 'tainted.xlsx', log=notes.append)
+        rows = list(wb['AE'].iter_rows(values_only=True))
+        self.assertEqual(len(rows), 5)
+        self.assertEqual([rows[2][0], rows[4][1]], ['S001', '皮疹'])
+        blob = '\n'.join(notes + ns)
+        self.assertIn('AE', blob)                      # 表名
+        self.assertIn('回退', blob)                     # 回退原因可见
+        wb.close()
+
+    def test_truncated_dimension_only_reads_all(self):
+        from common import open_workbook_lenient
+        notes = []
+        wb, ns = open_workbook_lenient(self.dir / 'dim_only.xlsx', log=notes.append)
+        self.assertEqual(len(list(wb['LBHEMA'].iter_rows(values_only=True))), 5)
+        blob = '\n'.join(notes + ns)
+        self.assertIn('LBHEMA', blob)
+        self.assertIn('回退', blob)
+        wb.close()
+
+    def test_clean_file_unaffected(self):
+        """回归守卫：正常文件（合法 autoFilter A1:C1＋真实维度）零回退、read_only 照常。"""
+        from common import open_workbook_lenient
+        notes = []
+        wb, ns = open_workbook_lenient(self.dir / 'clean.xlsx', log=notes.append)
+        self.assertEqual(ns, [])
+        self.assertEqual(notes, [])
+        self.assertEqual(len(list(wb['DM'].iter_rows(values_only=True))), 5)
+        wb.close()
+
+    def test_normalize_listing_book_reads_all(self):
+        """P1 主隐患路径：normalize_listing.Book 近空读 → 全量读。修前 data=0 行（红），修后 3 行。"""
+        from normalize_listing import Book
+        notes = []
+        book = Book(str(self.dir / 'tainted.xlsx'), log=notes.append)
+        labels, vars_, data = book.sheet('AE', 1, 2, 3)
+        self.assertEqual(labels, ['受试者编号', '不良事件名称', '开始日期'])
+        self.assertEqual(vars_, ['SUBJID', 'AETERM', 'AESTDAT'])
+        self.assertEqual(len(data), 3)
+        self.assertIn('AE', '\n'.join(notes))
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)

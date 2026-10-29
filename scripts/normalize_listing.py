@@ -29,7 +29,7 @@ from pathlib import Path
 
 import openpyxl
 
-from common import clin_code, dump_json, load_json, norm_date, parse_links, parse_typed_links, to_num, yes
+from common import clin_code, dump_json, load_json, norm_date, open_workbook_lenient, parse_links, parse_typed_links, to_num, yes
 
 DATE_FIELDS = {'date', 'start', 'end', 'icf', 'eot_d', 'eos_d', 'rand_d', 'fd', 'ld', 'aware', 'rpt'}
 NUM_FIELDS = {'age', 'bmi', 'ht', 'wt', 'lo', 'hi'}
@@ -38,9 +38,14 @@ SHEETS = {}
 
 
 class Book:
-    def __init__(self, path):
+    def __init__(self, path, log=print):
         self.path = path
-        self.wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        name = Path(path).name
+        # PLAN §21 P1：EDC 全量导出的非法 autoFilter／截断 dimension 会让 read_only 静默近空读——
+        # 读表入口统一走容错封装（带伤文件回退普通模式／剥离副本，宁可慢也要读全，日志含表名与原因）。
+        self.wb, _notes = open_workbook_lenient(
+            path, read_only=True, data_only=True,
+            log=(lambda m: log(f'  ! {name} {m}')) if log else None)
         self._cache = {}
 
     def sheet(self, name, label_row, var_row, data_start):

@@ -172,3 +172,131 @@ def parse_links(v, link_re=None):
         tail = _LINK_DATE_TAIL.sub('', tail.rstrip()).strip(' +＋-－_:：')
         out.append([LINK_TYPE.get(m.group(1).lower(), m.group(1).upper()), tail.strip(), None, int(m.group(2))])
     return out
+
+
+# ---------------------------------------------------------------- xlsx 容错读取（PLAN §21 P1）
+# EDC 全量导出的 xlsx 常带非法 autoFilter（ref="1:1" 之类纯行号区间，实测 65/66 表命中）＋被截断的
+# dimension 声明（如 A1）：普通模式 load_workbook 直接抛 ValueError；read_only 按声明截界，静默每表
+# 只读 1 行（近空读）。xlsx 读取入口统一走 open_workbook_lenient：干净文件照旧原样加载（零行为变化）；
+# 带伤文件宁可慢也要读全——回退普通模式全量解析，普通模式仍因非法 autoFilter 抛错时，先 zipfile
+# 副本剥离非法 autoFilter／截断 dimension 后再读。源文件永不改动，副本落在系统临时目录。
+_A1_REF = re.compile(r'[A-Z]{1,3}[0-9]{1,7}(?::[A-Z]{1,3}[0-9]{1,7})?$')
+_SHEET_PART = re.compile(r'xl/worksheets/[^/]+\.xml$')
+
+
+def _xml_attrs(tag):
+    return dict(re.findall(r'([A-Za-z0-9:._-]+)="([^"]*)"', tag))
+
+
+def _xlsx_sheet_names(z):
+    """sheet XML 部件名 → 表名（workbook.xml + 其 rels 解析，属性顺序无关）。"""
+    import html
+    rels = {}
+    if 'xl/_rels/workbook.xml.rels' in z.namelist():
+        for m in re.finditer(r'<Relationship\b[^>]*>', z.read('xl/_rels/workbook.xml.rels').decode('utf-8', 'ignore')):
+            a = _xml_attrs(m.group(0))
+            t = a.get('Target', '')
+            t = t.lstrip('/') if t.startswith('/') else ('xl/' + t)
+            rels[a.get('Id', '')] = t
+    out = {}
+    for m in re.finditer(r'<sheet\b[^>]*>', z.read('xl/workbook.xml').decode('utf-8', 'ignore')):
+        a = _xml_attrs(m.group(0))
+        out[rels.get(a.get('r:id', ''), '?')] = html.unescape(a.get('name', '?'))
+    return out
+
+
+def xlsx_taint(path):
+    """只读快扫 xlsx 底层 XML（一次 zipfile 扫描，不动源文件），返回 [(表名, kind, 明细)]。
+    kind='autoFilter'：ref 非 A1 式区间（如 "1:1"）——普通模式读取必抛 ValueError；
+    kind='dimension'：声明终止行 < 实际最大行——read_only 按声明截界，静默近空读。
+    干净文件返回 []（空表、无 dimension 声明均不误报）。非 zip 文件返回 []（交由 openpyxl 报它自己的错）。"""
+    import zipfile
+    try:
+        with zipfile.ZipFile(path) as z:
+            names = _xlsx_sheet_names(z)
+            out = []
+            for n in z.namelist():
+                if not _SHEET_PART.fullmatch(n):
+                    continue
+                x = z.read(n).decode('utf-8', 'ignore')
+                sheet = names.get(n, n)
+                for m in re.finditer(r'<autoFilter\b[^>]*>', x):
+                    ref = _xml_attrs(m.group(0)).get('ref')
+                    if ref and not _A1_REF.fullmatch(ref):
+                        out.append((sheet, 'autoFilter', f'非法 autoFilter ref="{ref}"'))
+                        break
+                dm = re.search(r'<dimension\b[^>]*>', x)
+                ref = _xml_attrs(dm.group(0)).get('ref', '') if dm else ''
+                declared = int(re.search(r'(\d+)\D*$', ref).group(1)) if re.search(r'\d', ref) else None
+                rs = [int(v) for v in re.findall(r'<row r="(\d+)"', x)]
+                actual = max(rs + [len(re.findall(r'<row\b', x))])
+                if declared is not None and actual > declared:
+                    out.append((sheet, 'dimension', f'dimension 声明只到第 {declared} 行，实际 ≥{actual} 行'))
+            return out
+    except zipfile.BadZipFile:
+        return []
+
+
+def sanitize_xlsx_copy(path):
+    """带伤 xlsx → 临时只读副本（系统临时目录，进程退出时清理；源文件不动）：
+    剥离非法 autoFilter 元素（自闭合与成对两种写法）＋去掉 <dimension> 声明（普通模式按实际单元格重算维度）。
+    其余 zip 部件逐字节保留。返回副本路径。"""
+    import atexit
+    import os
+    import tempfile
+    import zipfile
+    fd, tmp = tempfile.mkstemp(prefix='mm_sanitized_', suffix='.xlsx')
+    os.close(fd)
+    atexit.register(lambda p=tmp: os.path.exists(p) and os.remove(p))
+
+    def drop_af(m):
+        tag = m.group(0)
+        head = re.match(r'<autoFilter\b[^>]*>', tag)
+        ref = _xml_attrs(head.group(0)).get('ref') if head else None
+        return '' if (ref and not _A1_REF.fullmatch(ref)) else tag
+
+    with zipfile.ZipFile(path) as zin, zipfile.ZipFile(tmp, 'w', zipfile.ZIP_DEFLATED) as zout:
+        for it in zin.infolist():
+            data = zin.read(it.filename)
+            if _SHEET_PART.fullmatch(it.filename):
+                x = data.decode('utf-8')
+                x = re.sub(r'<autoFilter\b[^>]*/>', drop_af, x)
+                x = re.sub(r'<autoFilter\b[^>]*>.*?</autoFilter>', drop_af, x, flags=re.S)
+                x = re.sub(r'<dimension\b[^>]*/>', '', x)      # 截断声明一并剥离，普通模式按实际重算
+                data = x.encode('utf-8')
+            zout.writestr(it, data)
+    return tmp
+
+
+def open_workbook_lenient(path, read_only=True, data_only=True, log=None):
+    """xlsx 读取入口（normalize_listing / inspect_listing / mm_build / validate_contract / export_queries 共用）。
+    干净文件按调用方 read_only 原样加载，零行为变化；带伤文件（xlsx_taint 非空）宁可慢也要读全：
+    read_only 对这类文件会静默近空读，一律回退普通模式全量解析；含非法 autoFilter 时普通模式必抛错，
+    直接走剥离副本。返回 (workbook, notes)；notes 每条含表名清单与回退原因，并逐条回调 log。"""
+    import openpyxl
+    taint = xlsx_taint(path)
+    if not taint:
+        return openpyxl.load_workbook(path, read_only=read_only, data_only=data_only), []
+    af = [s for s, k, _d in taint if k == 'autoFilter']
+    dim = [(s, d) for s, k, d in taint if k == 'dimension']
+
+    def shown(xs):
+        return '、'.join(xs[:8]) + (f' 等 {len(xs)} 张表' if len(xs) > 8 else '')
+
+    notes = []
+    if af:
+        notes.append(f'检测到非法 autoFilter（{shown(af)}）→ 经剥离副本全量读取（宁可慢也要读全）')
+    if dim:
+        notes.append(f'dimension 声明截断（{shown([f"{s}：{d}" for s, d in dim])}）→ read_only 会静默少读，回退普通模式全量读取')
+    wb = None
+    if not af:                                             # 仅维度截断：普通模式可直读原文件
+        try:
+            wb = openpyxl.load_workbook(path, read_only=False, data_only=data_only)
+        except Exception:
+            wb = None
+    if wb is None:
+        wb = openpyxl.load_workbook(sanitize_xlsx_copy(path), read_only=False, data_only=data_only)
+    for n in notes:
+        if log:
+            log(n)
+    return wb, notes
