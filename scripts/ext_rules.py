@@ -22,7 +22,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 
-from common import days, fmt, is_full_date
+from common import days, dshow, fmt, is_full_date
 
 BP_DEFAULT_HI = {'收缩压': 139, '舒张压': 89}      # M15：listing 未给范围时的默认上限（与 skill demo 一致）
 
@@ -284,7 +284,7 @@ def m19_ae_ex(C):
             if any(act_re.search(str(a.get('act') or '')) and near(a.get('s'), e.get('start')) for a in C.ae_by[sid]):
                 continue
             add_ext(C, sid, 'AE与给药记录一致性核对', 'M19', 3,
-                    f"给药记录 {e.get('visit') or ''}（{e.get('start')}）「{why}」，不良事件页未见同期（±{w} 天）采取措施为暂停/停药的记录",
+                    f"给药记录 {e.get('visit') or ''}（{dshow(e.get('start'))}）「{why}」，不良事件页未见同期（±{w} 天）采取措施为暂停/停药的记录",
                     e.get('visit'), e.get('start'), e.get('sheet', ''), e.get('row'), '',
                     rule={'ask': '请核实并补充或更正。'}, bkey=f"{e.get('start')}|{why}", wb=e.get('wb') or '')
         # 给药记录里的「中断」：暂停原因文本、剂量为 0 的给药区间、相邻区间之间的空档；永久停药看末次给药日期
@@ -299,7 +299,7 @@ def m19_ae_ex(C):
             if any(near(d, a.get('s')) for d in stops) or (re.search(r'永久|停药|停用', str(a.get('act'))) and near(last, a.get('s'))):
                 continue
             add_ext(C, sid, 'AE与给药记录一致性核对', 'M19', 3,
-                    f"AE「{a['t']}」（{a['s']}）采取措施「{a['act']}」，给药记录未见同期（±{w} 天）中断/暂停",
+                    f"AE「{a['t']}」（{dshow(a.get('s'))}）采取措施「{a['act']}」，给药记录未见同期（±{w} 天）中断/暂停",
                     None, a['s'], a['sh'], a['row'], a['t'],
                     rule={'ask': '请核实给药记录与 AE 措施是否一致。'}, bkey=f"{a.get('n')}|{a['s']}", wb=a.get('wb') or '')
 
@@ -765,10 +765,11 @@ def m23_csb(C):
             if emit is None and not link:
                 maes = []
                 opp = opposite_dir([r])
+                # 用户裁定（PLAN §15.1，2026-10-28）：时间口径＝AE 持续期间覆盖检验日期（ae_covers，与第七批同因同策），
+                # 废弃 ±w 天经验窗口（aeMatch 第三元素保留以兼容配置契约，不再参与判定）
                 for mre, are, w in ae_match_rows(C, mid):   # 步骤 2：匹配 AE（方向相反的不算）
                     for a in C.ae_by[sid]:
-                        if are.search(a['t']) and not opp.search(a['t']) and a.get('s') and r.get('date') and days(a['s'], r['date']) is not None \
-                                and abs(days(a['s'], r['date'])) <= w:
+                        if are.search(a['t']) and not opp.search(a['t']) and is_full_date(r.get('date')) and ae_covers(a, r['date']):
                             maes.append({'no': a['n'], 'term': a['t'], 'start': a['s'], 'match': True})
                 binding['matched_ae'] = maes[:4]
                 if maes:

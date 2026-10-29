@@ -82,7 +82,7 @@ const todo=(D.todo&&D.todo.length?D.todo:[
  ['AESI','red',`${S.reduce((a,s)=>a+s.aesi,0)} 例次 AESI`,'safety.html#tab=ae&aesi=1'],
  ['优先核实','org',`${oth.filter(o=>o.pr===4).length} 条专项信号优先核实`,'safety.html#tab=oth'],
  ['一致性','grn',`同中心判定对照 ${D.cons.length} 组：需核实 ${D.cons.filter(c=>c.st==='需核实').length}`,'safety.html#tab=cons'],
- ['质疑','org',`${D.queries.length} 条已写入 listing 首列`,'queries.html']]).map(t=>[K.p(t[0],t[1]),t[2],t[3]]);
+ ['质疑','org',`${D.queries.length} 条医学质疑已写入交付表格`,'queries.html']]).map(t=>[K.p(t[0],t[1]),t[2],t[3]]);
 document.getElementById('todo').innerHTML=`<table class="t"><tbody>${todo.map(t=>`<tr class="click" onclick="location.href='${t[2]}'"><td style="width:90px">${t[0]}</td><td>${t[1]}</td><td class="faint">›</td></tr>`).join('')}</tbody></table>`;
 /* 审阅要点：折叠区首次展开时渲染（与 methods.html 同一渲染器） */
 const mf=document.getElementById('mfold');if(mf)mf.addEventListener('toggle',()=>{if(mf.open&&!mf.dataset.done&&K.renderMethods){mf.dataset.done=1;K.renderMethods(document.getElementById('mbody'),{embed:true})}});

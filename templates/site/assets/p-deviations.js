@@ -74,7 +74,7 @@ function rulesPane(){
  const stl={ran:['已执行','grn'],unconfigured:['未执行','line'],'no-data':['缺数据未执行','yel'],'stage-off':['日常监查阶段不判定','line']};
  const nd=P.notDetectable||[];
  pane.innerHTML=`<div id="rt"></div>
- <div class="grid g2 mt"><div class="card"><div class="hd"><h2>只能经源文件核查 / 外部系统确认</h2><span class="sub">listing 不含所需信息，不从数据推断</span></div>${nd.map(([c,t])=>`<div class="flex" style="align-items:flex-start;margin:5px 0">${K.pdCat(c)}<span class="small">${K.esc(t)}</span></div>`).join('')}</div>
+ <div class="grid g2 mt"><div class="card"><div class="hd"><h2>只能经源文件核查 / 外部系统确认</h2><span class="sub">数据表不含所需信息，不从数据推断</span></div>${nd.map(([c,t])=>`<div class="flex" style="align-items:flex-start;margin:5px 0">${K.pdCat(c)}<span class="small">${K.esc(t)}</span></div>`).join('')}</div>
  <div class="card"><div class="hd"><h2>分级口径</h2><span class="sub">依据与默认值</span></div>
   <div class="kv"><dt>${K.pdGrade('重要')}</dt><dd class="small">可能显著影响受试者权益、安全或福祉，或显著影响关键数据（主要/关键次要终点、关键安全评估、随机与盲态）的完整性、准确性、可靠性（ICH E3 Q&A R1；ICH E6(R3) §3.9.3）。</dd>
   <dt>${K.pdGrade('待判定')}</dt><dd class="small">需结合原因、源文件或医学判断：如禁用药是否影响疗效评价、潜在 AE 漏记是否属实、评估未做是否属方案允许情形。</dd>

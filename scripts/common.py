@@ -95,6 +95,12 @@ def fmt(x, nd=2):
     return f'{x:.{nd}f}'.rstrip('0').rstrip('.')
 
 
+def dshow(d):
+    """K95：日期占位渲染——缺失/空值 → 「无日期」（查询文本不得出现 None 占位，validate_contract 会拦）。"""
+    s = '' if d is None else str(d).strip()
+    return s or '无日期'
+
+
 def quantile(a, q):
     a = sorted(a)
     if not a:

@@ -9,7 +9,7 @@ const T=s=>{if(!s)return null;s=String(s).slice(0,10);let m;if(/^\d{4}-\d{2}-\d{
 const part=s=>/uk/.test(s||'');
 const GC={1:'#FFCC00',2:'#FF9900',3:'#8B0000',4:'#5A0000',5:'#000'};
 const sites=[...new Set(subs.map(s=>s.site))].sort();
-app.innerHTML=`<div class="flex mb"><h1 style="font-size:18px">参与者时间线</h1><span class="muted small">访视 · 给药 · AE · 合并用药 · 病史 · 检验异常 · ECG/VS · 专项检查 · 质疑</span><span class="sp"></span><div class="seg" id="mode"></div></div><div id="pane"></div>`;
+app.innerHTML=`<div class="flex mb"><h1 style="font-size:18px">参与者时间线</h1><span class="muted small">访视 · 给药 · AE · 合并用药 · 病史 · 检验异常 · 心电图/生命体征 · 专项检查 · 质疑</span><span class="sp"></span><div class="seg" id="mode"></div></div><div id="pane"></div>`;
 const pane=document.getElementById('pane');
 let mode=H.c&&!H.s?'c':'s';
 K.seg(document.getElementById('mode'),[['s','单受试者'],['c','中心概览']],mode,v=>{mode=v;v==='s'?one(H.s||subs[0].id):center(H.c||'03')});

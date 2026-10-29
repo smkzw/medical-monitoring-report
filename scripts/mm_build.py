@@ -566,11 +566,13 @@ def build_labrows(C):
                     links.append(l)
         ctx = []
         opp = ext_rules.opposite_dir([r for r, _ in pts])   # mm4：方向相反的 AE 不算同期疑似（嗜酸性粒细胞升高 ≠「白细胞减少」）
-        # inferred AE (no dynamic link but a plausible AE exists in time window) → context only, never auto-links
+        # inferred AE (no dynamic link but a plausible AE exists) → context only, never auto-links
+        # 用户裁定（PLAN §15.1，2026-10-28）：时间口径＝AE 持续期间覆盖检验日期（ae_covers，与第七批 AE 时间口径同因同策），
+        # 废弃 ±w 天经验窗口（aeMatch 第三元素保留以兼容配置契约，不再参与判定）
         for mre, are, w in match:
             if mre.search(mid):
                 for a in C.ae_by[sid]:
-                    if are.search(a['t']) and not opp.search(a['t']) and any(days(a['s'], r['date']) is not None and abs(days(a['s'], r['date'])) <= w for r, _ in pts):
+                    if are.search(a['t']) and not opp.search(a['t']) and any(is_full_date(r['date']) and ext_rules.ae_covers(a, r['date']) for r, _ in pts):
                         c_ = f"同期 AE「{a['t']}」（{a['s']}）可能对应，但检验页未关联"
                         if c_ not in ctx:                # 多条 aeMatch 命中同一 AE 时只列一次（ext 夹具 21029 曾重复）
                             ctx.append(c_)
@@ -689,7 +691,8 @@ def build_labrows(C):
             ctx += ib_lab_tags(C, mid, C.metric[mid]['label'], P)
         for l in links:
             if not l[4]:
-                ctx.append(f'关联对象不存在：{l[0]}+{l[3]}')
+                kind_ = 'AE' if l[0] == 'AE' else '病史'
+                ctx.append(f'关联的{kind_}编号 {l[3]} 在{kind_}记录中不存在')
         f0 = P[0]
         C.labrows.append({
             'sid': sid, 'site': C.subj[sid]['site'], 'cat': cat, 'test': C.metric[mid]['label'], 'mid': mid, 'grp': f0.get('group') or '',
@@ -929,7 +932,7 @@ def ae_checks(C):
         if 'cm_flag' in on and re.search(r'^否|^N', a['cm'] or ''):
             cms = [c for c in C.cm_by[sid] if c['wk'] == 'AE' and (a['t'] and a['t'] in c['why'] or re.search(rf'\b{a["n"]}\b', c['why']))]
             if cms:
-                add_other(C, sid, 'AE合并用药标记核对', 2, f"AE「{a['t']}」记「是否有合并用药=否」，但 CM「{cms[0]['t']}」用药原因指向该 AE", None, a['s'], a['sh'], a['row'], a['t'],
+                add_other(C, sid, 'AE合并用药标记核对', 2, f"AE「{a['t']}」记「是否有合并用药=否」，但合并用药「{cms[0]['t']}」用药原因指向该 AE", None, a['s'], a['sh'], a['row'], a['t'],
                           rel=[['AE', a['t'], a['s'], a['n']]], risk='AE', wb=a.get('wb') or '')
         if 'cm_missing' in on and re.search(r'^是|^Y', a['cm'] or '') and C.cm_by[sid]:
             # mm4：AE 记「有合并用药」，但合并用药页未见引用该 AE（AE 编号字段或用药原因指向该 AE）
@@ -1033,7 +1036,7 @@ def cm_checks(C):
                     if rescue and rescue_re.search(c.get('why') or '') and (not is_full_date(c['s']) or c['s'] >= s['fd']):
                         continue
                     add_other(C, sid, P.get('cat', '禁限用药核对'), P.get('pr', 4),
-                              f"CM「{c['t']}」（{c['s'] or '?'}~{'持续' if c['ong'] else c['e'] or '?'}）属于{P['name']}，与{('首剂前 %d 天至' % w0) if w0 else ''}治疗期重叠；用药原因：{c['why'] or '—'}",
+                              f"合并用药「{c['t']}」（{c['s'] or '?'}~{'持续' if c['ong'] else c['e'] or '?'}）属于{P['name']}，与{('首剂前 %d 天至' % w0) if w0 else ''}治疗期重叠；用药原因：{c['why'] or '—'}",
                               None, c['s'], c['sh'], c['row'], c['t'], ctx=[P.get('note', '')] if P.get('note') else [],
                               bkey=f"{c['t']}|{c['s']}", wb=c.get('wb') or '')
     for W in C.A.get('washout', []):  # {"name","re","days","ref":"icf"|"fd"}
@@ -1047,7 +1050,7 @@ def cm_checks(C):
             for c in C.cm_by[sid]:
                 if pre.search(c['t']) and (c['ong'] or (is_full_date(c['e']) and c['e'] >= a)) and (not is_full_date(c['s']) or c['s'] <= ref):
                     add_other(C, sid, W.get('cat', '入排洗脱用药核对'), W.get('pr', 3),
-                              f"CM「{c['t']}」末次 {c['e'] or '持续'}，距{ {'icf': '知情', 'rand': '随机'}.get(W.get('ref'), '首剂')}（{ref}）不足 {W['days']} 天洗脱期（{W['name']}）",
+                              f"合并用药「{c['t']}」末次 {c['e'] or '持续'}，距{ {'icf': '知情', 'rand': '随机'}.get(W.get('ref'), '首剂')}（{ref}）不足 {W['days']} 天洗脱期（{W['name']}）",
                               None, c['e'] or c['s'], c['sh'], c['row'], c['t'], bkey=f"{c['t']}|{c['s']}", wb=c.get('wb') or '')
 
 
@@ -1107,6 +1110,12 @@ def _elig_pool(C, sid, rows, E):
     return out
 
 
+def _elig_label(eid):
+    """入排标准编号的可读写法：IE-I4 → 入选标准 4、IE-E7 → 排除标准 7；其他写法原样返回。"""
+    m = re.match(r'^IE-([IE])(\d+)$', str(eid or ''))
+    return f"{'入选' if m.group(1) == 'I' else '排除'}标准 {m.group(2)}" if m else str(eid or '')
+
+
 def eligibility_checks(C):
     """入排数值核对（受试者×标准一条）。判定值按 `pick`：last（默认，入组前末次有效测量——方案允许复查时以复查值为准）/
     first（首次筛选值）/ any（任一测量不符即提示，方案明确不允许复查时用）。其余不符测量写入上下文，不另成信号。"""
@@ -1127,7 +1136,7 @@ def eligibility_checks(C):
             if r is None or r not in bad:
                 continue
             lab = C.metric[mid]['label']
-            ctx = [E.get('id', '')] if E.get('id') else []
+            ctx = [_elig_label(E['id'])] if E.get('id') else []      # 「IE-E7」→「排除标准 7」：不露内部标准编号
             others = [x for x in bad if x is not r]
             if others:
                 ctx.append('另有不符测量：' + '、'.join(f"{x.get('visit')} {x.get('raw')}" for x in others[:4]))
@@ -1183,7 +1192,7 @@ def pd_reconcile(C):
             o['ctx'].append(f"PD 已记录：{hit[0].get('desc') or hit[0].get('cat')}")
             o['pr'] = min(o['pr'], 2)
         else:
-            o['ctx'].append('PD listing 未见对应记录')
+            o['ctx'].append('方案偏离记录表未见对应记录')
 
 
 # ----------------------------------------------------------------------------- queries
@@ -1414,7 +1423,7 @@ def build_cons(C):
             side = lambda r: [r.get('visit'), r.get('date'), r.get('raw'), r.get('unit') or '', '异常有临床意义' if r['clin'] == 2 else '异常无临床意义',
                               f"{fmt(r.get('lo'))}–{fmt(r.get('hi'))}", r['sheet'], r['row']]
             C.cons.append({'id': f'C{len(C.cons) + 1:03d}', 'site': site, 'test': C.metric[mid]['label'], 'a': a['sid'], 'b': b['sid'],
-                           'diff': f"同中心同指标，数值 {a.get('raw')} vs {b.get('raw')} {a.get('unit') or ''}（相差 ≤{int(tol * 100)}%），一例判 CS、一例判 NCS",
+                           'diff': f"同中心同指标，数值 {a.get('raw')} 与 {b.get('raw')} {a.get('unit') or ''}（相差 ≤{int(tol * 100)}%），一例判 CS、一例判 NCS",
                            'st': st, 'why': '同一中心对相近数值的临床意义判定尺度不一致；先核对症状/复查/处置差异，再决定是否质疑。跨例比较只作提示，不以多数判定作为医学标准。',
                            'av': side(a), 'bv': side(b)})
 
@@ -1732,23 +1741,23 @@ def build_ex(C):
 
 # ----------------------------------------------------------------------------- defaults for taxonomy / review / methods / todo
 BUILTIN_METHODS = [
-    ('M01', 'CS 未关联 AE/MH', '检验/VS/ECG 页结果、参考范围、临床意义、动态关联字段', '给药后新发或加重的异常被判 CS，但关联字段为空 → 漏报 AE 风险最高', '漏报 AE', '发 query：请评估记录 AE 或补充病史并关联'),
+    ('M01', 'CS 未关联 AE/MH', '检验/生命体征/心电图页结果、参考范围、临床意义、关联字段', '给药后新发或加重的异常被判 CS，但关联字段为空 → 漏报 AE 风险最高', '漏报 AE', '发 query：请评估记录 AE 或补充病史并关联'),
     ('M02', 'CS 仅关联病史', '同上 + 病史页', '仅关联 MH 时比较给药后与规定基线的等级/数值，加重者提示应记 AE', '以病史替代 AE', '较基线加重者发 query；同级者仅提示'),
     ('M03', 'NCS 但 {GL} ≥2 级', '数值 + {GL} 数值条目', '数值达 ≥2 级仍判 NCS 时请研究者说明依据；无 {GL} 数值条目者不自动分级', '判定尺度偏松', '发 query：说明依据或更正'),
     ('M04', '基线定义', '方案规定的基线（指定访视、首次给药或随机前最近一次、或多次均值，可按指标分别规定）', '规定基线缺失时按规则回退（默认首剂前最近有效值）并注明「替代基线」', '基线错配', '仅提示，不单独发 query'),
     ('M05', '同中心判定一致性', '同中心同指标同单位/范围/方向，数值相差 ≤5%', '一例 CS 一例 NCS 时提示判定尺度不一致；不以多数判定作为标准', '中心判定偏差', '先核对症状/复查/处置差异'),
     ('M06', '方案阈值专项', '方案规定的 AE/AESI/停药/回看阈值', '方案原文定义的 AE/AESI/停药/回看阈值逐点比对，并核对是否有对应 AE/AESI 记录', '漏报 AESI', '按方案要求的严重程度决定是否发质疑'),
-    ('M07', 'AE 记录质量', 'AE 页', '给药前事件相关性、AE 等级 vs 关联检验 {GL} 等级、合并用药标记、AESI 标记、同术语重叠记录', '记录不一致', '发 query 或提示'),
-    ('M08', '禁限用药 / 洗脱期', 'CM 页 + 方案禁用药清单', '按方案禁用药名单匹配药名＋用药时段与首剂前窗口/治疗期重叠；洗脱期按知情/首剂回推', '方案偏离', '发 query 并核对 PD listing'),
+    ('M07', 'AE 记录质量', 'AE 页', '给药前事件相关性、AE 等级与关联检验 {GL} 等级对照、合并用药标记、AESI 标记、同术语重叠记录', '记录不一致', '发 query 或提示'),
+    ('M08', '禁限用药 / 洗脱期', '合并用药页 + 方案禁用药清单', '按方案禁用药名单匹配药名＋用药时段与首剂前窗口/治疗期重叠；洗脱期按知情/首剂回推', '方案偏离', '发 query 并核对方案偏离记录表'),
     ('M09', '入排关键数值', '筛选期检验/人口学', '筛选期数值符合排除标准但已随机/给药', '入组不合格', '优先核实'),
     ('M10', '访视窗', '访视页日期', '研究日 = 访视日 − 首剂日 + 1；按方案窗判断', '超窗', '提示 / 核对 PD'),
     ('M11', '中心偏离', '中心层面汇总（不含计划外/提前退出访视）', '漏斗图 ±2SE 需关注 / ±3SE 明显偏离；n<2 不判', '中心系统性偏差', '中心层面沟通，不对个例发 query'),
     ('M13', '多指标组合规则', '方案规定的组合判定标准（如 Hy’s law）', '方案定义的组合标准（如 Hy’s law：ALT/AST ≥3×ULN 且 TBIL ≥2×ULN 且 ALP <2×ULN）同日/窗口内同时满足', '漏报 AESI/SAE', '按方案要求的严重程度决定是否发质疑'),
     ('M14', 'AE/SAE/AESI 报告时限', 'AE 页（获知/报告日期）＋方案规定的报告时限', '报告日期 − 获知（或发生）日期 > 方案时限', '报告延迟', '发 query 或提示'),
     ('M12', '有效性数据合理性', '方案终点对应的 EDC 量表/检验/检查', '按方案终点定义派生（绝对值/较基线/百分比），离群与关键访视缺失提示；盲态下不分组', '终点数据质量', '核对源数据/测量'),
-    ('M15', '方案偏离·执行层面', '知情同意记录、访视日期、SoA 各评估、给药记录（日期/时刻/途径/空腹/数量）、样本采集时刻', '按方案访视窗与锚点、SoA、给药与样本时点、知情时序逐受试者推断潜在偏离（程序早于知情、未再次知情、访视超窗/缺失、评估缺失/未做、访视内顺序、给药前样本晚于给药、依从性、停药后给药）；关键访视/关键评估升级为重要；方案未给出参数或 listing 缺字段的检查不执行，并写明原因', '方案执行偏离', '发 query 或交 CRA 核实；属实录入 PD log'),
+    ('M15', '方案偏离·执行层面', '知情同意记录、访视日期、SoA 各评估、给药记录（日期/时刻/途径/空腹/数量）、样本采集时刻', '按方案访视窗与锚点、SoA、给药与样本时点、知情时序逐受试者推断潜在偏离（程序早于知情、未再次知情、访视超窗/缺失、评估缺失/未做、访视内顺序、给药前样本晚于给药、依从性、停药后给药）；关键访视/关键评估升级为重要；方案未给出参数或数据表缺字段的检查不执行，并写明原因', '方案执行偏离', '发 query 或交 CRA 核实；属实录入方案偏离记录表'),
     ('M16', '方案偏离·科学层面', '入排数值、合并用药与禁用清单、检验异常与 AE/病史、停药阈值、SAE 报告日期', '入排不符仍入组（入组前末次有效值）、洗脱期不足、禁用药、潜在 AE 漏记（CS 未关联 AE 或病史加重）、SAE/AESI 报告超时、达停药标准未停药；重要＝可能显著影响受试者权益/安全/福祉或关键数据可靠性（ICH E3 Q&A R1；E6(R3)）', '入组/用药/安全报告偏离', '按分级：重要优先核实；潜在 AE 漏记先发 query'),
-    ('M17', '已记录 PD 比对与分级', 'PD listing（类别、描述、日期、严重程度）', '原文类别归一到统一分类，严重/轻微/根据实际情况判定 → 重要/一般/待判定；与潜在 PD 按同受试者、同类别、日期 ±窗口逐事件比对：已记录 / 未见记录', 'PD 漏录、分级不一致', '未见记录的潜在 PD 交 CRA 核实后补录'),
+    ('M17', '已记录 PD 比对与分级', '方案偏离记录表（类别、描述、日期、严重程度）', '原文类别归一到统一分类，严重/轻微/根据实际情况判定 → 重要/一般/待判定；与潜在 PD 按同受试者、同类别、日期 ±窗口逐事件比对：已记录 / 未见记录', 'PD 漏录、分级不一致', '未见记录的潜在 PD 交 CRA 核实后补录'),
 ]
 
 
@@ -1858,7 +1867,7 @@ def defaults(C):
         C.review = [
             {'k': 'ae', 't': '不良事件', 'sh': sorted({a['sh'] for a in C.aes})[:3], 'ib': [k for k in list(C.aesum)[:3]],
              'f': ['术语', '开始/结束日期', '严重程度', '与研究药物关系', 'AESI / SAE', '措施 · 转归', '合并用药'],
-             'flow': [['首剂日期', '暴露页首次实际给药'], ['归类', '给药前 / TEAE / 病史'], ['等级对照', f'同期检验 {C.GL} 等级'], ['处置一致', 'CM / 措施 / 转归']],
+             'flow': [['首剂日期', '暴露页首次实际给药'], ['归类', '给药前 / TEAE / 病史'], ['等级对照', f'同期检验 {C.GL} 等级'], ['处置一致', '合并用药 / 措施 / 转归']],
              'ab': {'个体': [['AE 记录核对', 'org', f"{sum(1 for o in C.others if o['cat'] in (aecats[0][1] if aecats else []))} 条信号"]],
                     '中心': [['AE/给药比', 'red', '≤0.5 例次/人：' + ('、'.join(f"{c['site']}（{c['dosed']}人/{c['ae']}次）" for c in low) or '无')]],
                     '全局': [['AE 谱', 'blu', '、'.join(f"{k} {v['n']}" for k, v in list(C.aesum.items())[:5])]]},
@@ -1888,12 +1897,12 @@ def defaults(C):
             rate = sorted(((sum(1 for x in pot if x['site'] == s) / n, s) for s, n in dosed.items() if n), reverse=True)[:3]
             exs = [x for x in pot if x['grade'] == '重要'][:2] + [x for x in pot if x['layer'] == '执行' and x['grade'] != '重要'][:2]
             C.review.append({'k': 'pd', 't': '方案偏离', 'sh': sorted({s[0] for x in pot + conf for s in (x.get('src') or []) if s and s[0]})[:4], 'ib': [],
-                             'f': ['知情日期/版本', '访视日期', 'SoA 评估', '给药日期/时刻/剂量', '样本采集时刻', '合并用药', '入排数值', 'PD listing'],
+                             'f': ['知情日期/版本', '访视日期', 'SoA 评估', '给药日期/时刻/剂量', '样本采集时刻', '合并用药', '入排数值', '方案偏离记录表'],
                              'flow': [['方案参数', '访视窗与锚点、SoA、给药/样本时点、禁用药、入排'], ['逐受试者推断', '执行层面＋科学层面规则'], ['分级', '重要 / 待判定 / 一般，附依据'],
-                                      ['逐事件比对', 'PD listing：已记录 / 未见记录'], ['处理', '发 query / CRA 核实 / 录入 PD']],
+                                      ['逐事件比对', '方案偏离记录表：已记录 / 未见记录'], ['处理', '发 query / CRA 核实 / 录入 PD']],
                              'ab': {'个体': [[tx.get(c, [c, c])[1], 'red' if any(x['grade'] == '重要' and x['cat'] == c for x in pot) else 'org', f"{n} 条"] for c, n in cc.most_common(6)],
                                     '中心': [['每例潜在 PD', 'org', '、'.join(f"{s}（{r:.2f}）" for r, s in rate) or '无']],
-                                    '全局': [['已记录 vs 潜在', 'blu', f"已记录 {len(conf)}；潜在 {len(pot)}（未见记录 {sum(1 for x in pot if x['status'] == '未见记录')}）"]]},
+                                    '全局': [['已记录 / 潜在', 'blu', f"已记录 {len(conf)}；潜在 {len(pot)}（未见记录 {sum(1 for x in pot if x['status'] == '未见记录')}）"]]},
                              'ex': [['pd:' + x['id'], x['title'], ''] for x in exs], 'm': ['M15', 'M16', 'M17'], 'r': [], 'todo': [],
                              'go': [['deviations.html', '方案偏离'], ['deviations.html#tab=rules', '检查规则与覆盖']]})
         if C.KZeff['metrics']:

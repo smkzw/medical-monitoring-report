@@ -177,7 +177,7 @@ K.showQ=id=>{const q=K.qById(id);if(!q)return;const cro=D().cro.filter(c=>c[2]==
   <div class="sec-t"><h2>证据记录</h2><span class="muted small">${q.ev.length} 行 · ${K.esc((C0().query||{}).note||'已写入交付表格对应记录行的首列')}</span></div><div class="ex-rows muted">载入中…</div>
   <div class="sec-t"><h2>本例 ${K.esc((C0().query||{}).extLabel||'CRO 既往意见')}</h2><span class="muted small">${cro.length} 条</span></div>${cro.length?`<table class="t"><tbody>${cro.map(c=>`<tr><td class="nowrap">${K.p(c[0],'sq')} ${c[1]}</td><td>${K.p(c[3],'blu')}</td><td>${K.esc(c[4])}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">无</div>'}`);
   const box=document.querySelector('.dr .ex-rows');const X=window.KZX;const ex=X&&Object.values(X.ex).find(e=>e.q===id);
-  if(ex){box.innerHTML=K.listing(ex.rows);box.classList.remove('muted')}else{box.innerHTML=`<table class="t"><tbody>${q.ev.map(e=>`<tr><td>${K.p(e[0],'sq mono')}</td><td>行 ${e[1]}</td><td>${K.p(e[2],'blu')}</td><td>${K.esc(e[3])}</td></tr>`).join('')}</tbody></table>`}
+  if(ex){box.innerHTML=K.listing(ex.rows);box.classList.remove('muted')}else{box.innerHTML=`<table class="t"><tbody>${q.ev.map(e=>`<tr><td>${K.p(K.shName(e[0]),'sq')}</td><td>行 ${e[1]}</td><td>${K.p(e[2],'blu')}</td><td>${K.esc(e[3])}</td></tr>`).join('')}</tbody></table>`}
 };
 document.addEventListener('click',e=>{const q=e.target.closest('[data-q]');if(q){e.preventDefault();K.showQ(q.dataset.q)}});
 K.CTX=((((window.KZ||{}).cfg||{}).taxonomy||{}).ctx||[['^提醒：同期另有可能对应的 AE','提醒：同期AE未关联','yel'],['^(IB|类效应|方案列明风险)','IB/类效应风险','red'],['^已关联病史「','已关联病史','grn'],['^已关联AE：','已关联AE','grn'],['^未关联AE/病史，研究者判定NCS','未关联·判NCS','yel'],['无CTCAE条目|不能仅凭数值','无CTCAE数值条目',''],['症状/处置型','需结合症状/处置',''],['单位|换算','单位待核','org'],['基线.*(回退|替代)|替代基线|改用首次','替代基线','blu'],['研究疾病表现.*未进一步加重|研究者归因：研究疾病$','研究疾病表现·未加重','grn'],['研究疾病表现.*进一步加重','疾病表现·较基线加重','org'],['可能为研究疾病表现','可能为疾病表现','']]).map(([re,l,c])=>[new RegExp(re),l,c]);
@@ -200,7 +200,7 @@ el.onclick=e=>{const td=e.target.closest('[data-c]');if(!td)return;const [ri,v]=
  ${c[6]?`<div class="box small">${v} 不在流程表计划内，但有 ${c[1]} 例记录（计划外/补充检查）。</div>`:''}
  ${c[4].length?`<h3 class="mt">无记录</h3><div class="flex wrap mt">${c[4].map(s=>K.sid(s)).join(' ')}</div>`:''}
  ${c[5].length?`<h3 class="mt">记录“未做”</h3><div class="flex wrap mt">${c[5].map(s=>K.sid(s)).join(' ')}</div>`:''}
- <div class="note mt">名单来自「${K.esc(K.shName(r.sheet))}」的“是否进行”记录与访视记录比对；${COND.has(r.name)?'条件性项目的“否”可能为允许豁免，结合原因字段判断，不直接发质疑。':'计划项无记录时先核对访视是否实际发生、是否已录入，再决定是否质疑。'}</div>`,K.p(r.sheet,'sq mono'))};};
+ <div class="note mt">名单来自「${K.esc(K.shName(r.sheet))}」的“是否进行”记录与访视记录比对；${COND.has(r.name)?'条件性项目的“否”可能为允许豁免，结合原因字段判断，不直接发质疑。':'计划项无记录时先核对访视是否实际发生、是否已录入，再决定是否质疑。'}</div>`,K.p(K.shName(r.sheet),'sq'))};};
 /* ---- 方案偏离（mm4）：分级/类别标签、详情抽屉（总览、方案偏离、AE/MH 风险共用）---- */
 K.PDG={'重要':'solid-red','待判定':'yel','一般':'line'};
 K.pdGrade=g=>K.p(g||'—',K.PDG[g]||'line',g==='重要'?'可能显著影响受试者权益/安全/福祉，或关键数据完整性/准确性/可靠性（ICH E3 Q&A R1；E6(R3)）':g==='待判定'?'需结合原因、源文件或医学判断确定分级':'不满足重要偏离标准');
@@ -224,7 +224,7 @@ K.showPD=id=>{const it=K.pdBy(id);if(!it)return;const P=KZ.pd,X=window.KZX||{},c
   <div class="box ${it.grade==='重要'?'red':'org'}" style="font-size:13px;line-height:1.7">${K.hlNum(conf?it.desc:it.fact)}</div>
   ${conf?'':`<div class="sec-t"><h2>分级与依据</h2></div><div class="flex small" style="align-items:flex-start;line-height:1.7">${K.pdGrade(it.grade)}<span>${K.esc(it.why)}</span></div>
   <div class="xs muted mt" style="line-height:1.7">重要偏离：可能显著影响受试者权益、安全或福祉，或显著影响关键数据的完整性、准确性、可靠性（ICH E3 Q&A R1；ICH E6(R3)）。潜在 PD 由数据推断，核实属实前不计入 PD 率。</div>`}
-  <div class="sec-t"><h2>源数据</h2><span class="muted small">${ev?ev.length+' 行':'未取得原始行'}</span></div>${ev?K.listing(ev):(it.src||[]).length?`<table class="t"><tbody>${it.src.map(s=>`<tr><td>${K.p(s[0],'sq mono')}</td><td>行 ${s[1]??'—'}</td><td>${K.esc(s[2]||'')}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">按方案访视计划推断，无对应原始记录</div>'}
+  <div class="sec-t"><h2>源数据</h2><span class="muted small">${ev?ev.length+' 行':'未取得原始行'}</span></div>${ev?K.listing(ev):(it.src||[]).length?`<table class="t"><tbody>${it.src.map(s=>`<tr><td>${K.p(K.shName(s[0]),'sq')}</td><td>行 ${s[1]??'—'}</td><td>${K.esc(s[2]||'')}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">按方案访视计划推断，无对应原始记录</div>'}
   ${conf?`<div class="sec-t"><h2>归类</h2></div><div class="kv"><dt>统一分类</dt><dd>${K.pdCat(it.cat)} ${K.p(it.layer||'—','line')}</dd><dt>原文类别</dt><dd>${K.esc(it.rawCat||'—')} ${K.esc(it.sub||'')}</dd><dt>数据比对</dt><dd>${related.length?related.map(r=>`<span class="p sq mono click line" data-pd="${r.id}">${r.id}</span> ${K.esc(r.title)}`).join('<br>'):'<span class="muted">需现场/源文件核查（数据核查不覆盖）</span>'}</dd></div>`
   :`<div class="sec-t"><h2>判定依据</h2>${refs.map(r=>K.rp(r)).join('')}</div><div class="kv"><dt>检查</dt><dd>${K.esc(rule.title||'')}</dd><dt>逻辑</dt><dd>${K.esc(rule.logic||'')}</dd><dt>所需数据</dt><dd>${K.esc(rule.data||'')}</dd></div>
   <div class="sec-t"><h2>与已记录 PD 比对</h2></div>${m?`<div class="box grn small"><b>${m.id}</b> ${K.esc(m.date)} · ${K.esc(m.rawCat)}：${K.esc(m.desc)}${m.rawGrade?' （'+K.esc(m.rawGrade)+'）':''}</div>`:`<div class="box small">${it.status==='无 PD 记录可比对'?'未提供方案偏离记录表，无法比对。':'方案偏离记录表中未见同受试者、同类别、时间相近的记录。'}</div>`}

@@ -64,22 +64,23 @@ def _pre_icf_rx(item):
     return re.compile('|'.join([f'(?:{item})'] + [f'(?i:{x})' for x in ext]))
 
 
-# 未执行的原因（用户 2026-10-28：写清是方案没写、listing 缺字段，还是阶段不判定，不能只写「未配置」）
+# 未执行的原因（用户 2026-10-28：写清是方案没写、listing 缺字段，还是阶段不判定，不能只写「未配置」）。
+# 页面用语（K22）：数据导出表写「数据表」，不写 listing。
 REASON = {
     'ICF-02': {'unconfigured': '方案正文未给出知情同意书各版本的生效日期及是否需再签（属伦理/版本管理信息），补充版本表后可执行',
-               'no-data': 'listing 中没有知情同意书版本记录'},
+               'no-data': '数据表中没有知情同意书版本记录'},
     'VIS-01': {'unconfigured': '方案中未找到可用的访视窗'},
-    'VIS-02': {'unconfigured': '方案中未找到访视窗，或方案访视名称与 listing 对不上', 'stage-off': '日常监查阶段数据仍在录入，「无记录」不等于访视缺失'},
+    'VIS-02': {'unconfigured': '方案中未找到访视窗，或方案访视名称与数据表对不上', 'stage-off': '日常监查阶段数据仍在录入，「无记录」不等于访视缺失'},
     'ASMT-01': {'unconfigured': '方案流程表（SoA）的评估项目尚未与 EDC 表单建立对应，暂不判定「应做未做」（SoA 完成度矩阵照常展示）',
-                'no-data': 'listing 中没有可与访视比对的评估记录', 'stage-off': '日常监查阶段数据仍在录入，「无记录」不等于未做'},
-    'ASMT-02': {'unconfigured': '方案流程表（SoA）的评估项目尚未与 EDC 表单建立对应', 'no-data': 'listing 中没有「是否进行」类记录'},
-    'ASMT-03': {'unconfigured': '方案未规定访视内评估的先后顺序，或 listing 没有评估时刻'},
+                'no-data': '数据表中没有可与访视比对的评估记录', 'stage-off': '日常监查阶段数据仍在录入，「无记录」不等于未做'},
+    'ASMT-02': {'unconfigured': '方案流程表（SoA）的评估项目尚未与 EDC 表单建立对应', 'no-data': '数据表中没有「是否进行」类记录'},
+    'ASMT-03': {'unconfigured': '方案未规定访视内评估的先后顺序，或数据表没有评估时刻'},
     'IP-01': {'unconfigured': '方案中未找到可核对的给药途径、频次或剂量'},
     'IP-03': {'unconfigured': '方案中未找到依从性计算方法与允许范围'},
     'IP-04': {'unconfigured': '方案未要求空腹给药，或给药记录中没有「是否空腹」字段'},
-    'SAMP-01': {'no-data': 'listing 中没有样本采集时刻或给药时刻'}, 'SAMP-02': {'no-data': 'listing 中没有样本采集时刻或给药时刻'},
+    'SAMP-01': {'no-data': '数据表中没有样本采集时刻或给药时刻'}, 'SAMP-02': {'no-data': '数据表中没有样本采集时刻或给药时刻'},
     'CM-02': {'unconfigured': '方案未规定补救治疗最早可用时间'}, 'CM-03': {'unconfigured': '方案未规定使用补救治疗后须停用研究药物，或未列出须停药的补救药物'},
-    'SAFE-02': {'no-data': 'AE listing 没有获知日期/报告日期，无法判断报告是否超时'},
+    'SAFE-02': {'no-data': 'AE 记录表没有获知日期/报告日期，无法判断报告是否超时'},
     'ELIG-01': {'unconfigured': '方案入排标准中没有可用数据核对的数值条件'},
 }
 LAB_PD = {'CSX': '研究者判 CS 但未关联 AE/病史', 'DISW': '归因研究疾病但给药后较基线加重', 'MH': '仅关联病史且较基线加重'}
@@ -140,7 +141,7 @@ NOT_DETECTABLE = [
     ('ICF', '知情同意书原件是否存在、签名/日期/时间要素是否完整、执行人是否获授权、版本是否经伦理批准'),
     ('IP', '药物运输、接收、储存温度（超温）、有效期、药物编号是否正确、发放回收清点与销毁'),
     ('RAND', '随机系统中的分层值与药号分配、紧急揭盲记录'),
-    ('SAFE', 'SAE/妊娠的获知时间与报告提交时间（listing 无获知/报告日期时）'),
+    ('SAFE', 'SAE/妊娠的获知时间与报告提交时间（数据表无获知/报告日期时）'),
     ('ASMT', '访视内操作细节：静息时长、空腹采血、采血与生命体征/心电图的先后（无时刻字段时）'),
     ('SAMP', '样本处理、离心、分装、冷链运输与储存'),
     ('ELIG', '需研究者判断或源文件支持的入排条件（如「研究者认为不适合」）'),
@@ -596,6 +597,21 @@ class _PD:
             t = _dt(e.get('start'), e.get('time'))
             if t:
                 dose_t[e['sid']].append(t)
+        samp2 = {}                                     # K10：同一采血时刻的多管（如 PC/PD 各一管）只报一条，事实列样本类型
+
+        def add_samp2(r, tail, src):
+            key = (r['sid'], r.get('visit'), r.get('date'), r.get('tpt'), r.get('time'))
+            e = samp2.get(key)
+            sh = r.get('sheet') or ''
+            if e is None:
+                samp2[key] = {'sid': r['sid'], 'visit': r.get('visit'), 'date': r.get('date'),
+                              'head': f"{r.get('visit')}（{r.get('date')}）{r.get('tpt') or ''}",
+                              'tail': tail, 'src': list(src), 'sheets': [sh] if sh else []}
+            else:
+                e['src'] += [s for s in src if s not in e['src']]
+                if sh and sh not in e['sheets']:
+                    e['sheets'].append(sh)
+
         for r in sm:
             if r['sid'] not in C.pop or str(r.get('done') or '').startswith('否'):
                 continue
@@ -613,8 +629,7 @@ class _PD:
                     self.add('SAMP-01', r['sid'], f"{r.get('visit')}（{r.get('date')}）{tpt}{kind} 样本采集 {ts.strftime('%H:%M')}，晚于当次给药 {td.strftime('%H:%M')}",
                              date=r.get('date'), visit=r.get('visit'), src=src)
                 elif lim and ts <= td and (td - ts).total_seconds() / 60 > float(lim.group(1)) * (60 if lim.group(2).lower() in ('h', '小时') else 1):
-                    self.add('SAMP-02', r['sid'], f"{r.get('visit')}（{r.get('date')}）{tpt}{kind} 样本于给药前 {(td - ts).total_seconds() / 60:.0f} 分钟采集，早于方案窗口",
-                             date=r.get('date'), visit=r.get('visit'), src=src)
+                    add_samp2(r, f" 样本于给药前 {(td - ts).total_seconds() / 60:.0f} 分钟采集，早于方案窗口", src)
                 continue
             m = re.search(r'(\d+(?:\.\d+)?)\s*(h|小时|hr|min|分钟)', tpt, re.I)
             own = re.search(r'[±＋+]\s*(\d+(?:\.\d+)?)\s*(h|小时|hr|min|分钟)', tpt, re.I)   # 时点标签自带窗口（「4h±30min」）优先
@@ -630,8 +645,10 @@ class _PD:
                 else:
                     w = float(win.get(m.group(0), win.get('default', 0))) if isinstance(win, dict) else float(win)
                 if w and abs(actual - nominal) > w:
-                    self.add('SAMP-02', r['sid'], f"{r.get('visit')}（{r.get('date')}）{tpt}{kind} 样本实际于给药后 {actual:.0f} 分钟采集（计划 {nominal:.0f}±{w:.0f} 分钟）",
-                             date=r.get('date'), visit=r.get('visit'), src=src)
+                    add_samp2(r, f" 样本实际于给药后 {actual:.0f} 分钟采集（计划 {nominal:.0f}±{w:.0f} 分钟）", src)
+        for e in samp2.values():
+            kind = f"（{'/'.join(e['sheets'])}）" if e['sheets'] else ''
+            self.add('SAMP-02', e['sid'], e['head'] + kind + e['tail'], date=e['date'], visit=e['visit'], src=e['src'])
 
     # ------------------------------------------------------------------ 补救治疗
     def rescue(self):

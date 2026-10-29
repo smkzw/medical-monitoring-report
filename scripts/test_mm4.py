@@ -251,6 +251,213 @@ class DemoBuild(unittest.TestCase):
         self.assertTrue(any(t.get('k') == 'pd' for t in self.KZ['review']))
         self.assertTrue(self.KZ['study'].get('calibers'))
 
+    def test_wording_no_internal_codes(self):
+        """K22：审阅要点/核查方法/判读背景不露内部编号与英文域名（入排标准编号、PD listing、CM 页、VS/ECG）。"""
+        import re
+        blob = json.dumps(self.KZ['methods'] + self.KZ['review'], ensure_ascii=False)
+        for bad in ('PD listing', 'CM 页', 'VS/ECG', 'CM / 措施', 'listing 缺字段', ' vs '):
+            self.assertNotIn(bad, blob, bad)
+        el = [o for o in self.KZ['others'] if o['cat'] == '入排标准核对']
+        self.assertTrue(el, '演示数据应含入排标准核对信号')
+        for o in el:
+            for c in o['ctx']:
+                self.assertFalse(re.match(r'^IE-[IE]\d+$', c), f'判读背景不应露内部编号：{c}')
+                self.assertNotIn('PD listing', c, c)
+        for g in self.KZ['labrows']:
+            for c in g['ctx']:
+                self.assertNotRegex(c, r'关联对象不存在：(AE|MH)\+', c)
+        # 专项信号正文（参与者抽屉的信号框）：合并用药写「合并用药「药名」」，不写 EDC 域名 CM
+        cm_sums = [o['sum'] for o in self.KZ['others'] if 'CM「' in (o.get('sum') or '')]
+        self.assertEqual(cm_sums, [], cm_sums)
+        self.assertTrue(any('合并用药「' in (o.get('sum') or '') for o in self.KZ['others']), '演示数据应含合并用药类信号')
+        # 同中心判定一致性：对照句不写英文「vs」
+        self.assertTrue(self.KZ.get('cons'), '演示数据应含同中心判定对照')
+        for c in self.KZ['cons']:
+            self.assertNotIn(' vs ', c['diff'] + c['why'], c['diff'])
+        # 方案偏离页「检查规则与覆盖」的未执行原因、「只能经源文件核查」清单：写「数据表」，不写 listing
+        pd_blob = json.dumps(self.KZ['pd']['rules'] + self.KZ['pd']['notDetectable'], ensure_ascii=False)
+        self.assertNotIn('listing', pd_blob, '规则未执行原因/不可判定清单残留 listing')
+
+
+class Wording(unittest.TestCase):
+    def test_elig_label(self):
+        from mm_build import _elig_label
+        self.assertEqual(_elig_label('IE-I4'), '入选标准 4')
+        self.assertEqual(_elig_label('IE-E15'), '排除标准 15')
+        self.assertEqual(_elig_label('排除标准 3'), '排除标准 3')
+        self.assertEqual(_elig_label(''), '')
+
+    def test_templates_no_internal_words(self):
+        """K22：页面模板里的固定文案（不经数据面）——参与者页标签/矩阵分组、审阅要点副标题、方案偏离页说明。"""
+        A = ROOT / 'templates/site/assets'
+        for f, bads in {'p-subjects.js': ("'ECG'", '生命体征/ECG'), 'p-methods.js': ('真实 listing',),
+                        'p-deviations.js': ('listing 不含所需信息',), 'p-timeline.js': ('ECG/VS',), 'p-index.js': ('listing 首列',)}.items():
+            t = (A / f).read_text(encoding='utf-8')
+            for bad in bads:
+                self.assertNotIn(bad, t, f'{f} 残留「{bad}」')
+        # 审阅要点实例卡的外部质疑行：证据位置经 K.loc 显示中文表单名（V4.1：证据位置显示中文表单名）
+        self.assertNotIn("P(c.sheet.replace(/^\\(\\d+\\)/,''),'sq')} 行${c.row}", (A / 'p-methods.js').read_text(encoding='utf-8'))
+
+
+class M19MissingDate(unittest.TestCase):
+    """K95：M19 AE/给药核对里缺失日期渲染为「无日期」，不得出现 None 占位
+    （validate_contract 会拦「unresolved placeholder/None in text」，实证 D001 Q136「W2（None）」）。"""
+
+    def test_exposure_without_start_date(self):
+        from types import SimpleNamespace
+        from ext_rules import m19_ae_ex
+        C = SimpleNamespace(A={}, pop={'S1'}, subj={'S1': {'site': '01'}}, src={'sheets': {}}, others=[],
+                            exposure=[{'sid': 'S1', 'visit': 'W2', 'start': None, 'pause': '因不良事件暂停给药',
+                                       'sheet': '给药', 'row': 3}],
+                            ae_by={'S1': []})
+        m19_ae_ex(C)
+        self.assertEqual(len(C.others), 1)
+        self.assertIn('无日期', C.others[0]['sum'])
+        self.assertNotIn('None', C.others[0]['sum'])
+
+    def test_ae_without_start_date(self):
+        from types import SimpleNamespace
+        from ext_rules import m19_ae_ex
+        C = SimpleNamespace(A={}, pop={'S1'}, subj={'S1': {'site': '01'}}, src={'sheets': {}}, others=[],
+                            exposure=[],
+                            ae_by={'S1': [{'t': '皮疹', 's': None, 'act': '暂停用药', 'n': 1, 'sh': 'AE', 'row': 2}]})
+        m19_ae_ex(C)
+        self.assertEqual(len(C.others), 1)
+        self.assertIn('无日期', C.others[0]['sum'])
+        self.assertNotIn('None', C.others[0]['sum'])
+
+
+class AeMatchPeriodCoverage(unittest.TestCase):
+    """用户裁定（PLAN §15.1，2026-10-28）：「同期疑似 AE」的 aeMatch 时间口径统一改为 AE 期间覆盖检验日期
+    （与第七批 AE 时间口径同因同策），废弃 ±w 天经验窗口；仍只作上下文与「请关联」用途。"""
+
+    MET = 'lab:丙氨酸氨基转移酶'
+
+    @staticmethod
+    def _ae(n, t, s, e=''):
+        return {'n': n, 't': t, 's': s, 'e': e, 'sh': 'AE', 'row': n}
+
+    def test_build_labrows_ctx_uses_ae_period_not_window(self):
+        from types import SimpleNamespace
+        import ctcae
+        from mm_build import build_labrows
+        row = {'sid': 'S1', 'post': True, 'clin': 2, 'value': 88, 'lo': 9, 'hi': 50, 'unit': 'U/L',
+               'visit': 'V2', 'date': '2026-06-20', 'sheet': '检验', 'row': 5, 'wb': 'edc', 'base': None,
+               'grade': 0, 'links': [], 'reason': None, 'desc': '', 'group': '血生化'}
+        C = SimpleNamespace(
+            A={'aeMatch': [[self.MET.split(':')[1], '肝功能', 14]], 'labDomains': ['lab', 'vs', 'ecg']},
+            S={'study': {'design': {'facts': []}}}, cfg={'thresholds': {'base': 0.3}},
+            F={('S1', self.MET): [row]}, pop={'S1'}, subj={'S1': {'site': '01'}}, src={'sheets': {}},
+            metric={self.MET: {'label': '丙氨酸氨基转移酶', 'n': 1, 'nq': 0, 'hasClin': True}},
+            aeEnd={}, mh_by={'S1': []},
+            ae_by={'S1': [
+                self._ae(1, '肝功能异常·窗内虚构', '2026-06-25', '2026-06-30'),   # 距检验 5 天（±14 窗内），但期间不覆盖 06-20
+                self._ae(2, '肝功能异常·窗外虚构', '2026-05-01'),                 # 距检验 50 天（窗外），但持续期间覆盖 06-20
+            ]},
+            G=ctcae.load({'grading': {'version': '5.0'}}), cmap={}, labrows=[])
+        C.GL = C.G.label
+        build_labrows(C)
+        ctx = ' '.join(C.labrows[0]['ctx'])
+        self.assertIn('肝功能异常·窗外虚构', ctx)          # 窗外但期间覆盖 → 列出
+        self.assertNotIn('肝功能异常·窗内虚构', ctx)       # 窗内但期间不覆盖 → 不再列
+
+    def test_csb_step2_uses_ae_period_not_window(self):
+        from types import SimpleNamespace
+        from ext_rules import m23_csb
+        row = {'sid': 'S1', 'mid': self.MET, 'post': True, 'clin': 2, 'value': 30, 'lo': None, 'hi': None,
+               'unit': 'U/L', 'visit': 'V2', 'date': '2026-06-20', 'sheet': '检验', 'row': 5, 'wb': 'edc',
+               'base': {'value': 30, 'clin': 1, 'grade': 0}, 'grade': 0, 'links': [], 'reason': None,
+               'desc': '', 'raw': '30'}
+        C = SimpleNamespace(
+            A={'aeMatch': [[self.MET.split(':')[1], '肝功能', 14]]},
+            S={'study': {'design': {'facts': []}}}, cfg={'thresholds': {'base': 0.3}},
+            F={('S1', self.MET): [row]}, subj={'S1': {'site': '01'}}, pop={'S1'},
+            metric={self.MET: {'label': '丙氨酸氨基转移酶'}},
+            src={'sheets': {}}, others=[], labrows=[], mhMatch=[], indBg=[],
+            mh_by={'S1': []},
+            ae_by={'S1': [
+                self._ae(1, '肝功能异常·窗内虚构', '2026-06-25', '2026-06-30'),
+                self._ae(2, '肝功能异常·窗外虚构', '2026-05-01'),
+            ]})
+        m23_csb(C)
+        sums = ' '.join(o['sum'] for o in C.others)
+        self.assertIn('肝功能异常·窗外虚构', sums)          # 期间覆盖 → CSX_AE「请关联」
+        self.assertNotIn('肝功能异常·窗内虚构', sums)       # 期间不覆盖 → 不再作同期疑似
+
+
+class ClinNotDone(unittest.TestCase):
+    """K11：临床意义取值「未查/未做/未检」由 clin_map 映射为 'ND' → normalize 置未完成标记（done=否），
+    不作为结果、不落「未评价」（避免日后有值无判定时误入「超出参考范围·未评价」，实证 D001 PE「未查」剩 1 题问卷）。"""
+
+    def test_nd_clin_row_marked_not_done(self):
+        import tempfile
+        import openpyxl
+        from normalize_listing import Book, findings
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / 'pe.xlsx'
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = 'PE'
+            ws.append(['受试者编号', '访视', '检查日期', '检查项', '检查结果', '临床意义', '如异常，请详述'])
+            ws.append(['S1', '筛选期', '2026-05-01', '一般情况', '正常', '正常', ''])
+            ws.append(['S1', '筛选期', '2026-05-01', '淋巴结', '未查', '未查', ''])
+            ws.append(['S2', '筛选期', '2026-05-02', '皮肤/黏膜', '未见异常', '异常有临床意义', '虚构皮损描述'])
+            wb.save(p)
+            M = {'workbooks': {'edc': str(p)},
+                 'clin_map': [['异常无临床意义', 1], ['异常有临床意义', 2], ['正常', 0], ['未查', 'ND']],
+                 'domains': {}}
+            spec = {'wb': 'edc', 'sheet': 'PE', 'domain': 'pe', 'group': '体格检查', 'label_row': 1, 'var_row': 0,
+                    'data_start': 2,
+                    'cols': {'sid': '受试者编号', 'visit': '访视', 'date': '检查日期', 'test': '检查项',
+                             'value': '检查结果', 'clin': '临床意义', 'desc': '如异常，请详述'}}
+            rows = findings(spec, {'edc': Book(str(p))}, M)
+            nd = next(r for r in rows if r['test'] == '淋巴结')
+            self.assertEqual(nd.get('done'), '否')                 # 未完成（SoA 计「未做」）
+            self.assertIsNone(nd.get('clin'))                      # 不是「未评价」
+            self.assertIsNone(nd.get('raw'))                       # 「未查」不是检查结果（不得入定性/基线分析）
+            self.assertIsNone(nd.get('value'))
+            ok = next(r for r in rows if r['test'] == '一般情况')
+            self.assertEqual((ok.get('clin'), ok.get('raw'), ok.get('done')), (0, '正常', None))
+            abn = next(r for r in rows if r['test'] == '皮肤/黏膜')
+            self.assertEqual((abn.get('clin'), abn.get('desc')), (2, '虚构皮损描述'))
+
+
+class SampleWindowDedup(unittest.TestCase):
+    """K10：PK/PD 同一采血时刻两管各计一次 SAMP-02 → 按 (sid, visit, date, tpt, time) 去重合并，
+    事实列出涉及的样本类型（实证 D001 PC/PD 成对出现应减半）。"""
+
+    @staticmethod
+    def _ctx(rows):
+        from types import SimpleNamespace
+        return SimpleNamespace(A={'pd': {'sample': {'windowMin': 30}}}, S={}, cfg={},
+                               subj={'S1': {'site': '01'}}, visits=[], pop={'S1'},
+                               exposure=[{'sid': 'S1', 'start': '2026-05-15', 'time': '09:00'}], sample=rows)
+
+    def test_pk_pd_same_draw_merged_into_one_finding(self):
+        from pd_rules import _PD
+        pc = {'sid': 'S1', 'visit': 'W2', 'date': '2026-05-15', 'time': '12:10', 'tpt': '给药后2h',
+              'sheet': 'PC', 'wb': 'edc', 'row': 97, 'done': ''}
+        pd_ = dict(pc, sheet='PD', row=97)
+        eng = _PD(self._ctx([pc, pd_]))
+        eng.samples()
+        items = [i for i in eng.items if i['rule'] == 'SAMP-02']
+        self.assertEqual(len(items), 1)
+        self.assertIn('（PC/PD）', items[0]['fact'])                 # 事实列出涉及的样本类型
+        self.assertIn('计划 120±30 分钟', items[0]['fact'])
+        self.assertEqual([s[0] for s in items[0]['src']], ['edc:PC', 'edc:PD'])
+
+    def test_different_draw_times_stay_separate(self):
+        from pd_rules import _PD
+        pc = {'sid': 'S1', 'visit': 'W2', 'date': '2026-05-15', 'time': '12:10', 'tpt': '给药后2h',
+              'sheet': 'PC', 'wb': 'edc', 'row': 97, 'done': ''}
+        pd_ = dict(pc, sheet='PD', row=99, time='12:40')
+        eng = _PD(self._ctx([pc, pd_]))
+        eng.samples()
+        items = [i for i in eng.items if i['rule'] == 'SAMP-02']
+        self.assertEqual(len(items), 2)
+        self.assertIn('（PC）', items[0]['fact'])                    # 单管事实写法不变（金标准快照口径）
+        self.assertIn('（PD）', items[1]['fact'])
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=1)

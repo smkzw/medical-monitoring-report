@@ -240,6 +240,11 @@ def findings(spec, books, M):
                       'clin': it.get('clin'), 'desc': it.get('desc'),
                       'links': parse_links(it.get('link'), M.get('link_re')) + parse_typed_links(it.get('link_mh'), 'MH') +
                       parse_typed_links(it.get('link_ae'), 'AE')})
+            if f.get('clin') == 'ND':
+                # K11：临床意义取值「未查/未做/未检/ND」＝条目未完成（clin_map 映射 'ND'）——置未完成标记，
+                # 不作为结果、不落「未评价」（避免误入「超出参考范围·未评价」；也不得被选作基线）。
+                f['clin'], f['raw'], f['value'], f['desc'] = None, None, None, None
+                f['done'] = '否'
             for k in ('reason', 'reason_text', 'reason_disease', 'reason_link', 'reason_other'):
                 if it.get(k) not in (None, ''):          # 宽表逐指标原因列覆盖行级
                     f[k] = it.get(k)
