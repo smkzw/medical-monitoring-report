@@ -96,7 +96,7 @@ def _raw_or_val(r):
 def _head(C, r):
     gtxt = f"；{C.GL} {r.get('grade')} 级" if r.get('grade') else ''
     rng = f"（参考范围 {_fmt_range(r.get('lo'), r.get('hi'))}{gtxt}）" if (r.get('lo') is not None or r.get('hi') is not None) else ''
-    return f"{r.get('visit', '')}（{r.get('date', '')}）{C.metric[r['mid']]['label']} {_val(_raw_or_val(r), r.get('unit'))}{rng}"
+    return f"{r.get('visit', '')}（{dshow(r.get('date'))}）{C.metric[r['mid']]['label']} {_val(_raw_or_val(r), r.get('unit'))}{rng}"
 
 
 # --------------------------------------------------------------------------- 词表
@@ -168,7 +168,7 @@ def m13_mhx_t(C):
         cm_hit = [c for c in C.cm_by[sid]
                   if any(ire.search(c.get('why') or '') and tre.search(c.get('t') or '') for ire, tre in C.cmInd)]
         if cm_hit:
-            ctx.append(f"有对应用药：{cm_hit[0]['t']}（{cm_hit[0]['s']} 起，用药原因「{cm_hit[0]['why']}」）")
+            ctx.append(f"有对应用药：{cm_hit[0]['t']}（{dshow(cm_hit[0].get('s'))} 起，用药原因「{cm_hit[0]['why']}」）")
         b = rows[0]['base']
         from mm_build import wb_sheet          # PR-8：唯一 id 解析（旧名键控查不到 → 未限定）
         wbs = wb_sheet(C, worst.get('sheet'))
@@ -239,7 +239,7 @@ def m17_cm_ind(C):
             ask_hist = not fd or not is_full_date(c.get('s')) or c['s'] <= fd
             where = '病史页' if ask_hist else '病史页及不良事件页'
             add_ext(C, sid, '用药适应症核对', 'M17', 3,
-                    f"合并用药「{c['t']}」（{c['s'] or '?'} 起，用药原因「{why}」），{where}均未见「{why}」相关记录",
+                    f"合并用药「{c['t']}」（{dshow(c.get('s'))} 起，用药原因「{why}」），{where}均未见「{why}」相关记录",
                     None, c['s'], c['sh'], c['row'], c['t'],
                     ctx=['首剂前开始 → 核对病史' if ask_hist else '首剂后开始 → 核对不良事件'],
                     rule={'ask': '请确认是否需补充记录。'}, bkey=f"{c.get('n') or c['t']}|{c['s']}", wb=c.get('wb') or '')
@@ -260,7 +260,7 @@ def m18_preg(C):
             vtxt = _raw_or_val(r)
             vshow = f"「{vtxt}」" if not isinstance(vtxt, (int, float)) else f"{_val(vtxt, r.get('unit'))}（超参考范围）"
             add_ext(C, sid, '妊娠检测核对', 'M18', 4,
-                    f"{r.get('visit')}（{r.get('date')}）{test}{vshow}",
+                    f"{r.get('visit')}（{dshow(r.get('date'))}）{test}{vshow}",
                     r.get('visit'), r.get('date'), r['sheet'], r['row'], test,
                     rule={'ask': '请确认是否为妊娠事件，并按方案要求完成妊娠报告与随访；如为误录，请更正。'},
                     bkey=f"{mid}|{r.get('visit')}|{r.get('date')}", wb=r.get('wb') or '')
@@ -313,12 +313,12 @@ def m20_ae_sae(C):
         crit = str(a.get('sae_crit') or '')
         if a['sae'] and not crit.strip():
             add_ext(C, sid, 'SAE与死亡一致性核对', 'M20', 4,
-                    f"AE「{a['t']}」（{a['s']}）SAE=是，但 SAE 标准（致死/危及生命/住院/致残/先天异常/其他重要事件）均未勾选",
+                    f"AE「{a['t']}」（{dshow(a['s'])}）SAE=是，但 SAE 标准（致死/危及生命/住院/致残/先天异常/其他重要事件）均未勾选",
                     None, a['s'], a['sh'], a['row'], a['t'], rel=[['AE', a['t'], a['s'], a['n']]],
                     rule={'ask': '请核实 SAE 判定与标准勾选是否一致。'}, bkey=f"{a.get('n')}|{a['s']}", wb=a.get('wb') or '')
         elif (not a['sae']) and crit.strip():
             add_ext(C, sid, 'SAE与死亡一致性核对', 'M20', 4,
-                    f"AE「{a['t']}」（{a['s']}）勾选了 SAE 标准（{crit}），但 SAE=否",
+                    f"AE「{a['t']}」（{dshow(a['s'])}）勾选了 SAE 标准（{crit}），但 SAE=否",
                     None, a['s'], a['sh'], a['row'], a['t'], rel=[['AE', a['t'], a['s'], a['n']]],
                     rule={'ask': '请核实 SAE 判定与标准勾选是否一致。'}, bkey=f"{a.get('n')}|{a['s']}", wb=a.get('wb') or '')
     deaths = {}
@@ -328,6 +328,8 @@ def m20_ae_sae(C):
     for sid, lst in deaths.items():
         a = min(lst, key=lambda x: (x.get('e') or x.get('s') or '9999'))
         d = a.get('e') or a.get('s')
+        if not d:                                       # 死亡日期缺失：无法定义「其后」，不比对（避免空日期产生全量假「其后仍有记录」）
+            continue
         s = C.subj[sid]
         if s.get('eos_d') and is_full_date(s['eos_d']) and is_full_date(d) and s['eos_d'] != d:
             add_ext(C, sid, 'SAE与死亡一致性核对', 'M20', 4,
@@ -389,7 +391,7 @@ def m21_ae_course(C):
                 r0 = open_abn[-1]
                 dn = daily_open(C, sid)                  # 用户 2026-10-28：未出组的受试者在日常阶段降级为提示
                 add_ext(C, sid, 'AE转归与检验走势核对', 'M21', 1 if dn else 2,
-                        f"AE「{a['t']}」（{a['s']} 起，未结束），末次访视（{last_d or '—'}）关联检验 "
+                        f"AE「{a['t']}」（{dshow(a['s'])} 起，未结束），末次访视（{last_d or '—'}）关联检验 "
                         f"{C.metric[r0['mid']]['label']} 仍异常、未见随访安排",
                         None, last_d, a['sh'], a['row'], C.metric[r0['mid']]['label'],
                         rel=[['AE', a['t'], a['s'], a['n']]],
@@ -431,6 +433,11 @@ DIR_DEFAULT = [
      r'肌酐|CREA|Cr(?![A-Za-z])|尿素|BUN|尿酸|甘油三酯|TG(?![A-Za-z])|总胆固醇|TC(?![A-Za-z])|低密度脂蛋白|LDL|肌酸激酶|肌酸磷酸激酶|CK(?![A-Za-z])|CPK|'
      r'乳酸脱氢酶|LDH|葡萄糖|GLU|糖化血红蛋白|HbA1c|C反应蛋白|CRP|血沉|ESR|淀粉酶|脂肪酶|D-?二聚体|纤维蛋白(原)?降解|IgE|嗜酸性粒细胞|'
      r'收缩压|舒张压|QTc|尿蛋白|尿糖|尿潜血|隐血|尿红细胞|尿白细胞|尿胆原|酮体|BNP|肌钙蛋白|肌红蛋白', 'up'),
+    # 以下三行 2026-10-29 用户批准补条
+    (r'(?:QT|P-?R)间期|(?<![A-Za-z])(?:QT|PR)(?![A-Za-z])', 'up'),              # 间期延长不利；含未校正 QT 写法（QTc 已在上条）
+    (r'INR(?![A-Za-z])|国际标准化比值|凝血酶原时间|活化部分凝血活酶时间|部分凝血活酶时间|APTT|PTT|(?<![A-Za-z])PT(?![A-Za-z])', 'up'),   # 凝血延长不利
+    (r'AMH(?![A-Za-z])|抗[缪苗]勒[氏]?管激素', 'down'),                          # AMH 降低不利
+    (r'铁蛋白|血清铁|总铁结合力|体温|脉搏|呼吸频率|心率', 'both'),                # 缺铁与过载双向均异常、生命体征偏高偏低均异常——2026-10-29 用户批准维持双向
 ]
 _MDIR: list = []
 

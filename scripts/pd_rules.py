@@ -19,7 +19,7 @@ import re
 from collections import Counter, defaultdict
 
 import ext_rules
-from common import days, fmt, is_full_date, yes, zero_dose
+from common import days, dshow, fmt, is_full_date, yes, zero_dose
 
 # (分类码, 名称, 层面, 说明, CDISC DVCAT（SDTM CT C225352；与 TransCelerate 7 类一一对应）)
 TAXONOMY = [
@@ -341,7 +341,7 @@ class _PD:
                         last = sorted(by.get(sid, []), key=lambda r: r.get('date') or '')
                         dn = ext_rules.daily_open(C, sid)
                         self.add('ICF-02', sid, f"知情同意 {v['ver']} 版 {v['effective']} 生效且要求再签，受试者其后仍在研（至 {end}），未见新版签署记录"
-                                 + (f"（最近签署 {last[-1].get('ver') or '?'} 版 {last[-1].get('date')}）" if last else ''),
+                                 + (f"（最近签署 {last[-1].get('ver') or '?'} 版 {dshow(last[-1].get('date'))}）" if last else ''),
                                  date=v['effective'], src=[[_sh(r), r['row'], '知情同意'] for r in last[-1:]],
                                  **({'grade': '待判定', 'why': ext_rules.DAILY_NOTE + '：新版签署记录可能尚未录入'} if dn else {}))
         else:
@@ -529,7 +529,7 @@ class _PD:
                     if want and got and not re.search(want, got, re.I):
                         bad.append(f"{lab}「{got}」（方案：{dz.get(k + 'Label') or want}）")
                 if bad:
-                    self.add('IP-01', e['sid'], f"{e.get('start')} 给药记录 " + '；'.join(bad), date=e.get('start'), visit=e.get('visit'),
+                    self.add('IP-01', e['sid'], f"{dshow(e.get('start'))} 给药记录 " + '；'.join(bad), date=e.get('start'), visit=e.get('visit'),
                              src=[[_sh(e), e['row'], '给药']])
         else:
             self.ran['IP-01'] = 'unconfigured'
@@ -537,7 +537,7 @@ class _PD:
             self.ran['IP-04'] = 'ran'
             for e in C.exposure:
                 if e['sid'] in C.dosed and re.search(r'^(否|N|no)$', str(e.get('fast') or '').strip(), re.I):
-                    self.add('IP-04', e['sid'], f"{e.get('start')} 给药记录为非空腹（方案要求空腹服药）", date=e.get('start'), visit=e.get('visit'),
+                    self.add('IP-04', e['sid'], f"{dshow(e.get('start'))} 给药记录为非空腹（方案要求空腹服药）", date=e.get('start'), visit=e.get('visit'),
                              src=[[_sh(e), e['row'], '给药']])
         else:
             self.ran['IP-04'] = 'unconfigured'

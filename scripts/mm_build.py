@@ -19,7 +19,7 @@ from pathlib import Path
 import ctcae
 import ext_rules
 import pd_rules
-from common import days, dump_json, fmt, is_full_date, load_json, quantile, study_day, zero_dose
+from common import days, dshow, dump_json, fmt, is_full_date, load_json, quantile, study_day, zero_dose
 
 AGG_EXCL = set()
 
@@ -367,6 +367,46 @@ def _exp_list(C):
     return C._exp
 
 
+def _code_suffix_strip(s):
+    """剥名称尾部的 MedDRA 编码尾缀：「心脏器官疾病/10007541」「心脏器官疾病（10007541）」「心脏器官疾病(10007541)」→「心脏器官疾病」。
+    IB 风险表用编码尾缀、EDC 用纯名称，剥后才能比对（否则同 SOC 匹配恒不命中）。"""
+    return re.sub(r'[/／]\d+$|[（(]\d+[）)]$', '', str(s or '').strip()).strip()
+
+
+_UMBRELLA_GEN = re.compile(r'检测|检查|异常|升高|降低|变化|实验室')   # 通用实验室词（2026-10-29 用户裁定口径）
+_ORGAN_HEADS = ('血液学', '检验学', '心电图', '影像学', '生命体征')   # 器官/系统学前缀词
+
+
+def _stem_content(term):
+    """风险术语的实质内容：去括号词与通用实验室词后的剩余（伞形判据与共享词判定共用）。"""
+    return _UMBRELLA_GEN.sub('', re.sub(r'[（(].*?[）)]', '', str(term or '')))
+
+
+def _umbrella_term(term):
+    """伞形判据（2026-10-29 用户裁定）：实质内容剥去器官/系统学前缀词后零剩余 → 伞形条目（只泛指某类检查，不指具体事件）。
+    「血液学检测异常」「实验室检查异常」＝伞形；「中性粒细胞计数减少」剩「中性粒细胞…」＝非伞形。"""
+    s = _stem_content(term)
+    n = None
+    while n != len(s):                               # 循环剥前缀词（「心电图检查」类多词前缀）
+        n = len(s)
+        for w in _ORGAN_HEADS:
+            if s.startswith(w):
+                s = s[len(w):]
+    return not s
+
+
+def _share_stem(a, b):
+    """两术语共享 ≥2 字实质内容词（第③级类别兜底门槛）：实质内容公共前缀 ≥2 字；
+    前缀锚定避免「淋巴细胞×中性粒细胞」因共同后缀「细胞」误共享。"""
+    sa, sb = _stem_content(a), _stem_content(b)
+    n = 0
+    for x, y in zip(sa, sb):
+        if x != y:
+            break
+        n += 1
+    return n >= 2
+
+
 def ib_match(C, rec):
     out = []
     for e in _exp_list(C):
@@ -377,14 +417,19 @@ def ib_match(C, rec):
             continue
         serious_only = bool(re.match(r'严重|重要|重度', term))
         severe = bool(rec.get('sae') or (grade_int(rec.get('g')) or 0) >= 3)
-        hit = (e.get('pt') and rec.get('pt') == e['pt']) or (e['_re'] and e['_re'].search(rec['t']))
+        hit = (e.get('pt') and _code_suffix_strip(rec.get('pt')) == _code_suffix_strip(e['pt'])) or (e['_re'] and e['_re'].search(rec['t']))
         if hit and serious_only and not severe:      # 用户 2026-10-28：「严重感染」类风险点只认严重或 ≥3 级的 AE
             continue
         if hit:
             out.append(name)
-        elif severe and rec.get('soc') and rec['soc'] in [re.sub(r'/\d+$', '', s.strip()) for s in re.split(r'[；;]', e.get('soc') or '')
-                                                          if s.strip() and not s.strip().startswith('各类检查')]:
-            out.append(name + '（同SOC，严重/≥3级）')           # 同 SOC 只保留严重或 ≥3 级                 # 「心脏器官疾病/10007541；血管与淋巴管类疾病/…」多 SOC 写法拆开比对
+        elif severe and rec.get('soc'):
+            socs = [_code_suffix_strip(s) for s in re.split(r'[；;]', e.get('soc') or '') if s.strip()]
+            if rec['soc'] in [s for s in socs if not s.startswith('各类检查')]:
+                out.append(name + '（同SOC，严重/≥3级）')       # 第②级：真实同 SOC，严重/≥3 级过滤不变（伞形/非伞形一致）
+            elif rec['soc'] in socs and (
+                    (e['_labs'] and any(rx_.search(rec['t']) for rx_, _ in e['_labs']))    # 第③级·伞形（用户 2026-10-29）：带 analyte 且 AE 术语与指标共享实质词
+                    or (not _umbrella_term(term) and _share_stem(term, rec['t']))):        # 第③级·非伞形：风险术语与 AE 术语共享 ≥2 字实质内容词
+                out.append(name + '（各类检查，严重/≥3级）')      # 伞形无 analyte、具体条目无共享词 → 均不放行（D001「血液学检测异常→各类检查」311 条噪音链回归闸）
     return list(dict.fromkeys(out))
 
 
@@ -853,7 +898,7 @@ def threshold_rules(C):
                         ctx.append('未见对应 AE 记录')
                 b = r.get('base') or {}
                 summ = fill(R.get('sum', '{test} {value} {unit}（{visit} {date}）达到方案阈值 {thr}'), test=C.metric[mid]['label'], value=r.get('raw'),
-                            unit=r.get('unit') or '', visit=r.get('visit'), date=r.get('date'), thr=R.get('label', f"{R.get('op', '>=')}{R['v']}"),
+                            unit=r.get('unit') or '', visit=r.get('visit'), date=dshow(r.get('date')), thr=R.get('label', f"{R.get('op', '>=')}{R['v']}"),
                             base=b.get('raw'), chg=r.get('chg'), pct=None if r.get('pct') is None else round(r['pct'], 1), uln=r.get('hi'), lln=r.get('lo'))
                 add_other(C, sid, R['cat'], pr, summ, r.get('visit'), r.get('date'), r['sheet'], r['row'], C.metric[mid]['label'], r.get('clin'), rel, ctx, risk, R,
                           R.get('lane'), R.get('level'), bkey=f"{C.metric[mid]['label']}|{r.get('visit') or ''}|{r.get('date') or ''}", wb=r.get('wb') or '')
@@ -927,7 +972,7 @@ def ae_checks(C):
             gi = grade_int(a['g']) or 0
             mx = max(rs, key=lambda r: r['grade']) if rs else None
             if mx and mx['grade'] > gi:
-                add_other(C, sid, 'AE分级与检验等级核对', 3, f"AE「{a['t']}」记 {a['g']}，关联检验 {mx['test']} {mx.get('raw')} {mx.get('unit') or ''}（{mx.get('date')}）达 {C.GL} {mx['grade']} 级（{mx['gterm']}）",
+                add_other(C, sid, 'AE分级与检验等级核对', 3, f"AE「{a['t']}」记 {a['g']}，关联检验 {mx['test']} {mx.get('raw')} {mx.get('unit') or ''}（{dshow(mx.get('date'))}）达 {C.GL} {mx['grade']} 级（{mx['gterm']}）",
                           mx.get('visit'), mx.get('date'), mx['sheet'], mx['row'], mx['test'], mx.get('clin'), [['AE', a['t'], a['s'], a['n']]], risk='AE')
         if 'cm_flag' in on and re.search(r'^否|^N', a['cm'] or ''):
             cms = [c for c in C.cm_by[sid] if c['wk'] == 'AE' and (a['t'] and a['t'] in c['why'] or re.search(rf'\b{a["n"]}\b', c['why']))]
@@ -939,7 +984,7 @@ def ae_checks(C):
             ref = [c for c in C.cm_by[sid] if re.search(rf'(?<!\d){re.escape(str(a["n"]))}(?!\d)', c.get('aeno') or '')
                    or (a['t'] and a['t'] in (c['why'] or '')) or (c['wk'] == 'AE' and re.search(rf'(?<!\d){re.escape(str(a["n"]))}(?!\d)', c['why'] or ''))]
             if not ref and any(c.get('aeno') or c['wk'] for c in C.cm_by[sid]):
-                add_other(C, sid, 'AE合并用药记录核对', 3, f"AE「{a['t']}」（{a['s']}）记「是否有合并用药=是」，合并用药页未见引用该 AE 的记录", None, a['s'], a['sh'], a['row'], a['t'],
+                add_other(C, sid, 'AE合并用药记录核对', 3, f"AE「{a['t']}」（{dshow(a['s'])}）记「是否有合并用药=是」，合并用药页未见引用该 AE 的记录", None, a['s'], a['sh'], a['row'], a['t'],
                           rel=[['AE', a['t'], a['s'], a['n']]], risk='AE', wb=a.get('wb') or '')
         if 'aesi_terms' in on and a['_aesi_term'] and not a['aesi'] and not a['pre']:
             add_other(C, sid, 'AESI标记核对', 3, f"AE「{a['t']}」符合方案 AESI 定义（{'、'.join(a['_aesi_def'])}），但「是否AESI」未勾选", None, a['s'], a['sh'], a['row'], a['t'], rel=[['AE', a['t'], a['s'], a['n']]], risk='AE', wb=a.get('wb') or '')
@@ -1000,7 +1045,7 @@ def range_checks(C):
         if systemic:
             ctx.append(f"中心系统性未填（本中心 {site_n[(C.subj[sid]['site'], mid)]} 例）：建议中心层面沟通，不逐例发 query")
         add_other(C, sid, '参考范围缺失核对', 2 if systemic else 3,
-                  f"{r.get('visit')}（{r.get('date')}）{m['label']} {r.get('raw')} {r.get('unit') or ''} 未填写参考范围（同指标 {stats[mid][0]}/{stats[mid][1]} 条记录有范围）",
+                  f"{r.get('visit')}（{dshow(r.get('date'))}）{m['label']} {r.get('raw')} {r.get('unit') or ''} 未填写参考范围（同指标 {stats[mid][0]}/{stats[mid][1]} 条记录有范围）",
                   r.get('visit'), r.get('date'), r['sheet'], r['row'], m['label'], r.get('clin'), ctx=ctx,
                   rule={'ask': '请补充该结果的参考范围（上下限），并据此核对临床意义评价。'},
                   bkey=f"{m['label']}|range", wb=r.get('wb') or '')
@@ -1145,7 +1190,7 @@ def eligibility_checks(C):
             if len(pool) > 1:
                 ctx.append(f"判定值＝{'入组前末次测量' if pick == 'last' else '首次筛选测量' if pick == 'first' else '任一测量'}（共 {len(pool)} 次）")
             add_other(C, sid, E.get('cat', '入排标准核对'), E.get('pr', 4),
-                      f"入组前 {lab} {r.get('raw')} {r.get('unit') or ''}（{r.get('visit')} {r.get('date')}）对照{kind}「{E['text']}」不符，但已随机/给药",
+                      f"入组前 {lab} {r.get('raw')} {r.get('unit') or ''}（{r.get('visit')} {dshow(r.get('date'))}）对照{kind}「{E['text']}」不符，但已随机/给药",
                       r.get('visit'), r.get('date'), r['sheet'], r['row'], lab, r.get('clin'), ctx=ctx,
                       bkey=f"{lab}|{r.get('visit') or ''}|{r.get('date') or ''}", wb=r.get('wb') or '')   # qkey 沿用旧口径（类别＋判定记录），存量 MMQ 身份不漂移
     for E in C.A.get('eligibilitySubject', []):  # {"field":"age","op","v","text"}
@@ -1572,7 +1617,7 @@ def eff_magnitude(C):
                     t_ = f"{m['label']} {fmt(r['value'])}{m.get('unit', '')}（{v}），本人其余访视中位数 {fmt(rest[len(rest) // 2])}"
                     C.effmag.append({'sid': sid, 'site': C.subj[sid]['site'], 'k': f"{m['label']}量级异常", 'c': 'org', 'v': v, 't': t_,
                                      'st': '核对单位或录入（疑似数量级错误）'})
-                    add_other(C, sid, '有效性数据量级异常', 3, f"{v}（{r.get('date')}）{t_}，相差 10 倍以上", v, r.get('date'), r['sheet'], r['row'],
+                    add_other(C, sid, '有效性数据量级异常', 3, f"{v}（{dshow(r.get('date'))}）{t_}，相差 10 倍以上", v, r.get('date'), r['sheet'], r['row'],
                               m['label'], rule={'id': 'EFF-MAG', 'ask': '疑似单位或录入错误，请核对源文件并更正；如数值无误，请说明原因。'},
                               bkey=f"{m['src']}|mag|{v}", wb=r.get('wb') or '')
 

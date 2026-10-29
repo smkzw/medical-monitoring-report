@@ -422,6 +422,240 @@ class ClinNotDone(unittest.TestCase):
             self.assertEqual((abn.get('clin'), abn.get('desc')), (2, '虚构皮损描述'))
 
 
+class MissingDateRenderingK95(unittest.TestCase):
+    """K95 扩展：除 M19 外，其余把日期直接拼进事实/上下文文本的渲染点，日期缺失/空 → 「无日期」，不得出现 None。
+    每处用虚构夹具构造无日期记录。"""
+
+    @staticmethod
+    def _ns(**kw):
+        from types import SimpleNamespace
+        return SimpleNamespace(**kw)
+
+    @staticmethod
+    def _rex(*pairs):
+        import re
+        return [(re.compile(a), re.compile(b)) for a, b in pairs]
+
+    @staticmethod
+    def _assert_nodate(testcase, text):
+        testcase.assertIn('无日期', text)
+        testcase.assertNotIn('None', text)
+
+    def test_m13_ctx_cm_without_start(self):
+        from ext_rules import m13_mhx_t
+        row = {'sid': 'S1', 'mid': 'lab:ALT', 'post': False, 'clin': 1, 'value': 88, 'raw': '88', 'unit': 'U/L',
+               'lo': 9, 'hi': 50, 'dev': 0.76, 'grade': 0, 'pct': None, 'visit': 'V1', 'date': None,
+               'sheet': '检验', 'row': 5, 'wb': 'edc', 'links': [], 'group': '血生化', 'desc': '',
+               'base': {'visit': 'V1', 'raw': '30', 'unit': 'U/L', 'clin': 0}}
+        C = self._ns(A={'mhMatch': [['血红蛋白', '贫血']], 'labDomains': ['lab']},
+                     cfg={'thresholds': {'dev': 0.3, 'base': 0.3, 'per_metric': {}}}, mthr=[], others=[],
+                     F={('S1', 'lab:ALT'): [row]}, pop={'S1'}, subj={'S1': {'site': '01'}},
+                     mhMatch=[('血红蛋白', '贫血')], indBg=[], cmInd=self._rex(('保肝', '联苯双酯')),
+                     mh_by={'S1': []}, cm_by={'S1': [{'t': '联苯双酯', 's': None, 'why': '保肝治疗', 'sh': 'CM', 'row': 2, 'wb': '', 'n': 1}]},
+                     metric={'lab:ALT': {'label': '丙氨酸氨基转移酶'}}, src={'sheets': {}}, labrows=[])
+        m13_mhx_t(C)
+        ctx = ' '.join(C.labrows[0]['ctx'])
+        self.assertIn('有对应用药', ctx)
+        self._assert_nodate(self, ctx)
+
+    def test_m17_cm_without_start(self):
+        from ext_rules import m17_cm_ind
+        C = self._ns(cmInd=self._rex(('保肝', '联苯双酯')), cmProto=[], pop={'S1'}, subj={'S1': {'site': '01', 'fd': '2026-05-01'}},
+                     mh_by={'S1': []}, ae_by={'S1': []},
+                     cm_by={'S1': [{'t': '联苯双酯', 's': None, 'sh': 'CM', 'row': 2, 'wb': '', 'n': 1, 'why': '保肝治疗'}]},
+                     others=[], src={'sheets': {}})
+        m17_cm_ind(C)
+        self.assertEqual(len(C.others), 1)
+        self._assert_nodate(self, C.others[0]['sum'])
+
+    def test_m18_preg_row_without_date(self):
+        from ext_rules import m18_preg
+        row = {'sid': 'S1', 'mid': 'lab:尿HCG', 'post': False, 'clin': 2, 'raw': '阳性', 'value': None,
+               'lo': None, 'hi': None, 'unit': '', 'grade': 0, 'pct': None, 'visit': 'V1', 'date': None,
+               'sheet': '检验', 'row': 3, 'wb': '', 'links': [], 'desc': '', 'base': None}
+        C = self._ns(pop={'S1'}, subj={'S1': {'site': '01'}}, F={('S1', 'lab:尿HCG'): [row]},
+                     metric={'lab:尿HCG': {'label': '尿HCG'}}, others=[], src={'sheets': {}})
+        m18_preg(C)
+        self.assertEqual(len(C.others), 1)
+        self._assert_nodate(self, C.others[0]['sum'])
+
+    def test_m20_sae_without_start(self):
+        from ext_rules import m20_ae_sae
+        C = self._ns(pop={'S1'}, subj={'S1': {'site': '01'}}, others=[], src={'sheets': {}},
+                     aes=[{'sid': 'S1', 't': '皮疹', 's': '', 'e': '', 'sae': True, 'sae_crit': '', 'sh': 'AE', 'row': 2, 'n': 1, 'wb': ''},
+                          {'sid': 'S1', 't': '骨折', 's': '', 'e': '', 'sae': False, 'sae_crit': '住院', 'sh': 'AE', 'row': 3, 'n': 2, 'wb': ''}])
+        m20_ae_sae(C)
+        self.assertEqual(len(C.others), 2)
+        for o in C.others:
+            self._assert_nodate(self, o['sum'])
+
+    def test_m20_death_without_dates_no_nonsense_query(self):
+        """转归死亡但起止日期均缺失：无死亡日期无法定义「其后」，不得发出「（），其后仍有记录」类事实。"""
+        from ext_rules import m20_ae_sae
+        C = self._ns(pop={'S1'}, subj={'S1': {'site': '01', 'eos_d': ''}}, others=[], src={'sheets': {}},
+                     aes=[{'sid': 'S1', 't': '猝死', 's': '', 'e': '', 'out': '死亡', 'sae': True, 'sae_crit': '其他', 'sh': 'AE', 'row': 4, 'n': 3, 'wb': ''}],
+                     exposure=[{'sid': 'S1', 'start': '2026-06-01'}], visits=[], F={})
+        m20_ae_sae(C)
+        self.assertEqual([o for o in C.others if '其后仍有' in o['sum']], [])
+        for o in C.others:
+            self.assertNotIn('（），其后', o['sum'])
+
+    def test_m21_open_ae_without_start(self):
+        from ext_rules import m21_ae_course
+        row = {'sid': 'S1', 'mid': 'lab:PLT', 'post': True, 'clin': 1, 'value': 40, 'raw': '40', 'unit': '10^9/L',
+               'lo': 100, 'hi': 300, 'grade': 0, 'pct': None, 'visit': 'V2', 'date': '2026-06-10',
+               'sheet': '检验', 'row': 5, 'wb': 'edc', 'links': [['AE', '血小板减少', None, 3]], 'desc': '', 'base': None}
+        C = self._ns(pop={'S1'}, subj={'S1': {'site': '01'}}, others=[], src={'sheets': {}}, cfg={}, visits=[],
+                     F={('S1', 'lab:PLT'): [row]}, metric={'lab:PLT': {'label': '血小板计数'}},
+                     aes=[{'sid': 'S1', 't': '血小板减少', 's': '', 'e': '', 'act': '停药', 'sh': 'AE', 'row': 6, 'n': 3, 'wb': ''}])
+        m21_ae_course(C)
+        self.assertEqual(len(C.others), 1)
+        self._assert_nodate(self, C.others[0]['sum'])
+
+    def test_threshold_rule_row_without_date(self):
+        from mm_build import threshold_rules
+        row = {'sid': 'S1', 'mid': 'lab:ALT', 'post': False, 'clin': None, 'value': 88, 'raw': '88', 'unit': 'U/L',
+               'lo': 9, 'hi': 50, 'grade': 0, 'pct': None, 'visit': 'V1', 'date': None,
+               'sheet': '检验', 'row': 5, 'wb': 'edc', 'links': [], 'base': None}
+        R = {'id': 'TR-X', 'metric': 'ALT', 'cat': '方案阈值核对', 'op': '>=', 'v': 50, 'post': False,
+             'sum': '{test} {value}（{visit} {date}）达到方案阈值 {thr}'}
+        C = self._ns(A={'thresholdRules': [R]}, cfg={}, pop={'S1'}, subj={'S1': {'site': '01'}},
+                     F={('S1', 'lab:ALT'): [row]}, metric={'lab:ALT': {'label': '丙氨酸氨基转移酶'}},
+                     others=[], src={'sheets': {}})
+        threshold_rules(C)
+        self.assertEqual(len(C.others), 1)
+        self._assert_nodate(self, C.others[0]['sum'])
+
+    def test_grade_vs_lab_row_without_date(self):
+        from mm_build import ae_checks
+        row = {'sid': 'S1', 'mid': 'lab:HGB', 'test': '血红蛋白', 'grade': 2, 'gterm': '贫血', 'raw': '80', 'unit': 'g/L',
+               'lo': 115, 'hi': 150, 'value': 80, 'clin': 1, 'date': None, 'visit': 'V2',
+               'sheet': '检验', 'row': 9, 'wb': 'edc', 'links': [['AE', '贫血', None, 5]], 'pct': None, 'base': None, 'post': True}
+        C = self._ns(A={'aeChecks': ['grade_vs_lab']}, pop={'S1'}, subj={'S1': {'site': '01'}}, others=[], src={'sheets': {}},
+                     aesiDefs=[],
+                     F={('S1', 'lab:HGB'): [row]}, GL='CTCAE 5.0',
+                     aes=[{'sid': 'S1', 't': '贫血', 'g': '1级', 's': '2026-05-01', 'e': '', 'cm': '', 'act': '', 'out': '',
+                           'rel': '', 'sh': 'AE', 'row': 8, 'n': 5, 'wb': '', 'pre': False, 'te': True, 'sae': False,
+                           'aesi': False, '_rel': False, '_aesi_term': False, '_aesi_def': [], 'fd': '2026-05-01'}])
+        ae_checks(C)
+        hit = [o for o in C.others if o['cat'] == 'AE分级与检验等级核对']
+        self.assertEqual(len(hit), 1)
+        self._assert_nodate(self, hit[0]['sum'])
+
+    def test_cm_missing_ae_without_start(self):
+        from mm_build import ae_checks
+        C = self._ns(A={'aeChecks': ['cm_missing']}, pop={'S1'}, subj={'S1': {'site': '01'}}, others=[], src={'sheets': {}},
+                     aesiDefs=[], F={},
+                     cm_by={'S1': [{'t': '止痛药', 'wk': 'AE', 'aeno': '', 'why': ''}]},
+                     aes=[{'sid': 'S1', 't': '头痛', 'g': '1级', 's': '', 'e': '', 'cm': '是', 'act': '', 'out': '',
+                           'rel': '', 'sh': 'AE', 'row': 8, 'n': 4, 'wb': '', 'pre': False, 'te': True, 'sae': False,
+                           'aesi': False, '_rel': False, '_aesi_term': False, '_aesi_def': [], 'fd': '2026-05-01'}])
+        ae_checks(C)
+        hit = [o for o in C.others if o['cat'] == 'AE合并用药记录核对']
+        self.assertEqual(len(hit), 1)
+        self._assert_nodate(self, hit[0]['sum'])
+
+    def test_range_check_row_without_date(self):
+        from mm_build import range_checks
+
+        def mk(i, **kw):
+            return {'sid': 'S1', 'value': 3.0, 'raw': '3.0', 'lo': 2, 'hi': 4, 'date': f'2026-05-0{i}', 'visit': f'V{i}',
+                    'sheet': '检验', 'row': i, 'wb': 'edc', 'clin': 1, 'test': '肌酐', 'mid': 'lab:肌酐', **kw}
+        rows = [mk(i) for i in range(1, 6)] + [mk(6, lo=None, hi=None, date=None)]
+        C = self._ns(A={}, pop={'S1'}, subj={'S1': {'site': '01'}}, others=[], src={'sheets': {}},
+                     metric={'lab:肌酐': {'domain': 'lab', 'label': '肌酐'}}, F={('S1', 'lab:肌酐'): rows})
+        range_checks(C)
+        self.assertEqual(len(C.others), 1)
+        self._assert_nodate(self, C.others[0]['sum'])
+
+    def test_eligibility_row_without_date(self):
+        from mm_build import eligibility_checks
+        row = {'sid': 'S1', 'mid': 'lab:肌酐', 'post': False, 'value': 120, 'raw': '120', 'unit': '', 'lo': None, 'hi': None,
+               'grade': 0, 'pct': None, 'visit': '筛选', 'date': None, 'sheet': '检验', 'row': 7, 'wb': 'edc',
+               'clin': None, 'links': [], 'base': None, 'desc': ''}
+        E = {'id': 'IE-E1', 'metric': '肌酐', 'op': '>=', 'v': 100, 'text': '虚构排除标准', 'kind': 'exclusion'}
+        C = self._ns(A={'eligibility': [E]}, cfg={}, pop={'S1'}, VIS=[], UNS=set(), others=[], src={'sheets': {}},
+                     subj={'S1': {'site': '01', 'fd': '2026-05-01', 'rand_d': ''}},
+                     F={('S1', 'lab:肌酐'): [row]}, metric={'lab:肌酐': {'label': '肌酐'}})
+        eligibility_checks(C)
+        hit = [o for o in C.others if o['cat'] == '入排标准核对']
+        self.assertEqual(len(hit), 1)
+        self._assert_nodate(self, hit[0]['sum'])
+
+    def test_eff_magnitude_row_without_date(self):
+        from mm_build import eff_magnitude
+
+        def mk(v, visit, date):
+            return {'sid': 'S1', 'mid': 'lab:尿酸', 'value': v, 'raw': str(v), 'unit': 'umol/L', 'lo': None, 'hi': None,
+                    'grade': 0, 'pct': None, 'visit': visit, 'date': date, 'sheet': '检验', 'row': len(visit),
+                    'wb': 'edc', 'clin': 1, 'links': [], 'base': None, 'post': True}
+        C = self._ns(A={'efficacy': [{'id': 'ua', 'label': '尿酸', 'src': 'lab:尿酸', 'unit': 'umol/L'}]},
+                     pop={'S1'}, subj={'S1': {'site': '01'}}, others=[], src={'sheets': {}}, vi=lambda v: 0,
+                     F={('S1', 'lab:尿酸'): [mk(500, 'V1', '2026-05-01'), mk(480, 'V2', '2026-06-01'), mk(510, 'V4', '2026-06-20'),
+                                             mk(6000, 'V3', None)]})
+        eff_magnitude(C)
+        hit = [o for o in C.others if o['cat'] == '有效性数据量级异常']
+        self.assertEqual(len(hit), 1)
+        self._assert_nodate(self, hit[0]['sum'])
+
+    def test_pd_icf02_signature_without_date(self):
+        from pd_rules import _PD
+        C = self._ns(A={'pd': {'icfVersions': [{'ver': 'v2.0', 'reconsent': True, 'effective': '2026-06-01'}]}},
+                     S={}, cfg={}, pop={'S1'}, dosed=set(), visits=[],
+                     subj={'S1': {'site': '01', 'eos_d': '2026-07-01'}},
+                     icf=[{'sid': 'S1', 'ver': 'v1.0', 'date': None, 'row': 4, 'sheet': 'ICF', 'wb': 'edc'}])
+        eng = _PD(C)
+        eng.icf()
+        hit = [i for i in eng.items if i['rule'] == 'ICF-02']
+        self.assertEqual(len(hit), 1)
+        self._assert_nodate(self, hit[0]['fact'])
+
+    def test_pd_ip01_ip04_exposure_without_start(self):
+        from pd_rules import _PD
+        ex = {'sid': 'S1', 'start': None, 'route': '静脉', 'freq': '每日一次', 'fast': '否', 'row': 3, 'sheet': '给药', 'wb': 'edc'}
+        C = self._ns(A={'pd': {'dosing': {'route': '口服', 'freq': '每日一次'}, 'fasting': True}}, S={}, cfg={},
+                     pop={'S1'}, dosed={'S1'}, subj={'S1': {'site': '01'}}, visits=[], others=[], exposure=[ex])
+        eng = _PD(C)
+        eng.dosing()
+        rules = {i['rule']: i['fact'] for i in eng.items}
+        self.assertIn('IP-01', rules)
+        self._assert_nodate(self, rules['IP-01'])
+        self.assertIn('IP-04', rules)
+        self._assert_nodate(self, rules['IP-04'])
+
+
+class IbSocCodeSuffix(unittest.TestCase):
+    """IB 风险条目 SOC/PT 名称带 MedDRA 编码尾缀（「心脏器官疾病（10007541）」「心脏器官疾病/10007541」）时
+    与 EDC 侧纯名称比对应命中：编码尾缀剥离后再比较。"""
+
+    @staticmethod
+    def _C(entries):
+        from types import SimpleNamespace
+        return SimpleNamespace(A={'expectedAE': entries})
+
+    def test_soc_fullwidth_and_halfwidth_code_hit(self):
+        from mm_build import ib_match
+        C = self._C([{'term': '心脏事件', 'label': 'IB重要风险', 're': '', 'pt': '', 'soc': '心脏器官疾病（10007541）', 'labs': []},
+                     {'term': '肝性脑病', 'label': 'IB重要风险', 're': '', 'pt': '', 'soc': '肝脏疾病(10023855)', 'labs': []}])
+        self.assertEqual(ib_match(C, {'t': '心肌梗死', 'pt': '心肌梗死', 'soc': '心脏器官疾病', 'sae': False, 'g': '3级'}),
+                         ['IB重要风险·心脏事件（同SOC，严重/≥3级）'])
+        self.assertEqual(ib_match(C, {'t': '肝昏迷', 'pt': '肝性脑病', 'soc': '肝脏疾病', 'sae': True, 'g': '2级'}),
+                         ['IB重要风险·肝性脑病（同SOC，严重/≥3级）'])
+
+    def test_soc_slash_style_still_hit(self):
+        from mm_build import ib_match
+        C = self._C([{'term': '心脏事件', 'label': 'IB重要风险', 're': '', 'pt': '', 'soc': '心脏器官疾病/10007541', 'labs': []}])
+        self.assertEqual(ib_match(C, {'t': '心肌梗死', 'pt': '', 'soc': '心脏器官疾病', 'sae': True, 'g': '1级'}),
+                         ['IB重要风险·心脏事件（同SOC，严重/≥3级）'])
+
+    def test_pt_code_suffix_hit(self):
+        """PT 名称带编码尾缀（IB 侧）与 EDC 纯 PT 相等判定应剥离后比较（term 与 AE 术语不同、仅 PT 相等时 PT 判定是唯一通路）。"""
+        from mm_build import ib_match
+        C = self._C([{'term': '血管性头痛风险', 'label': 'IB风险', 're': '', 'pt': '头痛（10019211）', 'soc': '', 'labs': []}])
+        self.assertEqual(ib_match(C, {'t': '偶发头痛', 'pt': '头痛', 'soc': '', 'sae': False, 'g': '1级'}),
+                         ['IB风险·血管性头痛风险'])
+
+
 class SampleWindowDedup(unittest.TestCase):
     """K10：PK/PD 同一采血时刻两管各计一次 SAMP-02 → 按 (sid, visit, date, tpt, time) 去重合并，
     事实列出涉及的样本类型（实证 D001 PC/PD 成对出现应减半）。"""
@@ -457,6 +691,107 @@ class SampleWindowDedup(unittest.TestCase):
         self.assertEqual(len(items), 2)
         self.assertIn('（PC）', items[0]['fact'])                    # 单管事实写法不变（金标准快照口径）
         self.assertIn('（PD）', items[1]['fact'])
+
+
+class MetricDirectionTable(unittest.TestCase):
+    """方向表补条（2026-10-29 用户批准）：QT/PR 间期、凝血、AMH 判单向，铁代谢与生命体征判双向。
+    both=显式条目、不限制（metric_dir 返回 None），不得误伤。"""
+
+    @classmethod
+    def setUpClass(cls):
+        from ext_rules import set_metric_dir
+        set_metric_dir(None)                             # 项目覆盖为空 → 纯默认表
+
+    def test_qt_pr_intervals_up(self):
+        from ext_rules import metric_dir
+        for s in ('QT间期', 'QT', 'QTc', 'QTcF', 'QTcB', 'PR间期', 'P-R间期', '校正QT间期'):
+            self.assertEqual(metric_dir(s), 'up', f'{s} 应判 up')
+
+    def test_coagulation_up(self):
+        from ext_rules import metric_dir
+        for s in ('INR', '国际标准化比值', '凝血酶原时间', 'PT', '活化部分凝血活酶时间', 'APTT', '部分凝血活酶时间'):
+            self.assertEqual(metric_dir(s), 'up', f'{s} 应判 up')
+
+    def test_amh_down(self):
+        from ext_rules import metric_dir
+        for s in ('AMH', '抗缪勒管激素', '抗缪勒氏管激素', '抗苗勒管激素'):
+            self.assertEqual(metric_dir(s), 'down', f'{s} 应判 down')
+
+    def test_iron_and_vitals_both_unrestricted(self):
+        from ext_rules import metric_dir
+        for s in ('铁蛋白', '血清铁', '总铁结合力', '体温', '脉搏', '呼吸频率', '心率'):
+            self.assertIsNone(metric_dir(s), f'{s} 应为 both＝不限制（返回 None）')
+
+    def test_no_false_hits_and_old_rows_intact(self):
+        from ext_rules import metric_dir
+        self.assertEqual(metric_dir('HDL'), 'down')      # 旧条目回归：HDL 仍 down
+        self.assertEqual(metric_dir('丙氨酸氨基转移酶'), 'up')
+        self.assertIsNone(metric_dir('催乳素 PRL'))       # PR 词边界：PRL 不受 PR 条影响
+        self.assertIsNone(metric_dir('白细胞计数'))        # 未收录指标不判方向（现状不变）
+
+
+class IbUmbrellaDowngrade(unittest.TestCase):
+    """IB 伞形条目降级（2026-10-29 用户裁定）：
+    (a) 伞形判据＝风险术语去括号词与通用实验室词（检测/检查/异常/升高/降低/变化/实验室）后零剩余；
+    (b) 伞形条目不走第③级「各类检查」类别兜底，保留第②级同 SOC（严重/≥3 级过滤不变）；
+    (c) 伞形条目带 findings.analyte 时类别兜底允许，但要求 AE 术语与 analyte/label 共享实质词；
+    (d) 非伞形条目类别兜底要求与 AE 术语共享 ≥2 字实质内容词。
+    背景：D001 曾因「血液学检测异常→各类检查」链给 311 条 soc=各类检查 的 AE 全量打标签（AE 行 353/488 带标签）。"""
+
+    @staticmethod
+    def _C(entries):
+        from types import SimpleNamespace
+        return SimpleNamespace(A={'expectedAE': entries})
+
+    def test_umbrella_judgement(self):
+        from mm_build import _umbrella_term
+        self.assertTrue(_umbrella_term('血液学检测异常'))
+        self.assertTrue(_umbrella_term('实验室检查异常'))
+        self.assertTrue(_umbrella_term('心电图检查异常'))
+        self.assertFalse(_umbrella_term('中性粒细胞计数减少'))   # 剩「中性粒细胞…」实质词＝非伞形
+        self.assertFalse(_umbrella_term('血压升高'))
+        self.assertFalse(_umbrella_term('血脂异常'))
+
+    def test_umbrella_without_analyte_blocked(self):
+        """链1：伞形条目无 analyte → 类别兜底被拦（311 条噪音链回归闸；≥3 级也不放行）。"""
+        from mm_build import ib_match
+        C = self._C([{'term': '实验室检查异常', 'label': 'IB重要潜在风险', 're': '', 'pt': '', 'soc': '各类检查', 'labs': []}])
+        self.assertEqual(ib_match(C, {'t': '肌酸激酶升高', 'pt': '肌酸激酶升高', 'soc': '各类检查', 'sae': False, 'g': '4级'}), [])
+
+    def test_umbrella_with_analyte_matches_only_that_analyte(self):
+        """链2：伞形条目带 analyte → 只兜 AE 术语共享该指标实质词的记录。"""
+        from mm_build import ib_match
+        C = self._C([{'term': '血液学检测异常', 'label': 'IB重要潜在风险', 're': '', 'pt': '', 'soc': '各类检查',
+                      'labs': [['WBC', 'WBC、LYMPH计数及比率降低', 'low']]}])
+        self.assertEqual(ib_match(C, {'t': '白细胞计数降低', 'pt': '', 'soc': '各类检查', 'sae': True, 'g': '2级'}),
+                         ['IB重要潜在风险·血液学检测异常（各类检查，严重/≥3级）'])
+        self.assertEqual(ib_match(C, {'t': '肌酸激酶升高', 'pt': '', 'soc': '各类检查', 'sae': True, 'g': '4级'}), [])
+
+    def test_specific_entry_shared_stem_hits(self):
+        """链3：非伞形具体条目与 AE 术语共享 ≥2 字实质词 → 类别兜底命中。"""
+        from mm_build import ib_match
+        C = self._C([{'term': '血小板减少', 'label': 'IB风险', 're': '', 'pt': '', 'soc': '各类检查', 'labs': []}])
+        self.assertEqual(ib_match(C, {'t': '血小板计数降低', 'pt': '', 'soc': '各类检查', 'sae': True, 'g': '3级'}),
+                         ['IB风险·血小板减少（各类检查，严重/≥3级）'])
+
+    def test_specific_entry_without_shared_stem_blocked(self):
+        """链4：非伞形具体条目与 AE 术语无共享实质词 → 被拦。"""
+        from mm_build import ib_match
+        C = self._C([{'term': '肝酶升高', 'label': 'IB风险', 're': '', 'pt': '', 'soc': '各类检查', 'labs': []}])
+        self.assertEqual(ib_match(C, {'t': '肌酸激酶升高', 'pt': '', 'soc': '各类检查', 'sae': True, 'g': '3级'}), [])
+
+    def test_same_soc_severe_unchanged(self):
+        """回归守卫：第②级同 SOC（真实器官系统 SOC、严重/≥3 级过滤）不受伞形降级影响。"""
+        from mm_build import ib_match
+        C = self._C([{'term': '严重感染', 'label': 'IB重要潜在风险', 're': '', 'pt': '感染', 'soc': '感染及侵染类疾病', 'labs': []}])
+        self.assertEqual(ib_match(C, {'t': '肺炎', 'pt': '肺炎', 'soc': '感染及侵染类疾病', 'sae': True, 'g': '2级'}),
+                         ['IB重要潜在风险·严重感染（同SOC，严重/≥3级）'])
+
+    def test_cell_suffix_no_false_share(self):
+        """回归守卫：淋巴细胞×中性粒细胞不因「细胞」误共享（公共前缀锚定）。"""
+        from mm_build import ib_match
+        C = self._C([{'term': '淋巴细胞计数减少', 'label': 'IB风险', 're': '', 'pt': '', 'soc': '各类检查', 'labs': []}])
+        self.assertEqual(ib_match(C, {'t': '中性粒细胞计数减少', 'pt': '', 'soc': '各类检查', 'sae': True, 'g': '3级'}), [])
 
 
 if __name__ == '__main__':
