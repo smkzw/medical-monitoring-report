@@ -86,5 +86,5 @@ const todo=(D.todo&&D.todo.length?D.todo:[
 document.getElementById('todo').innerHTML=`<table class="t"><tbody>${todo.map(t=>`<tr class="click" onclick="location.href='${t[2]}'"><td style="width:90px">${t[0]}</td><td>${t[1]}</td><td class="faint">›</td></tr>`).join('')}</tbody></table>`;
 /* 审阅要点：折叠区首次展开时渲染（与 methods.html 同一渲染器） */
 const mf=document.getElementById('mfold');if(mf)mf.addEventListener('toggle',()=>{if(mf.open&&!mf.dataset.done&&K.renderMethods){mf.dataset.done=1;K.renderMethods(document.getElementById('mbody'),{embed:true})}});
-{const dc=K.deltaCard(),kp=app.querySelector('.kpis');if(dc&&kp)kp.insertAdjacentHTML('afterend',dc)}
+{const kp=app.querySelector('.kpis'),dc=K.deltaCard(),kn=K.knBar(D.knowledge);if(dc&&kp)kp.insertAdjacentHTML('afterend',dc);if(kn&&kp)kp.insertAdjacentHTML('beforebegin',kn)/* mm4：知识层降级 → 顶部警示条 */}
 });

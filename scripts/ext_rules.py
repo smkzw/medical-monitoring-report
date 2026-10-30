@@ -623,33 +623,128 @@ def judgment_only(C, r, rows, t_base):
     return not worse_vs_base(r, r.get('base'), t_base) and any(a.get('clin') == 1 and same_level(C, a, r) for a in rows)
 
 
+# ----------------------------------------------------------------------------- 判定一致性（用户 2026-10-30 终版：换芯＋同受试者版）
+# 两维度：a. 判定维度（方向性）——可比对（同受试者/同中心跨受试者 × 同指标/单位/参考范围 × 同向异常 × 同给药阶段）
+# 中更差者（偏离参考边界更远，相对偏离度、无最小差阈值）判 NCS 而更轻者判 CS → 发；更差者判 CS → 不发；
+# 数值相等而判定不同 → 发（无更差方可定向，判定不同即不一致）。
+# b. 归因维度（无方向不排序）——两条均 CS 且归因不同（AE/MH/研究疾病/未关联 任一不同）→ 发归因不一致。
+# 旧「clinConsistTol ±10% / consTol ±5% 相近即双向报」口径废止。
+
+def att_of(r):
+    """CS 记录的归因（优先级 AE > MH > 研究疾病 > 未关联）：检验页关联编号优先，其次 CS 原因码（reason_map 归类）。
+    links 兼容两种形态：parse_links 列表 ['AE', 术语, 日期, 编号] 与 dict {'type': 'AE', …}。"""
+    ls = r.get('links') or []
+
+    def typ(l):
+        t = l[0] if isinstance(l, (list, tuple)) else (l.get('type') if isinstance(l, dict) else l)
+        return str(t or '').upper()
+    if any(typ(l) == 'AE' for l in ls):
+        return 'AE'
+    if any(typ(l) == 'MH' for l in ls):
+        return 'MH'
+    if 'disease' in (r.get('reason') or ''):
+        return '研究疾病'
+    return '未关联'
+
+
+def cons_dev(r, d):
+    """偏离参考边界的相对偏离度（可比组共享同一参考边界，组内直接可比；无最小差阈值——微差也算更差）。
+    H=(v−hi)/|hi|、L=(lo−v)/|lo|；边界为 0 时退 |v−边界|/max(|v|,1e-9)（同为 0 边界的组内仍可比）。"""
+    v = r['value']
+    b = r.get('hi') if d == 'H' else r.get('lo')
+    x = (v - b) if d == 'H' else (b - v)
+    den = abs(b) if b else 0
+    return x / den if den else x / max(abs(v), 1e-9)
+
+
+def cons_witnesses(cs, ncs, d, cross_subject):
+    """判定维度配对：每个 CS 行锚定「偏离度不小于它」的最近一名 NCS 行（cross_subject 时要求不同受试者）。
+    返回 [(a=CS 更轻, b=NCS 更差或相等, equal)]；equal＝偏离度相等（数值相等）→ 无更差方，判定不同即不一致。"""
+    out, used = [], set()
+    for a in cs:
+        dev_a = cons_dev(a, d)
+        cands = [b for b in ncs if id(b) not in used and (not cross_subject or b['sid'] != a['sid'])
+                 and cons_dev(b, d) >= dev_a]
+        if not cands:
+            continue
+        b = min(cands, key=lambda r: (cons_dev(r, d), str(r.get('date') or ''), r.get('row') or 0))
+        used.add(id(b))
+        out.append((a, b, cons_dev(b, d) == dev_a))
+    return out
+
+
+def cons_attribution(cs, cross_subject):
+    """归因维度配对：两条均 CS 且归因不同 → 一对（无方向不排序）；每行至多出现在一对中，取序稳定。"""
+    out, used = [], set()
+    for i, a in enumerate(cs):
+        if id(a) in used:
+            continue
+        b = next((x for x in cs[i + 1:] if id(x) not in used and (not cross_subject or x['sid'] != a['sid'])
+                  and att_of(x) != att_of(a)), None)
+        if b is None:
+            continue
+        used.add(id(a))
+        used.add(id(b))
+        out.append((a, b))
+    return out
+
+
+def _cons_text(C, mid, kind, d, a, b, equal):
+    """单条判定/归因不一致的人话文案（方向性口径；质疑与一致性 tab 共用一出处）。"""
+    lab = C.metric[mid]['label']
+    va = f"{a.get('visit')}访视 {_val(_raw_or_val(a), a.get('unit'))}"
+    vb = f"{b.get('visit')}访视 {_val(_raw_or_val(b), b.get('unit'))}"
+    if kind == 'att':
+        return f"{lab}：{va} 判 CS 归因{att_of(a)}，{vb} 判 CS 归因{att_of(b)}，相似结果归因不同"
+    if equal:
+        return f"{lab}：{va} 与 {vb} 数值相同，判定不同（一判CS一判NCS）"
+    return (f"{lab}：{vb} 偏离参考边界更远（{cons_dev(b, d):.1%}）判 NCS，"
+            f"{va}（{cons_dev(a, d):.1%}）反而判 CS——更差者判轻")
+
+
 def clin_consistency(C):
-    """同一受试者同一指标，相同/相近结果一次判 NCS、一次判 CS → 发 query（判定一致性；不构成方案偏离）。
-    同一受试者同一表单合并为一条（D002：贫血受试者的 MCH/MCHC/MCV/Hb 常同时出现），锚定最近一次相关记录。"""
+    """判定一致性·同受试者（用户 2026-10-30 终版换芯，方向性＋归因维度，见本文件「判定一致性」段头注释）。
+    同一受试者同一表单合并为一条（D002：贫血受试者的 MCH/MCHC/MCV/Hb 常同时出现），锚定最近一次相关记录；
+    不构成方案偏离。"""
     by = defaultdict(list)
     for (sid, mid), rows in sorted(C.F.items()):
         if sid not in C.pop:
             continue
-        pairs = [tuple(sorted((a, b), key=lambda x: x.get('date') or '')) for b in rows if b.get('clin') == 2
-                 for a in rows if a.get('clin') == 1 and same_level(C, a, b)]
-        if pairs:
-            by[(sid, pairs[0][0]['sheet'])].append((mid, pairs))
+        groups = defaultdict(list)
+        for r in rows:
+            if r.get('value') is None or r.get('clin') not in (1, 2):
+                continue
+            d = 'H' if r.get('hi') is not None and r['value'] > r['hi'] else 'L' if r.get('lo') is not None and r['value'] < r['lo'] else ''
+            if d:
+                groups[(d, bool(r.get('post')), r.get('unit'), r.get('lo'), r.get('hi'))].append(r)
+        items = []
+        for (d, *_), rs in groups.items():
+            cs = [r for r in rs if r['clin'] == 2]
+            ncs = [r for r in rs if r['clin'] == 1]
+            for a, b, equal in cons_witnesses(cs, ncs, d, cross_subject=False):
+                items.append(('judg', mid, d, a, b, equal))
+            for a, b in cons_attribution(cs, cross_subject=False):
+                items.append(('att', mid, d, a, b, False))
+        if items:
+            by[(sid, items[0][3]['sheet'])].append((mid, items))
     for (sid, sh), items in sorted(by.items()):
         def last(it):
-            return max(x.get('date') or '' for p in it[1] for x in p)
+            return max((x[3].get('date') or '') for m, lst in [it] for x in lst)
         items.sort(key=last, reverse=True)
-        mid, pairs = items[0]
-        late = max((x for p in pairs for x in p), key=lambda x: x.get('date') or '')
+        late = max((x[3] for m, lst in items for x in lst), key=lambda x: x.get('date') or '')
         parts = []
-        for m, ps in items[:3]:
-            a, b = max(ps, key=lambda p: p[1].get('date') or '')
-            parts.append(f"{C.metric[m]['label']}：" + '，'.join(
-                f"{x.get('visit')}访视{_val(_raw_or_val(x), x.get('unit'))}判为{'CS' if x.get('clin') == 2 else 'NCS'}" for x in (a, b)))
-        more = f"（另有 {len(items) - 3} 项同类情况）" if len(items) > 3 else ''
-        add_ext(C, sid, '临床意义判定不一致', 'CLIN-INC', 3, '；'.join(parts) + f"，结果相近但判定不同{more}",
-                late.get('visit'), late.get('date'), late['sheet'], late['row'], C.metric[mid]['label'],
+        for m, lst in items[:3]:
+            for kind, mm, d, a, b, equal in lst[:2]:
+                parts.append(_cons_text(C, m, kind, d, a, b, equal))
+        total = sum(len(lst) for m, lst in items)
+        more = f"（另有 {total - len(parts)} 项同类情况）" if total > len(parts) else ''
+        kinds = {kind for m, lst in items[:3] for kind, *_ in lst[:2]}
+        ask = ('请核实归因一致性：相似结果宜给出一致的医学解释；如异常与AE/病史相关，请在检验页关联记录。'
+               if kinds == {'att'} else '请核实并统一临床意义判定；如判为有临床意义，请评估是否需记录AE。')
+        add_ext(C, sid, '临床意义判定不一致', 'CLIN-INC', 3, '；'.join(parts) + more,
+                late.get('visit'), late.get('date'), late['sheet'], late['row'], C.metric[items[0][0]]['label'],
                 ctx=['判定一致性核对（不构成方案偏离）'],
-                rule={'ask': '请核实并统一临床意义判定；如判为有临床意义，请评估是否需记录AE。'},
+                rule={'ask': ask},
                 bkey=f"{sh}|clin", wb=late.get('wb') or '')
 
 

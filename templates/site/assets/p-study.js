@@ -29,7 +29,8 @@ ${(DS.facts||[]).length||(ST.endpoints||[]).length?`<div class="card mt"><div cl
 <div class="chips mb" id="rd"></div><div id="rules"></div>`;
 /* ---------- 关键口径 ---------- */
 const CST={'方案规定':'grn','口径裁定':'org','待确认':'red','项目配置':'blu','默认采用':'line'};
-app.querySelector('#cal').innerHTML=(ST.calibers||[]).map(c=>`<div class="c1"><div class="t">${K.esc(c[0])}<span class="sp"></span>${K.p(c[2],CST[c[2]]||'line')}${c[3]?K.rp(c[3]):''}</div><div class="v">${K.esc(c[1])}</div>${c[4]?`<div class="s">${K.esc(c[4])}</div>`:''}</div>`).join('')||'<div class="empty">未生成关键口径</div>';
+/* mm4：知识层状态卡置顶（KZ.knowledge＝study analysis.knowledge；绿＝可用，红＝MedDRA 不可用降级；无键＝旧构建不显示） */
+app.querySelector('#cal').innerHTML=K.knCard(D.knowledge)+((ST.calibers||[]).map(c=>`<div class="c1"><div class="t">${K.esc(c[0])}<span class="sp"></span>${K.p(c[2],CST[c[2]]||'line')}${c[3]?K.rp(c[3]):''}</div><div class="v">${K.esc(c[1])}</div>${c[4]?`<div class="s">${K.esc(c[4])}</div>`:''}</div>`).join('')||'<div class="empty">未生成关键口径</div>');
 /* ---------- 监查规则（按领域）---------- */
 /* ---------- thresholds ---------- */
 const L=(cond,c,out)=>`<div class="flex" style="align-items:flex-start;margin:3px 0"><span style="flex:0 0 46%">${K.p(cond,c)}</span><span class="small">${out}</span></div>`;

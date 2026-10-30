@@ -266,8 +266,16 @@ def findings(spec, books, M):
                 f['reason'] = '+'.join(filter(None, [f['reason'], 'link']))
             if not f['test']:
                 continue
-            if isinstance(f['unit'], str) and re.match(r'^10\^?\d', f['unit']):
-                f['unit'] = '×' + f['unit']  # "10^9/L" → "×10^9/L" so "68 ×10^9/L" reads correctly
+            if isinstance(f['unit'], str) and '10^' in f['unit']:
+                # 单位科学计数归一（一处分叉收口）：运算符统一为 ×——大小写 x/X、全半角乘号 ＊/×/✕/⨯ 及其与
+                # 数字间的空格都收（SAR 实测 *10^9/L、x10^9/L、×10^9/L 混存）；数字直接粘 10^（星号在复制/导出链
+                # 被吞的成品形态「310^9/L」）补 ×；裸 10^9/L 前缀口径保留。归一后程序文案 {raw}{unit} 无分隔拼接自然正确。
+                u = re.sub(r'^\s*[*＊xXｘＸ✕⨯×]+\s*10\^', '×10^', f['unit'])
+                u = re.sub(r'(\d)\s*[*＊xXｘＸ✕⨯×]+\s*10\^', r'\1×10^', u)
+                u = re.sub(r'(\d)10\^', r'\1×10^', u)
+                if re.match(r'^\s*10\^', u):
+                    u = '×' + u.lstrip()  # "10^9/L" → "×10^9/L" so "68 ×10^9/L" reads correctly
+                f['unit'] = u
             out.append(f)
     return out
 

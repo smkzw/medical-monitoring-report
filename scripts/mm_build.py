@@ -327,8 +327,18 @@ def build_events(C):
                                   'aeno': str(c.get('aeno') or '')})
 
 
+_AE_NO_SOC_NOTE = '（未按器官系统——MedDRA 不可用）'
+
+
 def ae_summary(C):
     post = [a for a in C.aes if a['sid'] in C.pop and a['te']]
+    # mm4 知识层降级兜底（试用实证：无字典时 AE 谱按原文术语分 123 组刷屏）：无 soc 且类别落在原文术语上的比例
+    # >80%（含完全无字典）时，不按原文术语逐条分组，改按 IB 风险类别（rec['ib'] 首标签）分组＋超出前 20 归「其他」，
+    # 组名注明降级；AE 记录类别同步改写（安全页类别 chips 与总览 AE 谱同一口径）。
+    # 已配置 aeCatMap（用户口径）或带 soc 的类别不算原文术语：比例达标即维持原行为。
+    if post and sum(1 for a in post if not a.get('soc') and a.get('c') == a.get('t')) > 0.8 * len(post):
+        C.aesum = _ae_summary_by_ib(post)
+        return
     cats = defaultdict(lambda: {'n': 0, 's': set(), 'g2': 0, 'rel': 0, 'aesi': 0, 'terms': Counter()})
     for a in post:
         c = cats[a['c']]
@@ -340,6 +350,26 @@ def ae_summary(C):
         c['terms'][a['t']] += 1
     C.aesum = {k: {'n': v['n'], 's': len(v['s']), 'g2': v['g2'], 'rel': v['rel'], 'aesi': v['aesi'], 'terms': [t for t, _ in v['terms'].most_common()]}
                for k, v in sorted(cats.items(), key=lambda kv: -kv[1]['n'])}
+
+
+def _ae_summary_by_ib(post):
+    """无字典兜底分组：IB 风险类别（首标签）＋其他；组数 >20 时保留前 19 类、其余并入「其他」；组名带降级注明。"""
+    cats = defaultdict(lambda: {'n': 0, 's': set(), 'g2': 0, 'rel': 0, 'aesi': 0, 'terms': Counter()})
+    by_cat = Counter(a['ib'][0].split('·')[0] for a in post if a.get('ib'))
+    keep = {k for k, _ in by_cat.most_common(19)}
+    for a in post:
+        k0 = a['ib'][0].split('·')[0] if a.get('ib') else ''
+        name = (k0 if k0 in keep else '其他') + _AE_NO_SOC_NOTE
+        a['c'] = name
+        c = cats[name]
+        c['n'] += 1
+        c['s'].add(a['sid'])
+        c['g2'] += (grade_int(a['g']) or 0) >= 2
+        c['rel'] += a['_rel']
+        c['aesi'] += a['aesi']
+        c['terms'][a['t']] += 1
+    return {k: {'n': v['n'], 's': len(v['s']), 'g2': v['g2'], 'rel': v['rel'], 'aesi': v['aesi'], 'terms': [t for t, _ in v['terms'].most_common()]}
+            for k, v in sorted(cats.items(), key=lambda kv: -kv[1]['n'])}
 
 
 # ----------------------------------------------------------------------------- findings
@@ -1012,9 +1042,16 @@ def ae_checks(C):
         for sid, L in C.ae_by.items():
             for i, x in enumerate(L):
                 for y in L[i + 1:]:
-                    if x['t'] == y['t'] and x['s'] and y['s'] and (not x['e'] or y['s'] <= x['e']) and (not y['e'] or x['s'] <= y['e']):
-                        add_other(C, sid, 'AE重复/同义记录核对', 2, f"同一术语「{x['t']}」两条记录时间重叠（#{x['n']} {x['s']}~{x['e'] or '持续'} / #{y['n']} {y['s']}~{y['e'] or '持续'}）",
-                                  None, y['s'], y['sh'], y['row'], y['t'], rel=[['AE', x['t'], x['s'], x['n']], ['AE', y['t'], y['s'], y['n']]], risk='AE')
+                    if not (x['s'] and y['s'] and (not x['e'] or y['s'] <= x['e']) and (not y['e'] or x['s'] <= y['e'])):
+                        continue
+                    # mm4 用户裁定（2026-10-30）：风险＝同一临床事实（同受试者、时间重叠）下记录了**不同 PT** 的 AE
+                    # （疑似重复记录或编码不一致）；同一 PT（含原文写法不同）视为同一 AE，不发；
+                    # pt 缺失（字典降级）时本规则不运行（知识层降级状态在研究依据页可见）。
+                    if not x.get('pt') or not y.get('pt') or x['pt'] == y['pt']:
+                        continue
+                    add_other(C, sid, 'AE一致性核对（PT级）', 2, f"同一受试者同期记录了不同 AE（PT 级：{x['pt']} vs {y['pt']}）："
+                              f"「{x['t']}」#{x['n']} {x['s']}~{x['e'] or '持续'} / 「{y['t']}」#{y['n']} {y['s']}~{y['e'] or '持续'}，请核实是否重复记录或编码不一致",
+                              None, y['s'], y['sh'], y['row'], y['t'], rel=[['AE', x['t'], x['s'], x['n']], ['AE', y['t'], y['s'], y['n']]], risk='AE')
 
 
 def range_checks(C):
@@ -1436,41 +1473,66 @@ def build_queries(C):
 
 # ----------------------------------------------------------------------------- consistency / centers
 def build_cons(C):
-    tol = C.A.get('consTol', 0.05)
-    by = defaultdict(list)
+    """判定一致性数据面（用户 2026-10-30 终版：同中心换芯＋同受试者版新增；旧 ±5%「相近即双向报」废止）。
+    可比对＝同受试者（scope=subject）或同中心跨受试者（scope=center）×同指标/单位/参考范围×同向异常
+    （都超参考范围同向；一升一降不可比）×同给药阶段（给药前不与给药后比）。两维度（ext_rules 同一出处）：
+    a. 判定维度（kind=judg，方向性）：更差者（偏离参考边界更远，相对偏离度、无最小差阈值）判 NCS 而更轻者判 CS → 发；
+       数值相等而判定不同 → 发（无更差方可定向）；更差者判 CS → 不发。
+    b. 归因维度（kind=att，无方向不排序）：两条均 CS 且归因不同（AE/MH/研究疾病/未关联 任一不同）→ 发。
+    同受试者维度的不一致已由 ext_rules.clin_consistency 发质疑——质疑面已覆盖的标「已有问题覆盖」；
+    跨例比较只作提示，不以多数判定作为医学标准。"""
+    C.cons = []
+    qrows = {(q['sh'], q['row']) for q in C.queries}
+
+    def side(r):
+        att = ext_rules.att_of(r) if r['clin'] == 2 else ''
+        return [r.get('visit'), r.get('date'), r.get('raw'), r.get('unit') or '', '异常有临床意义' if r['clin'] == 2 else '异常无临床意义',
+                f"{fmt(r.get('lo'))}–{fmt(r.get('hi'))}", r['sheet'], r['row'], f'归因{att}' if att else '']
+
+    def emit(scope, site, sid, mid, kind, d, a, b, equal):
+        lab = C.metric[mid]['label']
+        va = f"{a.get('visit')}访视 {a.get('raw')}{a.get('unit') or ''}"
+        vb = f"{b.get('visit')}访视 {b.get('raw')}{b.get('unit') or ''}"
+        st = '已有问题覆盖' if (a['sheet'], a['row']) in qrows or (b['sheet'], b['row']) in qrows else '需核实'
+        if kind == 'att':
+            diff = (f"{'同一受试者' if scope == 'subject' else '同中心'}{lab}相似结果均判 CS 但归因不同："
+                    f"{va} 归因{ext_rules.att_of(a)}，{vb} 归因{ext_rules.att_of(b)}")
+            why = ('同一受试者' if scope == 'subject' else '同一中心') + \
+                  '对相似结果给出不同医学解释（CS 归因 AE/病史/研究疾病/未关联 不一致）；先核对两次异常的症状/处置与关联记录差异，再决定是否质疑。'
+        elif equal:
+            diff = f"{'同一受试者' if scope == 'subject' else '同中心'}{lab}数值相同（{va} 与 {vb}），分别判 CS 与 NCS——判定不一致"
+            why = ('相同数值的判定不同即不一致（无更差方可定向）；' if scope == 'subject' else
+                   '同一中心对相同数值分别判 CS 与 NCS——判定尺度不一致；') + \
+                  '先核对症状/复查/处置差异，再决定是否质疑。跨例比较只作提示，不以多数判定作为医学标准。'
+        else:
+            diff = (f"{'同一受试者' if scope == 'subject' else '同中心'}{lab}同向异常：{vb} 偏离参考边界更远"
+                    f"（{ext_rules.cons_dev(b, d):.1%}）判 NCS，{va}（{ext_rules.cons_dev(a, d):.1%}）反而判 CS——更差者判轻")
+            why = ('同一受试者' if scope == 'subject' else '同一中心') + \
+                  '对同向异常的判定尺度不一致：偏离参考边界更远者判 NCS、较轻者判 CS；先核对症状/复查/处置差异，再决定是否质疑。跨例比较只作提示，不以多数判定作为医学标准。'
+        o = {'id': f'C{len(C.cons) + 1:03d}', 'scope': scope, 'kind': kind, 'site': site, 'test': lab,
+             'a': a['sid'], 'b': b['sid'], 'diff': diff, 'st': st, 'why': why, 'av': side(a), 'bv': side(b)}
+        if scope == 'subject':
+            o['sid'] = sid
+        C.cons.append(o)
+
+    groups = defaultdict(list)          # (scope键, mid, unit, lo, hi, 方向, 给药阶段) → 行；同向异常同阶段才可比
     for (sid, mid), rows in C.F.items():
         if sid not in C.pop:
             continue
         for r in rows:
-            if r['post'] and r.get('value') is not None and r.get('clin') in (1, 2) and C.isAgg(r.get('visit')):
+            if r.get('value') is not None and r.get('clin') in (1, 2) and C.isAgg(r.get('visit')):
                 d = 'H' if r.get('hi') is not None and r['value'] > r['hi'] else 'L' if r.get('lo') is not None and r['value'] < r['lo'] else ''
                 if d:
-                    by[(C.subj[sid]['site'], mid, r.get('unit'), r.get('lo'), r.get('hi'), d)].append(r)
-    C.cons = []
-    qrows = {(q['sh'], q['row']) for q in C.queries}
-    for (site, mid, *_), rs in by.items():
+                    k = (mid, r.get('unit'), r.get('lo'), r.get('hi'), d, bool(r.get('post')))
+                    groups[('center', C.subj[sid]['site']) + k].append(r)
+                    groups[('subject', sid) + k].append(r)
+    for (scope, skey, mid, unit, lo, hi, d, post), rs in sorted(groups.items(), key=lambda kv: tuple(str(x) for x in kv[0])):
         cs = [r for r in rs if r['clin'] == 2]
         ncs = [r for r in rs if r['clin'] == 1]
-        used = set()
-        for a in cs:
-            best = None
-            for b in ncs:
-                if b['sid'] == a['sid'] or b['sid'] in used:
-                    continue
-                if abs(a['value'] - b['value']) <= tol * max(abs(a['value']), 1e-9):
-                    if b['value'] == a['value'] or (abs(b['value'] - a['value']) <= abs((best or {'value': 1e18})['value'] - a['value'])):
-                        best = b
-            if not best:
-                continue
-            used.add(best['sid'])
-            b = best
-            st = '已有问题覆盖' if (a['sheet'], a['row']) in qrows or (b['sheet'], b['row']) in qrows else '需核实'
-            side = lambda r: [r.get('visit'), r.get('date'), r.get('raw'), r.get('unit') or '', '异常有临床意义' if r['clin'] == 2 else '异常无临床意义',
-                              f"{fmt(r.get('lo'))}–{fmt(r.get('hi'))}", r['sheet'], r['row']]
-            C.cons.append({'id': f'C{len(C.cons) + 1:03d}', 'site': site, 'test': C.metric[mid]['label'], 'a': a['sid'], 'b': b['sid'],
-                           'diff': f"同中心同指标，数值 {a.get('raw')} 与 {b.get('raw')} {a.get('unit') or ''}（相差 ≤{int(tol * 100)}%），一例判 CS、一例判 NCS",
-                           'st': st, 'why': '同一中心对相近数值的临床意义判定尺度不一致；先核对症状/复查/处置差异，再决定是否质疑。跨例比较只作提示，不以多数判定作为医学标准。',
-                           'av': side(a), 'bv': side(b)})
+        for a, b, equal in ext_rules.cons_witnesses(cs, ncs, d, cross_subject=scope == 'center'):
+            emit(scope, skey if scope == 'center' else C.subj[skey]['site'], skey, mid, 'judg', d, a, b, equal)
+        for a, b in ext_rules.cons_attribution(cs, cross_subject=scope == 'center'):
+            emit(scope, skey if scope == 'center' else C.subj[skey]['site'], skey, mid, 'att', d, a, b, False)
 
 
 def build_centers(C):
@@ -1921,7 +1983,7 @@ def defaults(C):
              'f': ['结果 · 单位 · 参考范围', '临床意义评价（CS/NCS）', '异常描述', '病史/不良事件关联'],
              'flow': [['规定基线', '按方案基线定义（指定访视/首剂前最近/多次均值）；缺失时按规则回退'], ['数值等级', C.GL + '（基线异常按基线倍数）'], ['CS/NCS', '与数值、症状、处置对照'], ['关联对象', '同一疾病、时间吻合'], ['加重判断', '仅关联病史者比较基线']],
              'ab': {'个体': [['CS·未关联', 'solid-red', f"{lr('CSX')} 行"], ['CS·仅MH·较基线加重', 'org', f"{lr('MH')} 行"], ['NCS·≥2级', 'yel', f"{lr('NCS2')} 行"]] + ([['未评价·≥2级', 'yel', f"{lr('NA2')} 行"]] if lr('NA2') else []),
-                    '中心': [['同值异判', 'yel', f"{len(C.cons)} 组比较，{sum(c['st'] == '需核实' for c in C.cons)} 组需核实"]],
+                    '中心': [['同值异判', 'yel', f"{sum(1 for c in C.cons if c['scope'] == 'center')} 组同中心对照，{sum(1 for c in C.cons if c['scope'] == 'center' and c['st'] == '需核实')} 组需核实"]],
                     '全局': [['相对变化', 'line', f'无 {C.GL} 数值条目的指标仅作筛查，不改写 NCS']]},
              'ex': ex_for(list(dict.fromkeys(QT[k][0] for k in QT))), 'm': ['M01', 'M02', 'M03', 'M04', 'M05'], 'r': [], 'todo': [], 'go': [['safety.html#tab=lab', '待核异常明细'], ['objective.html', '检验趋势']]}]
         for d in tax['domains']:
@@ -1959,7 +2021,7 @@ def defaults(C):
         C.todo = [['CS·未关联', 'solid-red', f"{sum(g['risk'] == 'CSX' for g in C.labrows)} 行判CS但未关联AE/MH", 'safety.html#tab=lab&risk=CSX'],
                   ['优先核实', 'red', f"{sum(o['pr'] == 4 for o in C.others)} 条专项信号优先核实", 'safety.html#tab=oth'],
                   ['AESI', 'red', f"{sum(a['aesi'] for a in C.aes if not a['pre'])} 例次 AESI", 'safety.html#tab=ae&aesi=1'],
-                  ['一致性', 'grn', f"同中心判定对照 {len(C.cons)} 组：需核实 {sum(c['st'] == '需核实' for c in C.cons)}", 'safety.html#tab=cons'],
+                  ['一致性', 'grn', f"判定一致性 {len(C.cons)} 组（同中心 {sum(1 for c in C.cons if c['scope'] == 'center')} · 同受试者 {sum(1 for c in C.cons if c['scope'] == 'subject')}）：需核实 {sum(c['st'] == '需核实' for c in C.cons)}", 'safety.html#tab=cons'],
                   ['质疑', 'org', f"{len(C.queries)} 条医学质疑已写入交付表格", 'queries.html']]
         an = Counter(x['k'] for x in C.KZeff['anomalies'])
         if an:
@@ -2102,6 +2164,8 @@ def analyze(C):
           # mm4 研究依据页：方案规则的只读视图（编译后的可执行口径，供「监查规则」按领域展示；不含任何受试者数据）
           'basis': {k: C.A.get(k) for k in ('visitWindows', 'eligibility', 'eligibilitySubject', 'prohibited', 'washout', 'aesi', 'reportRules',
                                              'thresholdRules', 'comboRules', 'indicationBackground', 'cmProtocolRequired', 'pd', 'effRulesText') if C.A.get(k)}}
+    if C.A.get('knowledge'):
+        KZ['knowledge'] = C.A['knowledge']    # mm4：知识状态进数据面（工作台 S2.5/kb_inject 写入 analysis.knowledge；无键＝旧构建形态无扰）
     return KZ, csb_candidates
 
 

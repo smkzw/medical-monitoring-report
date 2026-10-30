@@ -65,6 +65,21 @@ K.deltaCard=()=>{const S=window.KZS||{},DL=S.delta,R=K.RD();if(!DL)return '';
    <div><div class="xs muted mb">风险变化（各页可勾选「只看本次新增/加重」）</div>${rc||'<div class="small muted">本次与上次之间没有可比的风险数据</div>'}</div></div></div>`};
 K.shName=sh=>{const s=String(sh||'').replace(/^[^:]*:/,''),n=((C0().sheetNames)||{})[s];return n?`${n}（${s}）`:s};
 K.loc=(sh,row)=>`${K.shName(sh)}${row!=null&&row!==''?' 第'+row+'行':''}`;
+/* ---- 知识层状态（study analysis.knowledge 经构建透出为 KZ.knowledge；键缺失＝旧构建，不渲染）----
+ * degraded＝MedDRA 不可用（字典缺失或 AE 器官归类 0 条）：AE 未按器官系统归类、临床意义关联合理性未预判。
+ * 文案三页共用一处：研究依据页「知识层状态」卡／总览顶部警示条／query 页头提示。 */
+K.knCard=kn=>!kn?'':kn.degraded
+ ?`<div class="c1"><div class="t">知识层状态<span class="sp"></span>${K.p('降级','red')}</div><div class="v" style="color:var(--risk)">MedDRA 字典不可用：AE 未按器官系统归类、临床意义关联合理性未预判——请检查授权字典配置后重建</div></div>`
+ :`<div class="c1"><div class="t">知识层状态<span class="sp"></span>${K.p('可用','grn')}</div><div class="v">MedDRA ${K.esc(kn.meddra_version||'版本未记录')} · AE 器官归类 ${kn.ae_soc||0} 条 · 关联预判 ${(kn.implausible||0)+(kn.plausible||0)+(kn.unknown||0)} 行</div></div>`;
+K.knBar=kn=>kn&&kn.degraded?`<div class="box red" style="margin-bottom:10px">⚠ MedDRA 不可用（知识层降级，报告仍生成）：AE 未按器官系统归类、临床意义关联合理性未预判——请检查授权字典配置后重建（研究依据页「知识层状态」有详情）</div>`:'';
+K.knHint=kn=>kn&&kn.degraded?`<div class="box red mt small">⚠ MedDRA 不可用（知识层降级，报告仍生成）：关联类核对未含知识层预判，字典恢复后重建即自动补齐。</div>`:'';
+/* ---- 术语一致性按 PT 归并（安全页 AE tab）：以 MedDRA 首选术语（PT）为归并单位，
+ * 只列「同一 PT 下 ≥2 个不同原文术语」的桶；pt 覆盖率 <20%（含全空/无 AE）→ 降级，不按原文术语陈列冒充判定。 ---- */
+K.ptCons=aes=>{const L=aes||[];const wp=L.filter(a=>a.pt).length;
+ if(!L.length||wp/L.length<0.2)return{deg:true,rows:[]};
+ const b={};L.forEach(a=>{if(!a.pt)return;const t=b[a.pt]=b[a.pt]||{};t[a.t]=(t[a.t]||0)+1});
+ const rows=Object.entries(b).map(([pt,t])=>[pt,Object.entries(t).sort((x,y)=>y[1]-x[1]||x[0].localeCompare(y[0]))]).filter(r=>r[1].length>=2).sort((x,y)=>y[1].length-x[1].length);
+ return{deg:false,rows}};
 K.thrKey='kz.thr:'+((C0().study||{}).code||'');
 /* 存储 {dev,base,src}：src=user 用户在本浏览器自选（最高优先）；src=project 工作台项目阈值的本地副本（供页面脚本前载入档位用，项目设置变了会更新） */
 K._thrSel=(()=>{try{return JSON.parse(localStorage.getItem(K.thrKey)||'null')}catch(e){return null}})();

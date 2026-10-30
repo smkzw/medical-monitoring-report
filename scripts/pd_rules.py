@@ -355,7 +355,9 @@ class _PD:
                 self.add('RAND-01', sid, f"首次给药 {s['fd']} 早于随机日期 {rd}", date=s['fd'], src=[[_sh(e), e.get('row'), '给药']])
             # 「无随机信息」只在方案为随机研究（analysis.pd.requireRand）时才判，单臂/开放研究不会误报
             if (s.get('status') == '筛选失败') or (P.get('requireRand') and not rd and not s.get('rand')):
-                e = next((x for x in C.exposure if x['sid'] == sid), {})
+                # 证据指针取「有 start 的研究药物行」（SAR 深审 F3：首行可能是无日期的滥用史/占位行 → 溯源错表）
+                e = next((x for x in C.exposure if x['sid'] == sid and x.get('start') == s['fd']),
+                         next((x for x in C.exposure if x['sid'] == sid and is_full_date(x.get('start'))), {}))
                 self.add('RAND-02', sid, f"状态为「{s.get('status')}」/无随机信息，但有研究药物给药记录（{s.get('fd')}）", date=s.get('fd'),
                          src=[[_sh(e), e.get('row'), '给药']])
 

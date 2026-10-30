@@ -44,6 +44,51 @@ class LinkGrammar(unittest.TestCase):
         rx = r'(?P<type>AE|MH)(?P<no>\d+):(?P<term>[^|]+)'
         self.assertEqual(parse_links('AE3:头晕|MH1:高血压', rx), [['AE', '头晕', None, 3], ['MH', '高血压', None, 1]])
 
+    def test_paren_style(self):
+        """SAR 实测写法（SH/VS/USV/EG/PE/NE/PT/MO/CM/PR 共 426+ 非空关联单元格全部此格式）：「AE (5) 术语」。修前返回 []（红）。"""
+        self.assertEqual(parse_links('AE (5) PR间期缩短'), [['AE', 'PR间期缩短', None, 5]])
+        self.assertEqual(parse_links('MH (3) 阻生牙'), [['MH', '阻生牙', None, 3]])
+        self.assertEqual(parse_typed_links('MH (3) 阻生牙', 'MH'), [['MH', '阻生牙', None, 3]])
+        self.assertEqual(parse_links('MH (4) 贫血；AE (2) 皮疹'),
+                         [['MH', '贫血', None, 4], ['AE', '皮疹', None, 2]])
+        self.assertEqual(parse_links('AE（5）湿疹样皮炎'), [['AE', '湿疹样皮炎', None, 5]])   # 全角括号
+        self.assertEqual(parse_links('AE (5)'), [['AE', '', None, 5]])                        # 无术语
+
+    def test_paren_style_keeps_term_parens(self):
+        """编号后的右括号只剥开头：术语自带括号（头痛(重度)）不得被吃掉。"""
+        self.assertEqual(parse_links('AE (5) 头痛(重度)'), [['AE', '头痛(重度)', None, 5]])
+
+
+class DomainGuards(unittest.TestCase):
+    """SAR 深审 F2/F3：RAN 表名（无 D）此前不命中 ^RAND → 随机信息整表丢失；
+    DAH（药物滥用史）/EX1–EX7（背景治疗日志）此前全被吞进 exposure → 安全集虚增、首剂日期可取自背景治疗。"""
+    def test_ran_sheet_is_subjects(self):
+        import re
+        from inspect_listing import DOMAIN_RE
+        hit = [d for d, rx in DOMAIN_RE if re.search(rx, 'RAN')]
+        self.assertEqual(hit[0], 'subjects')
+
+    def test_subject_rand_status_fields(self):
+        from inspect_listing import DOMAIN_FIELDS, FIELD_SYN, SYS_META, guess
+        self.assertIn('rand_d', DOMAIN_FIELDS['subjects'])
+        self.assertIn('status', DOMAIN_FIELDS['subjects'])
+        self.assertEqual(SYS_META.get('受试者状态'), 'status')
+        names = [('受试者编号', 'SUBJID'), ('是否筛选成功并随机', 'RANYN'), ('随机日期', 'RANDAT'),
+                 ('随机号', 'RANNUM'), ('受试者状态', '受试者状态')]
+        self.assertEqual(guess(names, 'rand_d'), 'RANDAT')
+        self.assertEqual(guess(names, 'rand'), 'RANNUM')
+        self.assertEqual(guess(names, 'status'), '受试者状态')      # pd_rules 口径：status==「筛选失败」
+        self.assertIsNone(guess(names, 'term'))                     # 系统列仍然不当业务字段
+        self.assertEqual(guess([('是否筛选成功并随机', 'RANYN')], 'status'), 'RANYN')
+
+    def test_exposure_guards(self):
+        from inspect_listing import refine_exposure
+        self.assertEqual(refine_exposure('exposure', 'DAH', '是否有药物滥用史(DAHYN) 药物名称(DAHTERM) 开始日期(DAHSTDAT)'), 'cm')
+        self.assertEqual(refine_exposure('exposure', 'EX1', '给药时间点(EXTPT1) 是否进行背景治疗(EXYN1) 给药日期(EXDAT1) 给药剂量(EXDOSE1)'), 'cm')
+        self.assertEqual(refine_exposure('exposure', 'EX', '是否给药(EXYN) 理论给药体积(EXPDOSE) 实际给药体积(EXDOSE) 给药日期(EXDAT)'), 'exposure')
+        self.assertEqual(refine_exposure('exposure', 'EC', '研究药物名称(ECTRT) 给药开始日期(ECSTDAT)'), 'exposure')
+        self.assertEqual(refine_exposure('cm', 'CM', '药物名称(CMTRT)'), 'cm')   # 非 exposure 域不动
+
 
 class WorseningRule(unittest.TestCase):
     """用户 2026-10-27：0 级 → 1 级不单独算加重，须同时超出范围且同向较基线 ≥T_base。"""
@@ -270,8 +315,8 @@ class DemoBuild(unittest.TestCase):
         cm_sums = [o['sum'] for o in self.KZ['others'] if 'CM「' in (o.get('sum') or '')]
         self.assertEqual(cm_sums, [], cm_sums)
         self.assertTrue(any('合并用药「' in (o.get('sum') or '') for o in self.KZ['others']), '演示数据应含合并用药类信号')
-        # 同中心判定一致性：对照句不写英文「vs」
-        self.assertTrue(self.KZ.get('cons'), '演示数据应含同中心判定对照')
+        # 判定一致性（同中心/同受试者，mm4 方向性口径）：对照句不写英文「vs」
+        self.assertTrue(self.KZ.get('cons'), '演示数据应含判定一致性对照')
         for c in self.KZ['cons']:
             self.assertNotIn(' vs ', c['diff'] + c['why'], c['diff'])
         # 方案偏离页「检查规则与覆盖」的未执行原因、「只能经源文件核查」清单：写「数据表」，不写 listing
@@ -792,6 +837,412 @@ class IbUmbrellaDowngrade(unittest.TestCase):
         from mm_build import ib_match
         C = self._C([{'term': '淋巴细胞计数减少', 'label': 'IB风险', 're': '', 'pt': '', 'soc': '各类检查', 'labs': []}])
         self.assertEqual(ib_match(C, {'t': '中性粒细胞计数减少', 'pt': '', 'soc': '各类检查', 'sae': True, 'g': '3级'}), [])
+
+
+class AeSpectrumNoMedDRA(unittest.TestCase):
+    """MedDRA 不可用（AE 带 soc 比例 <20%，含完全无）→ AE 谱不再按原文术语逐条分组
+    （试用实证：123 组刷屏），改为按 IB 风险类别分组＋超出前 20 归「其他」，
+    组名注明「（未按器官系统——MedDRA 不可用）」，AE 记录类别同步改写（安全页类别 chips 同一口径）；
+    有字典（soc 比例达标）行为不变。夹具全虚构。"""
+
+    NOTE = '（未按器官系统——MedDRA 不可用）'
+    OTHER = '其他' + NOTE
+
+    @staticmethod
+    def _C(aes):
+        from types import SimpleNamespace
+        return SimpleNamespace(pop={'S1'}, A={}, aes=aes)
+
+    @staticmethod
+    def _ae(t, soc='', ib=()):
+        # c＝build_events 的类别口径：catmap 未命中 → soc，再退原文术语（与真实数据流一致）
+        return {'sid': 'S1', 't': t, 'c': soc or t, 'g': '1级', 'sae': False, 'pt': '', 'soc': soc,
+                'te': True, 'aesi': False, '_rel': False, 'ib': list(ib)}
+
+    def test_no_soc_groups_by_ib_category_plus_other(self):
+        from mm_build import ae_summary
+        aes = [self._ae('血小板计数降低', ib=['IB血液风险·血小板减少']) for _ in range(3)] + \
+              [self._ae(t) for t in ('头痛', '头痛', '恶心', '恶心', '皮疹', '头晕', '乏力')]
+        C = self._C(aes)
+        ae_summary(C)
+        self.assertLessEqual(len(C.aesum), 1 + 1)                     # 谱组数 ≤ IB 类别数 + 其他
+        self.assertIn(self.OTHER, C.aesum)
+        for k in C.aesum:
+            self.assertIn(self.NOTE, k, k)
+        ib_key = next(k for k in C.aesum if k.startswith('IB血液风险'))
+        self.assertEqual(C.aesum[ib_key]['n'], 3)
+        self.assertEqual(C.aesum[self.OTHER]['n'], 7)                 # 无 IB 类别的原文术语全部归「其他」
+        self.assertIn('头痛', C.aesum[self.OTHER]['terms'])
+        for a in C.aes:                                               # AE 记录类别同步改写（安全页同一口径）
+            self.assertIn(self.NOTE, a['c'])
+            self.assertEqual(a['c'], ib_key if a['ib'] else self.OTHER)
+
+    def test_low_soc_ratio_still_fallback(self):
+        from mm_build import ae_summary
+        aes = [self._ae('头痛', soc='神经系统疾病')] + [self._ae(t) for t in ('皮疹', '恶心', '头晕', '乏力', '瘙痒', '咳嗽', '腹泻', '失眠', '心悸')]
+        C = self._C(aes)                                              # 1/10 = 10% < 20% → 兜底
+        ae_summary(C)
+        self.assertEqual(list(C.aesum), [self.OTHER])
+        for k in C.aesum:
+            self.assertIn(self.NOTE, k)
+
+    def test_with_soc_behavior_unchanged(self):
+        from mm_build import ae_summary
+        aes = [self._ae(t, soc='神经系统疾病') for t in ('头痛', '头晕', '失眠')] + \
+              [self._ae(t, soc='胃肠疾病') for t in ('恶心', '腹泻')]
+        C = self._C(aes)                                              # 5/5 全带 soc → 原行为：按类别（SOC）分组、无注明
+        ae_summary(C)
+        self.assertEqual(list(C.aesum), ['神经系统疾病', '胃肠疾病'])
+        self.assertTrue(all(self.NOTE not in k for k in C.aesum))
+        self.assertEqual([a['c'] for a in C.aes], ['神经系统疾病'] * 3 + ['胃肠疾病'] * 2)
+
+    def test_boundary_exactly_20pct_unchanged(self):
+        from mm_build import ae_summary
+        aes = [self._ae('头痛', soc='神经系统疾病'), self._ae('头晕', soc='神经系统疾病')] + \
+              [self._ae(t) for t in ('皮疹', '恶心', '头晕', '乏力', '瘙痒', '咳嗽', '腹泻', '失眠')]
+        C = self._C(aes)                                              # 2/10 = 20%（未低于）→ 原行为
+        ae_summary(C)
+        self.assertTrue(all(self.NOTE not in k for k in C.aesum))
+
+    def test_more_than_20_categories_capped(self):
+        from mm_build import ae_summary
+        aes = []
+        for i in range(25):                                           # 25 个 IB 类别 → 前 19 ＋「其他」≤ 20 组
+            aes += [self._ae(f'术语{i}甲', ib=[f'风险{i:02d}·术语{i}甲']), self._ae(f'术语{i}乙', ib=[f'风险{i:02d}·术语{i}乙'])]
+        C = self._C(aes)
+        ae_summary(C)
+        self.assertLessEqual(len(C.aesum), 20)
+        self.assertIn(self.OTHER, C.aesum)
+        self.assertTrue(all(self.NOTE in k for k in C.aesum))
+
+
+class KnowledgeStatePages(unittest.TestCase):
+    """知识状态进数据面＋页面呈现（试用实证：AE 278/278 无器官归类、关联预判缺失，页面零提示——
+    医生以为系统不会归类）。①构建后 KZ.knowledge＝study analysis.knowledge（键随数据面透传）；
+    ②AE 谱兜底在真实构建链生效（演示数据全无 soc → 组名带注明）；③知识层呈现逻辑（研究依据页知识卡
+    红/绿、总览警示条、query 页头提示、术语一致性按 PT 归并）为 kz.js 可单测纯函数（node 单测）。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix='mm4kn_'))
+        ex = cls.tmp / 'ex'
+        py = sys.executable
+        subprocess.run([py, str(ROOT / 'scripts/make_demo.py'), '--out', str(ex)], check=True, capture_output=True)
+        for f in (ROOT / 'examples/demo').glob('*.json'):
+            shutil.copy(f, ex / f.name)
+        S = json.loads((ex / 'study.json').read_text(encoding='utf-8'))
+        S.setdefault('analysis', {})['knowledge'] = {'meddra_ok': False, 'meddra_version': '', 'ae_soc': 0,
+                                                     'implausible': 0, 'plausible': 0, 'unknown': 0, 'degraded': True}
+        S['analysis'].pop('aeCatMap', None)   # 试用实证场景＝无字典且无类别映射（有 aeCatMap 时维持用户口径，不兜底）
+        (ex / 'study.json').write_text(json.dumps(S, ensure_ascii=False, indent=1), encoding='utf-8')
+        subprocess.run([py, str(ROOT / 'scripts/normalize_listing.py'), str(ex / 'mapping.json'), '--out', str(cls.tmp / 'norm')], check=True, capture_output=True)
+        subprocess.run([py, str(ROOT / 'scripts/build_site.py'), '--study', str(ex / 'study.json'), '--norm', str(cls.tmp / 'norm'),
+                        '--out', str(cls.tmp / 'out'), '--no-xlsx'], check=True, capture_output=True)
+        cls.KZ = _load_kz(cls.tmp / 'out/HTML')
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_knowledge_passthrough_to_data_plane(self):
+        kn = self.KZ.get('knowledge')
+        self.assertIsInstance(kn, dict)
+        self.assertTrue(kn['degraded'])
+        for k in ('meddra_ok', 'meddra_version', 'ae_soc', 'implausible', 'plausible', 'unknown'):
+            self.assertIn(k, kn)
+
+    def test_ae_spectrum_fallback_in_real_build(self):
+        cat = self.KZ['aecat']
+        self.assertTrue(cat, '演示构建应有 AE 谱组')
+        self.assertLessEqual(len(cat), 21)
+        note = '（未按器官系统——MedDRA 不可用）'
+        for k in cat:
+            self.assertIn(note, k)
+        for a in self.KZ['aes']:
+            if a['te']:                                               # 兜底只改写治疗期（与谱同口径）；首剂前行保留原类别
+                self.assertIn(note, a['c'])
+
+    def test_page_render_logic_node_unit(self):
+        """kz.js 纯函数逻辑单测（node）：知识卡红/绿、警示条、query 页头提示、术语一致性按 PT 归并四态。"""
+        r = subprocess.run(['node', str(ROOT / 'scripts/test_render_logic.js'), str(ROOT / 'templates/site/assets')],
+                           capture_output=True, text=True, timeout=120)
+        self.assertEqual(r.returncode, 0, f'页面呈现逻辑单测失败：\n{r.stdout[-2000:]}\n{r.stderr[-2000:]}')
+
+
+class DemoKnowledgeKeyAbsence(unittest.TestCase):
+    """无 knowledge 键（旧构建）形态无扰：KZ 不出现 knowledge 键（golden/既有构建零扰动）。"""
+
+    def test_demo_build_without_knowledge_key(self):
+        import tempfile
+        tmp = Path(tempfile.mkdtemp(prefix='mm4nokn_'))
+        try:
+            ex = tmp / 'ex'
+            py = sys.executable
+            subprocess.run([py, str(ROOT / 'scripts/make_demo.py'), '--out', str(ex)], check=True, capture_output=True)
+            for f in (ROOT / 'examples/demo').glob('*.json'):
+                shutil.copy(f, ex / f.name)
+            subprocess.run([py, str(ROOT / 'scripts/normalize_listing.py'), str(ex / 'mapping.json'), '--out', str(tmp / 'norm')], check=True, capture_output=True)
+            subprocess.run([py, str(ROOT / 'scripts/build_site.py'), '--study', str(ex / 'study.json'), '--norm', str(tmp / 'norm'),
+                            '--out', str(tmp / 'out'), '--no-xlsx'], check=True, capture_output=True)
+            self.assertNotIn('knowledge', _load_kz(tmp / 'out/HTML'))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+class DuplicateAePtLevel(unittest.TestCase):
+    """用户裁定（2026-10-30，纠正旧口径）：AE 一致性核对以 MedDRA PT 为归并单位——
+    风险＝同受试者＋时间重叠＋**不同 PT**（疑似重复记录或编码不一致，文案含两个 PT 名与原文写法）；
+    同一 PT（含原文写法不同）视为同一 AE，不发；pt 缺失（字典降级）时该规则不运行（知识层降级状态可见）。
+    旧口径「原文术语相等即发」废止：同 PT 两写法重叠（旧口径漏发）与同写法重叠（旧口径发）均不再发。"""
+
+    @staticmethod
+    def _ae(n, t, pt, s, e=''):
+        return {'n': n, 't': t, 'pt': pt, 's': s, 'e': e, 'sh': 'AE', 'row': n}
+
+    @staticmethod
+    def _C(ae_by):
+        from types import SimpleNamespace
+        return SimpleNamespace(A={'aeChecks': ['duplicate']}, pop={'S1'}, subj={'S1': {'site': '01'}},
+                               others=[], src={'sheets': {}}, F={}, aes=[], aesiDefs=[], ae_by=ae_by)
+
+    def test_same_pt_two_spellings_overlap_not_flagged(self):
+        from mm_build import ae_checks
+        C = self._C({'S1': [self._ae(1, '甘油三酯升高', '高甘油三酯血症', '2026-05-01', '2026-05-10'),
+                            self._ae(2, '甘油三酯高', '高甘油三酯血症', '2026-05-05')]})
+        ae_checks(C)
+        self.assertEqual([o for o in C.others if 'PT' in o['cat'] or '重复' in o['cat']], [])   # 同一 AE，不是风险
+
+    def test_identical_term_overlap_no_longer_flagged(self):
+        from mm_build import ae_checks
+        C = self._C({'S1': [self._ae(1, '头痛', '头痛', '2026-02-05', '2026-02-09'),
+                            self._ae(2, '头痛', '头痛', '2026-02-05', '2026-02-09')]})
+        ae_checks(C)
+        self.assertEqual(C.others, [])                                              # 旧 S31 口径废止
+
+    def test_different_pt_overlap_flagged_with_both_pt_names(self):
+        from mm_build import ae_checks
+        C = self._C({'S1': [self._ae(1, '上呼吸道感染', '上呼吸道感染', '2026-05-01', '2026-05-10'),
+                            self._ae(2, '流行性感冒', '流行性感冒', '2026-05-05')]})
+        ae_checks(C)
+        hit = [o for o in C.others if o['cat'] == 'AE一致性核对（PT级）']
+        self.assertEqual(len(hit), 1)
+        self.assertIn('PT 级：上呼吸道感染 vs 流行性感冒', hit[0]['sum'])
+        self.assertIn('重复记录或编码不一致', hit[0]['sum'])
+        self.assertIn('上呼吸道感染', hit[0]['sum'])                                # 原文写法可见（可核查）
+        self.assertIn('流行性感冒', hit[0]['sum'])
+
+    def test_missing_pt_rule_does_not_run(self):
+        from mm_build import ae_checks
+        C = self._C({'S1': [self._ae(1, '皮疹', '', '2026-05-01', '2026-05-10'),
+                            self._ae(2, '瘙痒', '', '2026-05-05')]})                # 字典降级：无 pt
+        ae_checks(C)
+        self.assertEqual(C.others, [])                                              # 不运行，不按原文术语冒充判定
+
+    def test_non_overlapping_different_pt_not_flagged(self):
+        from mm_build import ae_checks
+        C = self._C({'S1': [self._ae(1, '上呼吸道感染', '上呼吸道感染', '2026-05-01', '2026-05-10'),
+                            self._ae(2, '流行性感冒', '流行性感冒', '2026-06-01')]})   # 时间不重叠
+        ae_checks(C)
+        self.assertEqual(C.others, [])
+
+
+class UnitSciNotation(unittest.TestCase):
+    """单位科学计数归一（SAR 实测：norm 单位 ×10^9/L 4661、x10^9/L 1942、*10^9/L 331 混存；星号形态在复制/导出链
+    被吞成「610^9/L」）：normalize 一处收口——运算符（大小写 x/X、全半角乘号、＊✕⨯ 及其与数字间的空格）统一为 ×，
+    数字直接粘 10^（乘号已丢的成品形态）补 ×；裸 10^ 前缀口径保留。程序文案 raw+unit 无分隔拼接（CSX/MH/NA2 等
+    模板 {raw}{unit}）因此自然正确——用例一并锁定。"""
+
+    @staticmethod
+    def _rows(units):
+        import openpyxl
+        from normalize_listing import Book, findings
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = 'PLT'
+        ws.append(['受试者编号', '访视', '检查日期', '检查项', '检查结果', '单位'])
+        for i, u in enumerate(units, 1):
+            ws.append(['S1', f'V{i}', '2026-05-01', '血小板计数', '40', u])
+        M = {'workbooks': {'edc': 'x'}, 'domains': {}}
+        spec = {'wb': 'edc', 'sheet': 'PLT', 'domain': 'lab', 'group': '血常规', 'label_row': 1, 'var_row': 0, 'data_start': 2,
+                'cols': {'sid': '受试者编号', 'visit': '访视', 'date': '检查日期', 'test': '检查项', 'value': '检查结果', 'unit': '单位'}}
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / 'edc.xlsx'
+            wb.save(p)
+            return [r.get('unit') for r in findings(spec, {'edc': Book(str(p))}, M)]
+
+    def test_operator_variants_unified(self):
+        units = self._rows(['*10^9/L', 'x10^9/L', 'X10^9/L', '×10^9/L', '＊10^9/L', 'ｘ10^9/L', '✕10^9/L', 'x 10^9/L'])
+        self.assertEqual(units, ['×10^9/L'] * len(units), units)
+        self.assertEqual(self._rows(['3 * 10^9/L']), ['3×10^9/L'])       # 带系数写法：系数保留、运算符归 ×
+
+    def test_digit_stuck_10caret_repaired(self):
+        units = self._rows(['310^9/L', '4010^9/L'])
+        self.assertEqual(units, ['3×10^9/L', '40×10^9/L'], units)
+
+    def test_bare_prefix_and_plain_units_unchanged(self):
+        self.assertEqual(self._rows(['10^9/L']), ['×10^9/L'])            # 既有裸前缀口径不破
+        self.assertEqual(self._rows(['g/L', 'mmHg', '109/L']), ['g/L', 'mmHg', '109/L'])   # 无 10^ 迹象的单位不碰
+
+    def test_program_text_splice_safe(self):
+        """程序文案 raw+unit 无分隔拼接（{raw}{unit}）在归一后不产生「数字直接粘 10^」。"""
+        import re
+        for raw, unit in [('40', '×10^9/L'), ('6', '×10^9/L'), ('3', '3×10^9/L')]:
+            text = f'{raw}{unit}'                                        # 与 mm_build CSX/MH/NA2 模板同一拼接形态
+            self.assertFalse(re.search(r'\d10\^', text), text)
+            self.assertIn('×10^', text)
+
+
+def _cons_row(sid, val, clin, *, hi=None, lo=None, post=True, visit='V2', date='2026-05-01', unit='U/L',
+              links=(), reason=None, sheet='LAB', row=1):
+    """虚构检验行：clin 1=NCS、2=CS；links＝检验页关联编号（归因依据）；reason＝CS 原因码。"""
+    return {'sid': sid, 'value': val, 'clin': clin, 'hi': hi, 'lo': lo, 'post': post, 'visit': visit,
+            'date': date, 'raw': f'{val:g}', 'unit': unit, 'sheet': sheet, 'row': row,
+            'links': list(links), 'reason': reason}
+
+
+def _cons_C(rows, mid='lab:ALT', label='ALT'):
+    """build_cons 最小夹具：单指标、同中心 01、全部计划内访视。"""
+    from types import SimpleNamespace
+    from mm_build import build_cons
+    F = {}
+    for r in rows:
+        F.setdefault((r['sid'], mid), []).append(r)
+    C = SimpleNamespace(A={}, F=F, queries=[], isAgg=lambda v: True,
+                        metric={mid: {'id': mid, 'label': label}},
+                        subj={s: {'site': '01'} for s in {r['sid'] for r in rows}},
+                        pop={r['sid'] for r in rows})
+    build_cons(C)
+    return C
+
+
+class ConsDirectionalRecore(unittest.TestCase):
+    """判定一致性换芯＋同受试者版（用户 2026-10-30 三点修正终版；旧「±5% 相近即双向报」废止）：
+    a. 判定维度（方向性）：可比对＝同受试者（新增）或同中心跨受试者（换芯）×同指标/单位/参考范围×
+       同向异常（都超参考范围同向；一升一降不可比）×同给药阶段（给药前不与给药后比）——更差者
+       （偏离参考边界更远，相对偏离度、无最小差阈值）判 NCS 而更轻者判 CS → 发；更差者判 CS → 不发；
+       数值相等而判定不同 → 发（无更差方可定向，判定不同即不一致）。
+    b. 归因维度（无方向不排序）：两条均 CS 且归因不同（AE/MH/研究疾病/未关联 任一不同）→ 发归因不一致。
+    数据面 C.cons 带 scope（center/subject）与 kind（judg/att）。夹具全虚构。"""
+
+    _r = staticmethod(_cons_row)
+    _C = staticmethod(_cons_C)
+
+    def test_center_worse_ncs_lighter_cs_flagged(self):
+        C = self._C([self._r('S1', 50, 2, hi=40), self._r('S2', 80, 1, hi=40)])
+        hit = [c for c in C.cons if c.get('scope') == 'center' and c.get('kind') == 'judg']
+        self.assertEqual(len(hit), 1)
+        self.assertEqual((hit[0]['a'], hit[0]['b']), ('S1', 'S2'))   # a＝更轻仍判 CS；b＝更差却判 NCS
+
+    def test_center_worse_judged_cs_not_flagged(self):
+        C = self._C([self._r('S1', 80, 2, hi=40), self._r('S2', 50, 1, hi=40)])
+        self.assertEqual([c for c in C.cons if c.get('kind') == 'judg'], [])   # 更差者已判 CS：无风险
+
+    def test_equal_value_different_judgment_flagged(self):
+        C = self._C([self._r('S1', 60, 2, hi=40), self._r('S2', 60, 1, hi=40)])
+        self.assertEqual(len([c for c in C.cons if c.get('kind') == 'judg']), 1)   # 数值相等判定不同 → 发
+
+    def test_micro_gap_flagged_no_min_threshold(self):
+        C = self._C([self._r('S1', 40.3, 2, hi=40), self._r('S2', 40.55, 1, hi=40)])
+        self.assertEqual(len([c for c in C.cons if c.get('kind') == 'judg']), 1)   # 0.6% 量级微差也算更差
+
+    def test_far_gap_still_flagged_tolerance_gate_abolished(self):
+        C = self._C([self._r('S1', 42, 2, hi=40), self._r('S2', 100, 1, hi=40)])   # 相差远超旧 ±5% 门槛
+        self.assertEqual(len([c for c in C.cons if c.get('kind') == 'judg']), 1)   # 方向性口径：仍发
+
+    def test_opposite_directions_not_comparable(self):
+        C = self._C([self._r('S1', 80, 2, hi=40), self._r('S2', 30, 1, lo=35)])    # 一升一降
+        self.assertEqual(C.cons, [])
+
+    def test_pre_vs_post_not_compared(self):
+        C = self._C([self._r('S1', 80, 2, hi=40, post=True), self._r('S2', 90, 1, hi=40, post=False)])
+        self.assertEqual(C.cons, [])                                 # 给药前不与给药后比
+        C = self._C([self._r('S1', 60, 2, hi=40, post=False), self._r('S2', 80, 1, hi=40, post=False)])
+        self.assertEqual(len([c for c in C.cons if c.get('kind') == 'judg']), 1)   # 同为给药前：可比
+
+    def test_center_attribution_inconsistency(self):
+        ae = {'type': 'AE', 'no': 1, 'term': '虚构AE'}
+        C = self._C([self._r('S1', 60, 2, hi=40, links=[ae]), self._r('S2', 62, 2, hi=40)])
+        hit = [c for c in C.cons if c.get('kind') == 'att']
+        self.assertEqual(len(hit), 1)                                # 均 CS、归因不同（AE vs 未关联）
+        self.assertIn('归因', hit[0]['diff'] + hit[0]['why'])
+
+    def test_center_attribution_same_not_flagged(self):
+        ae = {'type': 'AE', 'no': 1, 'term': '虚构AE'}
+        C = self._C([self._r('S1', 60, 2, hi=40, links=[ae]), self._r('S2', 62, 2, hi=40, links=[ae])])
+        self.assertEqual([c for c in C.cons if c.get('kind') == 'att'], [])        # 归因相同：不发
+
+    def test_subject_scope_judgment_flagged(self):
+        C = self._C([self._r('S1', 50, 2, hi=40, visit='V2', row=1),
+                     self._r('S1', 80, 1, hi=40, visit='V3', row=2)])
+        hit = [c for c in C.cons if c.get('scope') == 'subject' and c.get('kind') == 'judg']
+        self.assertEqual(len(hit), 1)                                # 同受试者版（新增）
+
+    def test_subject_scope_attribution_flagged(self):
+        ae = {'type': 'AE', 'no': 1, 'term': '虚构AE'}
+        C = self._C([self._r('S1', 55, 2, hi=40, visit='V2', row=1, links=[ae]),
+                     self._r('S1', 58, 2, hi=40, visit='V3', row=2)])
+        hit = [c for c in C.cons if c.get('scope') == 'subject' and c.get('kind') == 'att']
+        self.assertEqual(len(hit), 1)                                # 同受试者两次 CS 归因不同
+
+
+class ClinConsDirectionalQuery(unittest.TestCase):
+    """「临床意义判定不一致」query 换芯（方向性＋归因维度，同受试者口径）：
+    更差判 NCS、更轻判 CS → 发（文案含方向）；更差者判 CS → 不发；数值相同判定不同 → 发；
+    两条均 CS 归因不同 → 发归因不一致。一升一降、给药前 vs 给药后 → 不可比不发。夹具全虚构。"""
+
+    def _run(self, rows):
+        from types import SimpleNamespace
+        import ext_rules
+        F = {}
+        for r in rows:
+            F.setdefault((r['sid'], 'lab:HGB'), []).append(r)
+        C = SimpleNamespace(A={}, F=F, queries=[], isAgg=lambda v: True,
+                            metric={'lab:HGB': {'id': 'lab:HGB', 'label': '血红蛋白'}},
+                            subj={s: {'site': '01'} for s in {r['sid'] for r in rows}},
+                            pop={r['sid'] for r in rows}, others=[], src={'sheets': {}})
+        ext_rules.clin_consistency(C)
+        return C
+
+    @staticmethod
+    def _q(C):
+        return [o for o in C.others if o['cat'] == '临床意义判定不一致']
+
+    def test_worse_ncs_lighter_cs_query(self):
+        C = self._run([_cons_row('S1', 90, 2, hi=60, visit='V2', date='2026-05-01', row=1),
+                       _cons_row('S1', 120, 1, hi=60, visit='V3', date='2026-06-01', row=2)])
+        q = self._q(C)
+        self.assertEqual(len(q), 1)
+        self.assertIn('更差', q[0]['sum'])                           # 方向性文案：更差者判 NCS
+
+    def test_worse_judged_cs_no_query(self):
+        C = self._run([_cons_row('S1', 120, 2, hi=60, visit='V2', row=1),
+                       _cons_row('S1', 90, 1, hi=60, visit='V3', row=2)])
+        self.assertEqual(self._q(C), [])                             # 更差者已判 CS：不发
+
+    def test_equal_value_different_judgment_query(self):
+        C = self._run([_cons_row('S1', 100, 2, hi=60, visit='V2', row=1),
+                       _cons_row('S1', 100, 1, hi=60, visit='V3', row=2)])
+        q = self._q(C)
+        self.assertEqual(len(q), 1)
+        self.assertIn('相同', q[0]['sum'])                           # 数值相同判定不同 → 发
+
+    def test_attribution_differs_query(self):
+        ae, mh = {'type': 'AE', 'no': 1, 'term': '虚构AE'}, {'type': 'MH', 'no': 2, 'term': '虚构病史'}
+        C = self._run([_cons_row('S1', 95, 2, hi=60, visit='V2', row=1, links=[ae]),
+                       _cons_row('S1', 96, 2, hi=60, visit='V3', row=2, links=[mh])])
+        q = self._q(C)
+        self.assertEqual(len(q), 1)
+        self.assertIn('归因', q[0]['sum'])                           # 归因维度：AE vs MH
+
+    def test_opposite_direction_no_query(self):
+        C = self._run([_cons_row('S1', 120, 2, hi=60, visit='V2', row=1),
+                       _cons_row('S1', 50, 1, lo=70, visit='V3', row=2)])
+        self.assertEqual(self._q(C), [])                             # 一升一降不可比
+
+    def test_pre_vs_post_no_query(self):
+        C = self._run([_cons_row('S1', 120, 2, hi=60, visit='V2', row=1, post=True),
+                       _cons_row('S1', 130, 1, hi=60, visit='V3', row=2, post=False)])
+        self.assertEqual(self._q(C), [])                             # 给药前不与给药后比
 
 
 class _SynthXlsx:

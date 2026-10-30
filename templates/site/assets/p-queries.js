@@ -10,6 +10,7 @@ app.innerHTML=`
  <div class="kpi"><div class="l">申办方医学质疑</div><div class="v">${Q.length}<small>条</small></div><div class="s">${K.p(subjN+' 例','line')}${K.p(ctrN+' 中心','line')}</div></div>
  ${K.DOM.map(([d,cats,c])=>byDom[d]?`<div class="kpi ${c==='red'?'risk':c==='blu'?'blu':c==='grn'?'grn':''}"><div class="l">${d}</div><div class="v">${byDom[d]}<small>条</small></div><div class="s">${cats.filter(x=>Q.some(q=>q.cat===x)).length} 个主题</div></div>`:'').join('')}
 </div>
+${K.knHint(D.knowledge)}
 <div class="grid g21 mt" style="grid-template-columns:1.5fr 1fr">
  <div class="card"><div class="hd"><h2>筛选</h2><span class="sp"></span><select class="s" id="fctr"><option value="">全部中心</option>${Object.entries(bySite).sort((a,b)=>a[0].localeCompare(b[0])).map(([k,v])=>`<option value="${k}">${k} ${K.esc(K.center(k))}（${v}）</option>`).join('')}</select><input class="s" id="qs" placeholder="搜索 编号/受试者/指标/文字"></div>
   <div class="col">

@@ -1,10 +1,10 @@
 K.init(()=>{
 const D=KZ,app=document.getElementById('app'),H=K.hash();
 const lab=K.lab,oth=D.others,aes=D.aes;
-app.innerHTML=`<div class="flex mb"><h1 style="font-size:18px">AE / MH 漏报风险</h1><span class="muted small">检验异常与AE/MH关联 · 方案阈值专项 · AE记录 · 同中心判定一致性</span><span class="sp"></span>${(K.cfg().blind||{}).on?K.p((K.cfg().blind||{}).tag||'盲态合并，不分组','blu'):''}</div>
+app.innerHTML=`<div class="flex mb"><h1 style="font-size:18px">AE / MH 漏报风险</h1><span class="muted small">检验异常与AE/MH关联 · 方案阈值专项 · AE记录 · 判定一致性（同中心/同受试者）</span><span class="sp"></span>${(K.cfg().blind||{}).on?K.p((K.cfg().blind||{}).tag||'盲态合并，不分组','blu'):''}</div>
 <div class="tabs" id="tabs"></div><div id="pane"></div>`;
 const pane=document.getElementById('pane');
-const tabs=[['lab','检验异常 → AE/MH',lab.length],['oth','专项核查',oth.length],['ae','AE 记录',aes.length],['cons','同中心判定一致性',D.cons.length],['ctr','中心对比',D.centers.filter(c=>c.dosed).length]];
+const tabs=[['lab','检验异常 → AE/MH',lab.length],['oth','专项核查',oth.length],['ae','AE 记录',aes.length],['cons','判定一致性',D.cons.length],['ctr','中心对比',D.centers.filter(c=>c.dosed).length]];
 const R={lab:tabLab,oth:tabOth,ae:tabAE,cons:tabCons,ctr:tabCtr};
 const sel=(id,opts,v)=>`<select class="s" id="${id}">${opts.map(([a,b])=>`<option value="${K.esc(a)}" ${a===v?'selected':''}>${b}</option>`).join('')}</select>`;
 const centerOpts=[['','全部中心'],...D.centers.filter(c=>c.dosed).map(c=>[c.site,c.site+' '+c.name])];
@@ -74,10 +74,12 @@ function tabOth(){
 function tabAE(){
   const st={c:H.c||null,g:'',rel:'',aesi:H.aesi==='1',pre:false,site:''};
   const cats=D.aecat.filter(c=>aes.some(a=>a.c===c));
-  /* synonyms */
-  const syn=cats.map(c=>{const t={};aes.filter(a=>a.c===c).forEach(a=>t[a.t]=(t[a.t]||0)+1);return [c,Object.entries(t).sort((a,b)=>b[1]-a[1])]}).filter(x=>x[1].length>2&&x[0]!=='其他');
-  pane.innerHTML=`<div class="grid g21 mb"><div class="card"><div class="hd"><h2>术语一致性</h2><span class="sub">同一临床概念使用的不同AE术语（跨受试者/中心），影响汇总与预期性判断</span></div>
-   <table class="t"><tbody>${syn.map(([c,t])=>`<tr><td class="nowrap" style="width:140px"><b style="color:var(--ink)">${c}</b><div>${K.ibTags(c)}</div></td><td>${t.map(([n,k])=>`<span class="vchip n">${K.esc(n)}<i>×${k}</i></span>`).join('')}</td></tr>`).join('')}</tbody></table></div>
+  /* mm4 术语一致性：按 MedDRA PT 归并（K.ptCons）——只列「同一 PT ≥2 个不同原文术语」的桶，作背景陈列；
+   * 用户裁定（2026-10-30）：同一 PT 下的不同原文写法属正常编码差异，不作为风险；真正的风险判定见 AE 一致性核对（PT 级，安全页 AE 记录）。
+   * pt 覆盖率过低 → 降级提示，不按原文术语陈列冒充判定。 */
+  const syn=K.ptCons(aes);
+  pane.innerHTML=`<div class="grid g21 mb"><div class="card"><div class="hd"><h2>术语一致性</h2><span class="sub">同一 MedDRA 首选术语（PT）下使用的不同原文 AE 术语（跨受试者/中心）——同一 PT 下的不同原文写法属正常编码差异，不作为风险；真正的风险判定见 AE 一致性核对（PT 级）</span></div>
+   ${syn.deg?'<div class="box yel small">MedDRA 不可用，无法按 PT 归并，术语一致性未判定</div>':syn.rows.length?`<table class="t"><tbody>${syn.rows.map(([pt,t])=>`<tr><td class="nowrap" style="width:140px"><b style="color:var(--ink)">${K.esc(pt)}</b></td><td>${t.map(([n,k])=>`<span class="vchip n">${K.esc(n)}<i>×${k}</i></span>`).join('')}</td></tr>`).join('')}</tbody></table><div class="xs muted mt">上列为同一 PT 下的不同原文写法（背景陈列，正常编码差异，不作为风险）；不同 PT 的同期 AE 核对见「AE 一致性核对（PT 级）」</div>`:'<div class="small muted">未见同一 PT 下使用不同原文术语</div>'}</div>
    <div class="card"><div class="hd"><h2>AE 结构</h2><span class="sub">给药后，${aes.filter(a=>!a.pre).length} 例次</span></div><div id="aep" class="chart" style="height:250px"></div></div></div>
    <div class="card"><div class="tbar"><div class="chips" id="cc"></div></div><div class="tbar">${sel('g',[['','全部等级'],['1级','1级'],['2级','2级'],['3级','3级']],'')}${sel('rel',[['','全部相关性'],['rel','相关（可能/很可能/肯定）'],['unrel','无关/可能无关']],'')}${sel('site',centerOpts,'')}<label class="chip"><input type="checkbox" id="aesi" ${st.aesi?'checked':''}> AESI</label><label class="chip"><input type="checkbox" id="pre"> 首剂前</label><span id="chg-ae" style="margin-left:6px"></span><span class="sp"></span><span class="note">首剂前的 AE 不计入治疗期不良事件（TEAE）</span></div><div id="tb"></div></div>`;
   const grp=['1级','2级','3级'].map(g=>aes.filter(a=>!a.pre&&a.g===g).length);const rel=x=>/可能有关|很可能有关|肯定有关/.test(x)&&!/无关/.test(x);
@@ -97,20 +99,31 @@ function tabAE(){
   function draw(){tb.set(aes.filter(a=>cfA(a)&&(!st.c||a.c===st.c)&&(!st.g||a.g===st.g)&&(!st.rel||(st.rel==='rel'?rel(a.rel):!rel(a.rel)))&&(!st.aesi||a.aesi)&&(!st.pre||a.pre)&&(!st.site||a.site===st.site)))}
   draw();
 }
-/* ---------- consistency */
+/* ---------- consistency（mm4 判定一致性：同中心换芯＋同受试者版；用户 2026-10-30 终版口径） */
 function tabCons(){
-  const C=D.cons;const st={st:null,t:null,site:''};const sc={'需核实':'red','已有问题覆盖':'line','保留提示':'yel','有解释':'grn'};
-  pane.innerHTML=`<div class="card"><div class="hd"><h2>同中心判定一致性</h2><span class="sub">同中心 · 同指标/单位/参考范围 · 同异常方向与给药阶段 · 结果相同或相差≤5%，但 CS/NCS 或 AE 处理不同</span></div>
-  <div class="tbar"><div class="chips" id="ss"></div><span class="sp"></span>${sel('site',[['','全部中心'],...[...new Set(C.map(c=>c.site))].sort().map(s=>[s,s+' '+K.center(s)])],'')}</div><div class="tbar"><div class="chips" id="tt"></div></div><div id="tb"></div></div>`;
-  K.chips(document.getElementById('ss'),Object.keys(sc).map(k=>[k,k,C.filter(c=>c.st===k).length]),v=>{st.st=v;draw()});
-  const tests=Object.entries(C.reduce((a,c)=>{a[c.test]=(a[c.test]||0)+1;return a},{})).sort((a,b)=>b[1]-a[1]);
-  K.chips(document.getElementById('tt'),tests.map(([t,n])=>[t,t,n]),v=>{st.t=v;draw()},{all:'全部指标'});document.getElementById('site').onchange=e=>{st.site=e.target.value;draw()};
-  const side=(x,sid)=>`${K.sid(sid)} ${K.p(x[0]||'—','blu')} <b>${K.esc(x[2]??'')}</b> <span class="xs muted">${K.esc(x[3]??'')}</span> ${x[4]==='异常有临床意义'?K.p('CS','red'):x[4]==='异常无临床意义'?K.p('NCS','yel'):K.p(x[4]||'—','line')}`;
-  const tb=K.table(document.getElementById('tb'),{rows:[],h:'640px',pageSize:100,cols:[{k:'st',t:'状态',f:r=>K.p(r.st,sc[r.st])},{k:'site',t:'中心',f:r=>K.p(r.site,'sq mono')},{k:'test',t:'指标/事件',f:r=>`<b style="color:var(--ink)">${K.esc(r.test)}</b>`},
-    {k:'a',t:'本例',ns:1,f:r=>side(r.av,r.a)},{k:'b',t:'同中心对照',ns:1,f:r=>side(r.bv,r.b)},{k:'why',t:'判读',ns:1,f:r=>`<div class="clamp2 small" style="max-width:460px">${K.esc(r.why)}</div>`}],
-    onRow:r=>K.drawer(`${r.id} · ${K.esc(r.test)}`,`<div class="flex wrap mb">${K.p(r.st,sc[r.st])}${K.p(r.site+' '+K.center(r.site),'line')}</div><div class="grid g2"><div class="box"><div class="xs muted">本例</div>${side(r.av,r.a)}<div class="xs faint mt">${r.av[1]||''} · ${r.av[5]||''} · ${K.esc(K.loc(r.av[6],r.av[7]))}</div></div><div class="box"><div class="xs muted">同中心对照</div>${side(r.bv,r.b)}<div class="xs faint mt">${r.bv[1]||''} · ${r.bv[5]||''} · ${K.esc(K.loc(r.bv[6],r.bv[7]))}</div></div></div><div class="box org mt">${K.esc(r.diff)}</div><div class="mt" style="line-height:1.7">${K.esc(r.why)}</div>`)});
-  function draw(){tb.set(C.filter(c=>(!st.st||c.st===st.st)&&(!st.t||c.test===st.t)&&(!st.site||c.site===st.site)).sort((a,b)=>Object.keys(sc).indexOf(a.st)-Object.keys(sc).indexOf(b.st)))}
-  draw();
+  const C=D.cons||[];const sc={'需核实':'red','已有问题覆盖':'line','保留提示':'yel','有解释':'grn'};const kc={'judg':'判定不一致','att':'归因不一致'};
+  const sub={center:'同中心跨受试者 · 同指标/单位/参考范围 · 同向异常同给药阶段——更差者（偏离参考边界更远）判 NCS 而更轻者判 CS → 判定不一致；均判 CS 归因不同 → 归因不一致（旧「相差≤5% 即双向报」口径已废止）',
+             subject:'同一受试者 · 同指标/单位/参考范围 · 同向异常同给药阶段——判定/归因成对对照；质疑面同步发「临床意义判定不一致」（更差者已判 CS 或归因相同 → 不发）'};
+  const side=(x,sid)=>`${K.sid(sid)} ${K.p(x[0]||'—','blu')} <b>${K.esc(x[2]??'')}</b> <span class="xs muted">${K.esc(x[3]??'')}</span> ${x[4]==='异常有临床意义'?K.p('CS','red'):x[4]==='异常无临床意义'?K.p('NCS','yel'):K.p(x[4]||'—','line')}${x[8]?K.p(x[8],'org'):''}`;
+  function render(scope){
+    const st={st:null,k:'',t:null,site:''};const F=C.filter(c=>(c.scope||'center')===scope);
+    pane.innerHTML=`<div class="card"><div class="hd"><h2>判定一致性</h2><span class="sub">${sub[scope]}</span></div>
+    <div class="tbar"><div class="chips" id="sc0"></div><span class="sp"></span>${sel('site',[['','全部中心'],...[...new Set(C.map(c=>c.site))].sort().map(s=>[s,s+' '+K.center(s)])],'')}</div><div class="tbar"><div class="chips" id="kk"></div><div class="chips" id="ss"></div></div><div class="tbar"><div class="chips" id="tt"></div></div><div id="tb"></div></div>`;
+    K.chips(document.getElementById('sc0'),['center','subject'].filter(s=>C.some(c=>(c.scope||'center')===s)).map(s=>[s,s==='center'?'同中心':'同受试者',C.filter(c=>(c.scope||'center')===s).length]),v=>{render(v)});
+    K.chips(document.getElementById('kk'),Object.keys(kc).map(k=>[k,kc[k],F.filter(c=>(c.kind||'judg')===k).length]),v=>{st.k=v;draw()},{all:'全部维度'});
+    K.chips(document.getElementById('ss'),Object.keys(sc).map(k=>[k,k,F.filter(c=>c.st===k).length]),v=>{st.st=v;draw()});
+    const tests=Object.entries(F.reduce((a,c)=>{a[c.test]=(a[c.test]||0)+1;return a},{})).sort((a,b)=>b[1]-a[1]);
+    K.chips(document.getElementById('tt'),tests.map(([t,n])=>[t,t,n]),v=>{st.t=v;draw()},{all:'全部指标'});document.getElementById('site').onchange=e=>{st.site=e.target.value;draw()};
+    const cols=[{k:'st',t:'状态',f:r=>K.p(r.st,sc[r.st])},{k:'site',t:'中心',f:r=>K.p(r.site,'sq mono')}];
+    if(scope==='subject')cols.push({k:'sid',t:'受试者',f:r=>K.sid(r.sid)});
+    cols.push({k:'test',t:'指标/事件',f:r=>`<b style="color:var(--ink)">${K.esc(r.test)}</b>`},
+      {k:'a',t:'本例',ns:1,f:r=>side(r.av,r.a)},{k:'b',t:scope==='center'?'同中心对照':'同期对照',ns:1,f:r=>side(r.bv,r.b)},{k:'why',t:'判读',ns:1,f:r=>`<div class="clamp2 small" style="max-width:460px">${K.esc(r.why)}</div>`});
+    const tb=K.table(document.getElementById('tb'),{rows:[],h:'640px',pageSize:100,cols,
+      onRow:r=>K.drawer(`${r.id} · ${kc[r.kind||'judg']||''} · ${K.esc(r.test)}`,`<div class="flex wrap mb">${K.p(r.st,sc[r.st])}${K.p(kc[r.kind||'judg']||'判定不一致','line')}${K.p(r.site+' '+K.center(r.site),'line')}${r.sid?K.p('受试者 '+r.sid,'line'):''}</div><div class="grid g2"><div class="box"><div class="xs muted">本例</div>${side(r.av,r.a)}<div class="xs faint mt">${r.av[1]||''} · ${r.av[5]||''} · ${K.esc(K.loc(r.av[6],r.av[7]))}</div></div><div class="box"><div class="xs muted">${scope==='center'?'同中心对照':'同期对照'}</div>${side(r.bv,r.b)}<div class="xs faint mt">${r.bv[1]||''} · ${r.bv[5]||''} · ${K.esc(K.loc(r.bv[6],r.bv[7]))}</div></div></div><div class="box org mt">${K.esc(r.diff)}</div><div class="mt" style="line-height:1.7">${K.esc(r.why)}</div>`)});
+    function draw(){tb.set(F.filter(c=>(!st.st||c.st===st.st)&&(!st.k||(c.kind||'judg')===st.k)&&(!st.t||c.test===st.t)&&(!st.site||c.site===st.site)).sort((a,b)=>Object.keys(sc).indexOf(a.st)-Object.keys(sc).indexOf(b.st)))}
+    draw();
+  }
+  render(C.some(c=>c.scope==='subject')&&!C.some(c=>(c.scope||'center')==='center')?'subject':'center');
 }
 /* ---------- centers */
 function tabCtr(){
