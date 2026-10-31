@@ -296,6 +296,25 @@ class DemoBuild(unittest.TestCase):
         self.assertTrue(any(t.get('k') == 'pd' for t in self.KZ['review']))
         self.assertTrue(self.KZ['study'].get('calibers'))
 
+    def test_drilldown_fields_in_subject_files(self):
+        """用户 2026-10-30 裁定：参与者资料页 CS 项点开必须有链接信息——demo 受试者文件行 17 位，
+        且三种形态可追溯：研究疾病归因（02004 甘油三酯）、AE 关联（02002 ALT）、CS 未关联（04001 ALT）。"""
+        def sub(sid):
+            raw = (self.tmp / 'out/HTML/data/s' / f'{sid}.js').read_text(encoding='utf-8')
+            return json.loads(raw[len('KZ_SUB('):-2])
+        r8 = next(r for r in sub('02004')['labs']['甘油三酯'] if r[1] == 'W8')
+        self.assertEqual(len(r8), 17)
+        self.assertEqual(r8[14], 'disease')
+        r = next(r for r in sub('02002')['labs']['丙氨酸氨基转移酶'] if r[1] == 'W4')
+        self.assertEqual(r[14], 'AE')
+        self.assertIn('AE 丙氨酸氨基转移酶升高·', r[16])
+        self.assertEqual(r[15], '与该不良事件有关，同一异常已按关联字段记录')
+        r = next(r for r in sub('04001')['labs']['丙氨酸氨基转移酶'] if r[1] == 'W8')
+        self.assertEqual(r[7], 2)
+        self.assertEqual(r[14], '')                      # CS 未关联：前端显示「未关联」灰字
+        ps = (self.tmp / 'out/HTML/assets/p-subjects.js').read_text(encoding='utf-8')
+        self.assertIn('K.judgeCell(r,id)', ps)           # 钻取表已接「判定与关联」列
+
     def test_wording_no_internal_codes(self):
         """K22：审阅要点/核查方法/判读背景不露内部编号与英文域名（入排标准编号、PD listing、CM 页、VS/ECG）。"""
         import re
@@ -1895,6 +1914,99 @@ class F10MicroUnitCanonical(unittest.TestCase):
         self.assertEqual(self._row([greek]), [micro])                # U+03BC → U+00B5
         self.assertEqual(self._row([micro]), [micro])                # 幂等
         self.assertEqual(self._row(['mg/dL', greek]), ['mg/dL', micro])   # 无 μ 迹象的单位不碰
+
+
+class DrilldownFields(unittest.TestCase):
+    """用户 2026-10-30 裁定：参与者资料页 CS 项点开必须有链接信息——钻取（受试者资料文件）检验行
+    尾部扩位 [归因码, 原文说明≤60, 关联摘要]，既有 14 位不动（前端按索引安全读取）。
+    归因码：AE/MH＝关联已回溯到真实记录；disease＝研究者归因研究疾病；NA＝超范围未评价；''＝无。"""
+
+    @staticmethod
+    def _C(ae=(), mh=()):
+        from types import SimpleNamespace
+        return SimpleNamespace(ae_by={'S1': list(ae)}, mh_by={'S1': list(mh)})
+
+    def test_ae_link_summary(self):
+        from mm_build import drill_fields
+        C = self._C(ae=[{'n': 3, 't': '丙氨酸氨基转移酶升高', 's': '2026-06-10'}])
+        r = {'clin': 2, 'links': [['AE', '丙氨酸氨基转移酶升高', None, 3]], 'reason': 'link',
+             'reason_text': '与3号不良事件有关，请评估AE记录完整性；补充说明较长会被截断到六十字为止不再多留'}
+        code, text, summ = drill_fields(C, 'S1', r)
+        self.assertEqual(code, 'AE')
+        self.assertLessEqual(len(text), 60)
+        self.assertTrue(text.startswith('与3号不良事件有关'))
+        self.assertEqual(summ, 'AE 丙氨酸氨基转移酶升高·2026-06-10')
+
+    def test_mh_link_summary_no_date(self):
+        from mm_build import drill_fields
+        C = self._C(mh=[{'n': 1, 't': '贫血', 's': '2020-01-01'}])
+        code, _, summ = drill_fields(C, 'S1', {'clin': 2, 'links': [['MH', '贫血', None, 1]], 'reason': 'link'})
+        self.assertEqual(code, 'MH')
+        self.assertEqual(summ, '病史 贫血·2020-01-01')
+
+    def test_term_link_without_number_resolves(self):
+        """F02 词目型（编号空）：按术语回溯到真实记录后照常出关联摘要。"""
+        from mm_build import drill_fields
+        C = self._C(mh=[{'n': 2, 't': '高脂血症', 's': ''}])
+        code, _, summ = drill_fields(C, 'S1', {'clin': 2, 'links': [['MH', '高脂血症', None, None]]})
+        self.assertEqual(code, 'MH')
+        self.assertEqual(summ, '病史 高脂血症')
+
+    def test_disease_reason_without_link(self):
+        from mm_build import drill_fields
+        code, _, summ = drill_fields(self._C(), 'S1', {'clin': 2, 'links': [], 'reason': 'disease',
+                                                       'reason_text': '与研究疾病加重有关'})
+        self.assertEqual(code, 'disease')
+        self.assertEqual(summ, '')
+
+    def test_na_out_of_range_unassessed(self):
+        from mm_build import drill_fields
+        code, _, _ = drill_fields(self._C(), 'S1', {'clin': None, 'value': 88, 'hi': 50, 'oor': True, 'links': []})
+        self.assertEqual(code, 'NA')
+
+    def test_plain_row_empty(self):
+        from mm_build import drill_fields
+        self.assertEqual(drill_fields(self._C(), 'S1', {'clin': 0, 'links': [], 'oor': False}), ['', '', ''])
+
+    def test_unresolved_link_not_attributed(self):
+        """关联编号在 AE/MH 记录中不存在：行级按未关联口径（不冒充已关联）。"""
+        from mm_build import drill_fields
+        code, _, summ = drill_fields(self._C(), 'S1', {'clin': 2, 'links': [['AE', '皮疹', None, 9]]})
+        self.assertEqual(code, '')
+        self.assertEqual(summ, '')
+
+    def test_subject_file_rows_extend(self):
+        """build_subject_files 接线：受试者资料文件里检验行 17 位，尾部 3 位为扩位字段。"""
+        import json
+        import tempfile
+        from collections import defaultdict
+        from types import SimpleNamespace
+        from mm_build import build_subject_files
+        row = {'sid': 'S1', 'date': '2026-06-20', 'visit': 'V2', 'value': 88, 'raw': '88', 'unit': 'U/L',
+               'lo': 9, 'hi': 50, 'clin': 2, 'desc': '', 'sheet': 'LB', 'row': 5, 'tpt': '', 'time': '',
+               'isb': False, 'post': True, 'pct': None, 'links': [['AE', '丙氨酸氨基转移酶升高', None, 1]],
+               'reason': 'link', 'reason_text': '与1号AE有关', 'test': '丙氨酸氨基转移酶'}
+        C = SimpleNamespace(
+            visits=[], exposure=[], proc=[],
+            subj={'S1': {'site': '01', 'center': '示例医院A', 'status': '随机化', 'rand': '', 'strat': '',
+                         'icf': '2026-01-05', 'fd': '2026-06-01', 'ld': '', 'lo': '', 'age': 44, 'bmi': 23}},
+            ae_by={'S1': [{'n': 1, 't': '丙氨酸氨基转移酶升高', 's': '2026-06-10', 'e': ''}]},
+            mh_by={'S1': []}, cm_by={'S1': []}, effsub={}, tl={},
+            A={'labDomains': ['lab'], 'extFlagPct': 50},
+            F=defaultdict(list, {('S1', 'lab:丙氨酸氨基转移酶'): [row]}),
+            metric={'lab:丙氨酸氨基转移酶': {'label': '丙氨酸氨基转移酶'}})
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td) / 'data'
+            build_subject_files(C, out)
+            raw = (out / 's' / 'S1.js').read_text(encoding='utf-8')
+            self.assertTrue(raw.startswith('KZ_SUB('))
+            d = json.loads(raw[len('KZ_SUB('):-2])
+            r0 = d['labs']['丙氨酸氨基转移酶'][0]
+            self.assertEqual(len(r0), 17, f'既有 14 位＋尾部 3 位扩位（得 {len(r0)}）')
+            self.assertEqual(r0[:14][7], 2)                       # 既有位不动：r[7]=clin
+            self.assertEqual(r0[14], 'AE')
+            self.assertEqual(r0[15], '与1号AE有关')
+            self.assertIn('AE 丙氨酸氨基转移酶升高·2026-06-10', r0[16])
 
 
 if __name__ == '__main__':

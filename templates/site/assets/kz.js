@@ -23,6 +23,17 @@ K.vi=v=>{const i=K.VIS.indexOf(v);return i<0?99:i};
 K.days=(a,b)=>{if(!a||!b||a.length<10||b.length<10)return null;return Math.round((new Date(a)-new Date(b))/864e5)};
 K.studyDay=(d,fd)=>{const x=K.days(d,fd);return x==null?'':(x>=0?'D'+(x+1):'D'+x)};
 K.clin=c=>c===2?K.p('CS','red'):c===1?K.p('NCS','yel'):c===0?K.p('正常','grn'):'';
+/* 钻取行「判定与关联」列（用户 2026-10-30 裁定：参与者资料页 CS 项点开必须有链接信息）。
+ * r＝受试者资料文件检验行（既有 14 位＋尾部扩位 [归因码, 原文说明, 关联摘要]，mm_build.drill_fields）；
+ * 归因码：AE/MH＝已关联回溯到真实记录；disease＝研究疾病；NA＝超范围未评价；''＋CS＝未关联（灰字）。
+ * 关联对象按「AE 」/「病史 」前缀跳参与者资料页对应 tab（subjects.html#s=<sid>&t=ae|mh）。 */
+K.judgeCell=(r,sid)=>{const code=r[14]||'',txt=r[15]||'',sum=r[16]||'';
+ const pill=r[7]===2?K.p('CS','red'):r[7]===1?K.p('NCS','yel'):r[7]===0?K.p('正常','grn'):K.p('ND','line','未评价/未查');
+ const attr=code==='AE'?K.p('AE 关联','grn'):code==='MH'?K.p('病史关联','org'):code==='disease'?K.p('研究疾病','blu'):
+  code==='NA'?K.p('未评价','yel'):r[7]===2?'<span class="faint">未关联</span>':'';
+ const links=(sum||'').split('、').filter(Boolean).map(s=>{const ae=s.startsWith('AE ');
+  return `<a class="p click ${ae?'grn':'org'}" href="subjects.html#s=${encodeURIComponent(sid||'')}&t=${ae?'ae':'mh'}" title="查看对应${ae?'AE':'病史'}记录">${K.esc(s)}</a>`}).join(' ');
+ return `<div class="flex wrap" style="gap:3px;align-items:center">${pill}${attr}</div>${links?`<div style="margin-top:2px">${links}</div>`:''}${txt?`<div class="xs muted" style="margin-top:2px">${K.esc(txt)}</div>`:''}`};
 K.PRI={4:['优先核实','red'],3:['需核实','org'],2:['结合临床','yel'],1:['筛查提示','']};
 K.pri=n=>K.p(K.PRI[n]?.[0]||'—',K.PRI[n]?.[1]||'');
 K.RISK={CSX:['CS·未关联AE/MH','solid-red','判CS但未关联AE或病史：漏报AE风险最高'],MH:['CS·仅关联MH·较基线加重','org','判CS且仅关联既往病史，系统判定给药后较基线加重，未见对应AE：请评估是否需记录AE'],MHU:['CS·仅关联MH·无法判断加重','yel','判CS并已关联病史，但基线缺失或为描述性结果，系统无法判断是否加重：请结合原始记录判断'],MHL:['已关联MH','grn','判CS并已关联既往病史，较基线未明显加重（病史延续），或加重已记录为AE：不作为风险'],NCS2:['NCS·≥2级','yel','数值落入'+((window.KZ||{}).cfg||{}).ctcaeVersion+'≥2级但判NCS'],NA2:['未评价·≥2级','yel','数值达≥2级，表单有临床意义字段但研究者未评价'],G2NF:['≥2级·表单无临床意义评价','yel','数值达≥2级，该表单没有临床意义字段（如体重）：请评估是否需记录AE'],AE:['已关联AE','grn','已有对应AE记录'],NA:['超范围·未评价','yel','给药后超出参考范围但未见研究者临床意义评价'],DIS:['CS·研究疾病表现','grn','研究者归因研究疾病，或属方案/IB 列出的研究疾病表现，且给药后未较基线进一步加重：不作为风险'],DISW:['CS·研究疾病·加重','org','研究者归因研究疾病，但给药后较基线加重：按AE定义评估'],NCS:['NCS','','异常无临床意义'],CSI:['CS·判定不一致','yel','同一受试者相近结果一次判NCS、一次判CS：发判定一致性query，不按潜在AE漏记'],REL:['较基线显著变化','yel','给药后超出参考范围且较基线同向明显变化（阈值见下方选择）；只统计未关联AE/病史的，已关联的单独标注'],'MHX-T':['疑似病史漏记·首剂前','org','首次给药前已明显超出参考范围（或达≥2级），研究者判NCS或未评价，且病史未记录（阈值见下方选择）']};
@@ -70,7 +81,7 @@ K.loc=(sh,row)=>`${K.shName(sh)}${row!=null&&row!==''?' 第'+row+'行':''}`;
  * 文案三页共用一处：研究依据页「知识层状态」卡／总览顶部警示条／query 页头提示。 */
 K.knCard=kn=>!kn?'':kn.degraded
  ?`<div class="c1"><div class="t">知识层状态<span class="sp"></span>${K.p('降级','red')}</div><div class="v" style="color:var(--risk)">MedDRA 字典不可用：AE 未按器官系统归类、临床意义关联合理性未预判——请检查授权字典配置后重建</div></div>`
- :`<div class="c1"><div class="t">知识层状态<span class="sp"></span>${K.p('可用','grn')}</div><div class="v">MedDRA ${K.esc(kn.meddra_version||'版本未记录')} · AE 器官归类 ${kn.ae_soc||0} 条 · 关联预判 ${(kn.implausible||0)+(kn.plausible||0)+(kn.unknown||0)} 行</div></div>`;
+ :`<div class="c1"><div class="t">知识层状态<span class="sp"></span>${K.p('可用','grn')}</div><div class="v">MedDRA ${K.esc(kn.meddra_version_note||kn.meddra_version||'版本未记录')} · AE 器官归类 ${kn.ae_soc||0} 条 · 关联预判 ${(kn.implausible||0)+(kn.plausible||0)+(kn.unknown||0)} 行</div></div>`;
 K.knBar=kn=>kn&&kn.degraded?`<div class="box red" style="margin-bottom:10px">⚠ MedDRA 不可用（知识层降级，报告仍生成）：AE 未按器官系统归类、临床意义关联合理性未预判——请检查授权字典配置后重建（研究依据页「知识层状态」有详情）</div>`:'';
 K.knHint=kn=>kn&&kn.degraded?`<div class="box red mt small">⚠ MedDRA 不可用（知识层降级，报告仍生成）：关联类核对未含知识层预判，字典恢复后重建即自动补齐。</div>`:'';
 /* ---- 术语一致性按 PT 归并（安全页 AE tab）：以 MedDRA 首选术语（PT）为归并单位，

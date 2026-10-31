@@ -156,16 +156,17 @@ def main():
             for test, unit, lo, hi, mu, sd in LABS:
                 x = R.gauss(mu, sd)
                 post = v not in ('V1',)
-                clin, link, desc = '', '', ''
+                clin, link, desc, rsn, rstxt = '', '', '', '', ''
                 if test == '血红蛋白' and sid in ('01004', '03002') and post and v in ('W8', 'W12'):
                     x = 92
                     clin, link = '异常有临床意义', 'MH+%d+贫血' % (len(mh))
                 if test == '丙氨酸氨基转移酶' and sid == '02002' and v == 'W4':
                     x = 135
                     clin, link = '异常有临床意义', 'AE+%d+丙氨酸氨基转移酶升高' % len(ae)
+                    rstxt = '与该不良事件有关，同一异常已按关联字段记录'   # mm4 钻取「判定与关联」演示：原文说明
                 if test == '丙氨酸氨基转移酶' and sid == '04001' and v == 'W8':
                     x = 88
-                    clin = '异常有临床意义'
+                    clin = '异常有临床意义'                              # 演示：CS 未关联（钻取列显示「未关联」灰字）
                 if test == '血小板计数' and sid == '01007' and v == 'W4':
                     x = 68
                     clin = '异常无临床意义'
@@ -175,10 +176,11 @@ def main():
                 if test == '甘油三酯' and sid in ('02004', '02005') and v == 'W8':
                     x = 2.4 if sid == '02004' else 2.45
                     clin = '异常有临床意义' if sid == '02004' else '异常无临床意义'
+                    rsn = '与研究疾病加重有关' if sid == '02004' else ''   # 演示：研究者归因研究疾病（钻取列显示「研究疾病」）
                 x = round(max(x, lo * 0.75 if lo else 0.1), 1 if unit != 'mmol/L' else 2)
                 if not clin:
                     clin = '正常' if lo <= x <= hi else '异常无临床意义'
-                LB.append([sid, dict((a, b) for a, b, _ in VIS).get(v, '计划外访视'), d(dd), test, x, unit, lo, hi, clin, desc, link])
+                LB.append([sid, dict((a, b) for a, b, _ in VIS).get(v, '计划外访视'), d(dd), test, x, unit, lo, hi, clin, desc, link, rsn, rstxt])
         # VS / ECG
         for v, dd in dates.items():
             for tpt in (['给药前', '给药后2h'] if v == 'D1' else ['']):
@@ -232,8 +234,8 @@ def main():
     sheet(wb, 'MH', ['受试者编号', '病史编号', '病史名称', '开始日期', '结束日期', '是否持续'], ['SUBJID', 'MHNO', 'MHTERM', 'MHSTDAT', 'MHENDAT', 'MHONGO'], MH)
     sheet(wb, 'CM', ['受试者编号', '用药编号', '药物名称', '开始日期', '结束日期', '是否持续', '剂量', '频次', '途径', '用药原因'],
           ['SUBJID', 'CMNO', 'CMTRT', 'CMSTDAT', 'CMENDAT', 'CMONGO', 'CMDOSE', 'CMFREQ', 'CMROUTE', 'CMINDC'], CM)
-    sheet(wb, 'LB', ['受试者编号', '访视名称', '采样日期', '检查项', '结果', '单位', '参考范围下限', '参考范围上限', '临床意义评价', '异常描述', '病史/不良事件请选择'],
-          ['SUBJID', 'VISIT', 'LBDAT', 'LBTEST', 'LBORRES', 'LBORRESU', 'LBORNRLO', 'LBORNRHI', 'LBCLSIG', 'LBDESC', 'LBLINK'], LB)
+    sheet(wb, 'LB', ['受试者编号', '访视名称', '采样日期', '检查项', '结果', '单位', '参考范围下限', '参考范围上限', '临床意义评价', '异常描述', '病史/不良事件请选择', '判定原因', '原因说明'],
+          ['SUBJID', 'VISIT', 'LBDAT', 'LBTEST', 'LBORRES', 'LBORRESU', 'LBORNRLO', 'LBORNRHI', 'LBCLSIG', 'LBDESC', 'LBLINK', 'LBREASN', 'LBRSTXT'], LB)
     sheet(wb, 'VS', ['受试者编号', '访视名称', '检查日期', '时间点', '检查时间', '收缩压', '收缩压临床意义', '舒张压', '舒张压临床意义', '脉搏', '脉搏临床意义', '体重'],
           ['SUBJID', 'VISIT', 'VSDAT', 'VSTPT', 'VSTIM', 'SYSBP', 'SYSCS', 'DIABP', 'DIACS', 'PULSE', 'PULSECS', 'WEIGHT'], VS)
     sheet(wb, 'EG', ['受试者编号', '访视名称', '检查日期', '时间点', '心率', 'QTcF', '心电图临床意义'], ['SUBJID', 'VISIT', 'EGDAT', 'EGTPT', 'EGHR', 'QTCF', 'EGCLSIG'], EG)

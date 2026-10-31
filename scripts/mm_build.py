@@ -632,6 +632,25 @@ def resolve_links(C, sid, links):
     return out
 
 
+def drill_fields(C, sid, r):
+    """mm4 钻取行扩位（用户 2026-10-30 裁定：参与者资料页 CS 项点开必须有链接信息）：
+    返回 [归因码, 原文说明截断 60 字, 关联摘要]，追加在检验行尾部——既有 14 位不动（前端按索引安全读取）。
+    归因码：AE/MH＝关联回溯到真实记录；disease＝研究者归因研究疾病；NA＝超范围未评价；''＝无（CS 行前端显示「未关联」）。
+    关联摘要：「AE 术语·开始日期」/「病史 术语」，多条 、 分隔；编号在 AE/MH 记录中不存在的按未关联口径（不冒充已关联）。"""
+    links = resolve_links(C, sid, r.get('links') or [])
+    ok = [l for l in links if l[4]]
+    if ok:
+        code = 'AE' if any(l[0] == 'AE' for l in ok) else 'MH'
+    elif 'disease' in str(r.get('reason') or ''):
+        code = 'disease'
+    elif r.get('clin') is None and r.get('oor'):
+        code = 'NA'
+    else:
+        code = ''
+    summ = '、'.join(f"{'病史' if l[0] == 'MH' else 'AE'} {l[1]}{'·' + l[2] if l[2] else ''}" for l in ok)
+    return [code, str(r.get('reason_text') or '')[:60], summ]
+
+
 worse_vs_base = ext_rules.worse_vs_base
 disease_kw = ext_rules.disease_kw
 
@@ -1858,8 +1877,10 @@ def build_subject_files(C, out):
                 continue
             dom = mid.split(':')[0]
             if dom in doms:
+                # mm4 钻取行扩位（drill_fields）：既有 14 位不动，尾部追加 [归因码, 原文说明, 关联摘要]
                 d[doms[dom]][C.metric[mid]['label']] = [[r.get('date'), r.get('visit'), r.get('value'), r.get('raw'), r.get('unit') or '', r.get('lo'), r.get('hi'),
-                                                        r.get('clin'), r.get('desc') or '', r['sheet'], r['row'], r.get('tpt') or '', r.get('time') or '', 1 if r.get('isb') else 0] for r in rows]
+                                                        r.get('clin'), r.get('desc') or '', r['sheet'], r['row'], r.get('tpt') or '', r.get('time') or '', 1 if r.get('isb') else 0]
+                                                        + drill_fields(C, sid, r) for r in rows]
             else:
                 extg[rows[0].get('group') or dom].extend(rows)
         for g, rows in extg.items():

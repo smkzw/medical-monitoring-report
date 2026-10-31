@@ -68,5 +68,30 @@ r = K.ptCons([{ t: '头痛', pt: '头痛' }, { t: '偏头痛', pt: '头痛' },
 ok(!r.deg && r.rows.length === 1, '混合：pt 覆盖率 20%（未低于）→ 正常归并');
 ok(K.ptCons([]).deg, '无 AE → 降级提示（无 PT 可归并）');
 
+/* ---- 钻取行「判定与关联」列（参与者资料页 CS 项点开，用户 2026-10-30 裁定） ---- */
+/* 行桩：既有 14 位（r[7]=clin）＋尾部扩位 [归因码, 原文说明, 关联摘要] */
+const drow = (clin, code, txt, sum) => ['2026-06-20', 'V2', 88, '88', 'U/L', 9, 50, clin, '', 'LB', 5, '', '', 0, code, txt, sum];
+if (typeof K.judgeCell !== 'function') { console.error('缺纯函数：K.judgeCell（kz.js）'); process.exit(1); }
+const jAE = K.judgeCell(drow(2, 'AE', '与3号AE有关', 'AE 丙氨酸氨基转移酶升高·2026-06-10'), 'S1');
+ok(jAE.includes('CS'), '有判定与关联信息的行应带 CS pill');
+ok(jAE.includes('AE 关联'), 'AE 归因应显示「AE 关联」标签');
+ok(jAE.includes('丙氨酸氨基转移酶升高') && jAE.includes('2026-06-10'), '关联应显示术语与日期');
+ok(jAE.includes('subjects.html#s=S1&t=ae'), 'AE 关联应可跳转参与者资料页 AE tab');
+ok(jAE.includes('与3号AE有关'), '原文说明应显示');
+const jMH = K.judgeCell(drow(2, 'MH', '', '病史 贫血'), 'S1');
+ok(jMH.includes('病史关联') && jMH.includes('贫血'), 'MH 关联应显示标签与术语');
+ok(jMH.includes('subjects.html#s=S1&t=mh'), 'MH 关联应跳转 MH tab');
+const jDis = K.judgeCell(drow(2, 'disease', '与研究疾病加重有关', ''), 'S1');
+ok(jDis.includes('研究疾病'), 'disease 归因应显示「研究疾病」标签');
+ok(!jDis.includes('subjects.html'), '无关联对象不渲染跳转链接');
+ok(jDis.includes('与研究疾病加重有关'), 'disease 原文说明应显示');
+const jNA = K.judgeCell(drow(null, 'NA', '', ''), 'S1');
+ok(jNA.includes('未评价'), 'NA（超范围未评价）应显示标签');
+ok(jNA.includes('ND'), '无临床意义判定应显示 ND pill');
+const jNone = K.judgeCell(drow(2, '', '', ''), 'S1');
+ok(jNone.includes('未关联'), 'CS 行全空应显示「未关联」灰字');
+const jPlain = K.judgeCell(drow(0, '', '', ''), 'S1');
+ok(jPlain === '' || !jPlain.includes('未关联'), '正常行不显示「未关联」（仅 CS 行）');
+
 if (fails) { console.error(`${fails} 处断言失败`); process.exit(1); }
-console.log('render logic ok: knCard/knBar/knHint/ptCons');
+console.log('render logic ok: knCard/knBar/knHint/ptCons/judgeCell');
