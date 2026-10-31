@@ -4,7 +4,7 @@ description: |
   临床试验医学监察（Medical Monitoring）报告一体化技能：基于研究方案、EDC 数据 listing（可选：分组/随机表、PD listing、CRO 已发质疑、
   量表/中心实验室/中心阅片、PK/PD/ADA）以及研究者手册（IB，可选），自动完成文件盘点、方案/IB 规则抽取、listing 解构与字段匹配、
   深度医学分析（按方案指定分级标准/版本自动分级——内置 CTCAE v5.0 / v6.0，支持方案自定义表、单位换算、指标自动映射；AE 漏报风险、AE/MH 关联、方案基线定义、方案阈值/AESI（术语/PT/SOC/实验室组合如 Hy’s law）、TEAE/AE 收集期、SAE/AESI 报告时限、禁用药与洗脱期、入排、访视窗、AE 记录质量、中心偏离漏斗图、
-  有效性合理性、方案偏离（已记录 PD 归一、执行层面与科学层面潜在 PD、重要/一般/待判定分级、逐事件比对）），生成 10 页康哲风格交互式 HTML 报告（总览/研究依据/受试者 Profile/受试者时间线/安全性/方案偏离/有效性/客观检查/
+  有效性合理性、方案偏离（已记录 PD 归一、执行层面与科学层面潜在 PD、重要/一般/待判定分级、逐事件比对）），生成 12 页康哲风格交互式 HTML 报告（总览/安全性概况/研究依据/受试者 Profile/受试者时间线/安全性/方案偏离/临床监察/有效性/客观检查/
   质疑/审阅要点）与可直接粘贴 EDC 的申办方 MM query 工作簿。
   触发词：医学监察报告、医学监查、MM 报告、medical monitoring、AE 漏报、实验室异常核查、受试者时间线、patient profile、
   受试者画像、个例 profile、禁用药核查、入排违背、医学 query、数据审阅。
@@ -12,7 +12,7 @@ description: |
 metadata:
   version: 1.0.0
   author: smkzw
-  summary: 方案 + listing → 规则抽取 → 解构映射 → 深度医学分析＋方案偏离 → 10 页医学监察 HTML + EDC query 工作簿（康哲设计体系）。
+  summary: 方案 + listing → 规则抽取 → 解构映射 → 深度医学分析＋方案偏离 → 12 页医学监察 HTML + EDC query 工作簿（康哲设计体系）。
 ---
 
 # 医学监察报告（Medical Monitoring Report）
@@ -90,7 +90,7 @@ ECharts ≥6（轴断裂）：`--echarts` → `$ECHARTS_JS` → `~/.cache/mm-rep
 
 **阶段 6 · 验证（必须执行，不能只看 JSON）**
 ```bash
-node scripts/render_check.js out/S/HTML --shots out/S/shots      # 10 页 + 个例钻取 + 所有 tab + 抽屉；有报错 exit 1
+node scripts/render_check.js out/S/HTML --shots out/S/shots      # 12 页 + 个例钻取 + 所有 tab + 抽屉；有报错 exit 1
 python3 scripts/validate_contract.py out/S/HTML --source-check   # 数据契约、交叉引用、盲态守卫、源行回查
 ```
 构建日志的 `grading … · graded metrics … · unit issues …` 必须核对：单位问题 >0 时补 `analysis.unitConv` 或 `cfg.ctcaeMap`。
@@ -103,8 +103,8 @@ CRO 查重结果、未决问题与已知局限。
 
 ## 报告页面
 
-`index` 总览（底部折叠「审阅要点与方法学」）· `study` 研究依据（概况→关键口径→按领域监查规则→规则库）· `subjects` 受试者 Profile · `timeline` 受试者时间线 · `safety` 安全性（AE/检验风险/其他信号，潜在 PD 标签）·
-`deviations` 方案偏离（已记录 PD＋潜在 PD 执行/科学层面，分级与比对）· `efficacy` 有效性（盲态下不分组）· `objective` 客观检查趋势/中心漏斗图 · `queries` 质疑清单 · `methods` 审阅要点（不在主导航）。
+`index` 总览（首屏「先看这里」重点卡；底部折叠「审阅要点与方法学」）· `profile` 安全性概况（全试验/中心/受试者三级，中心对照整体、受试者对照中心与整体）· `study` 研究依据（概况→关键口径→按领域监查规则→规则库）· `subjects` 受试者 Profile · `timeline` 受试者时间线 · `safety` 安全性（中心总览热力图/AE/检验风险/其他信号，潜在 PD 标签）·
+`deviations` 方案偏离（已记录 PD＋潜在 PD 执行/科学层面，分级与比对）· `monitor` 临床监察（入组进度、访视执行、给药与知情、数据质量、疑似录入错误）· `efficacy` 有效性（盲态下不分组）· `objective` 客观检查趋势/中心漏斗图 · `queries` 质疑清单 · `methods` 审阅要点（不在主导航）。
 页面职责与数据来源见 `references/report-pages.md`；视觉规范见 `references/design-system.md`。
 
 ## 演示（端到端自测）
@@ -128,7 +128,7 @@ node scripts/render_check.js out/demo/HTML && python3 scripts/validate_contract.
 - `references/protocol-deviation.md` — 方案偏离定义、分类（CDISC DVCAT）、分级、规则目录、配置与依据（ICH E3 Q&A、E6(R3)、GCP 2026）
 - `references/query-writing.md` — query 文本规范、查重、合并
 - `references/data-contract.md` — 前端数据契约（KZ/KZT/KZX、个例文件）
-- `references/report-pages.md` — 10 页职责
+- `references/report-pages.md` — 12 页职责
 - `references/design-system.md` — 康哲设计体系与用户偏好
 - `references/validation-checklist.md` — 交付前检查
 - `references/lessons-learned.md` — 既往项目经验

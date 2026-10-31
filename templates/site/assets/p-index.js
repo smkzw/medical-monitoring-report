@@ -11,7 +11,23 @@ const PD=D.pd,POT=(PD||{}).potential||[],CONF=(PD||{}).confirmed||[],pdImp=POT.f
 const pdCats=new Set(PD?oth.filter(o=>o.pd&&o.pd!=='SAFE-03'&&o.pd!=='SAFE-02').map(o=>o.cat):[]);
 const kpiPD=PD?`<a class="kpi risk" href="deviations.html" style="text-decoration:none;color:inherit"><div class="l">方案偏离（潜在 / 已记录）</div><div class="v">${POT.length}<small>/ ${CONF.length} 条</small></div><div class="s">${K.p('重要 '+pdImp,'solid-red')}${K.p('未见记录 '+pdMiss,'org')}${K.p('已记录 '+CONF.length,'grn')}</div></a>`
  :`<div class="kpi"><div class="l">专项核查信号</div><div class="v">${oth.length}<small>条</small></div><div class="s">${K.p('优先核实 '+oth.filter(o=>o.pr===4).length,'red')}${K.p('需核实 '+oth.filter(o=>o.pr===3).length,'org')}</div></div>`;
+/* mm5 首屏「先看这里」：最需要处理的几件事（大数字＋一句含义＋直达）；用户 2026-10-31：打开后不清楚看哪里、哪些数字是重点 */
+const CR=K.centerRisk(),hotC=CR.centers.map(c=>[c,CR.hot(c.site)]).filter(x=>x[1].length>=2).sort((a,b)=>b[1].length-a[1].length);
+const RD=K.RD(),rdn=RD?Object.values(RD.counts||{}).reduce((a,x)=>a+(x.new||0)+(x.worse||0),0):0;
+const focus=[
+  [rc('CSX'),'CS 未关联 AE/病史','判 CS 却没有关联 AE 或病史：漏记 AE 风险最高','safety.html#tab=lab&risk=CSX','solid-red'],
+  [rc('MH')+rc('DISW'),'CS 较基线加重','只关联病史或归因研究疾病，但较基线明显加重','safety.html#tab=lab&risk=MH','org'],
+  ...(PD?[[pdImp,'重要潜在方案偏离','可能影响受试者安全或关键数据，待 CRA 核实','deviations.html','red']]:[]),
+  [hotC.length,'需关注中心','≥2 类风险高于按入组人数推算的期望','safety.html#tab=ov','org'],
+  ...(RD?[[rdn,'本次新增/加重','与上次上传相比新出现或加重的风险项','safety.html#tab=lab','red']]:[]),
+  [((D.ops||{}).entry||[]).length,'疑似录入错误','小数点/单位疑似录错，先核对源数据','monitor.html#tab=ent','yel'],
+  [D.queries.length,'待发医学质疑',`其中与 CRO 意见冲突 ${D.queries.filter(q=>q.cro==='冲突澄清').length} 条`,'queries.html','grn']].slice(0,6);
+const guide=[['安全性概况','全试验/中心/受试者的 AE、病史、用药、检验与有效性概况','profile.html'],['AE/MH风险','中心总览热力图、检验异常与 AE/病史关联','safety.html'],['方案偏离','已记录与潜在方案偏离','deviations.html'],
+  ['临床监察','入组进度、访视执行、给药依从、数据质量','monitor.html'],['医学质疑','可直接发给中心的质疑','queries.html'],['参与者资料','单个受试者的全部数据与概况','subjects.html']];
 app.innerHTML=`
+<div class="card mb" style="padding:12px 14px"><div class="hd" style="margin-bottom:8px"><h2>先看这里</h2><span class="sub">点击直达明细；条目点开可看该受试者该指标的全程数据</span></div>
+ <div class="grid" style="grid-template-columns:repeat(${focus.length},1fr);gap:10px">${focus.map(([n,l,s,h,c])=>`<a class="box" href="${h}" style="text-decoration:none;color:inherit;display:block"><div class="flex"><span class="p ${n?c:'line'}">${l}</span></div><div style="font-size:26px;font-weight:700;color:var(--ink);margin:4px 0 2px">${n}</div><div class="xs muted" style="line-height:1.5">${s}</div></a>`).join('')}</div>
+ <div class="flex wrap mt xs muted" style="gap:14px">${guide.map(([n,s,h])=>`<a href="${h}" title="${K.esc(s)}"><b style="color:var(--ink)">${n}</b> <span class="faint">${s}</span></a>`).join('')}</div></div>
 <div class="kpis">
  <div class="kpi"><div class="l">筛选 / 随机并给药</div><div class="v">${m.n}<small>/ ${m.dosed} 例</small></div><div class="s">${Object.entries(st).map(([k,v])=>K.p(k+' '+v,K.STC[k]??'')).join('')}</div></div>
  <div class="kpi blu"><div class="l">中心（有给药 / 全部）</div><div class="v">${D.centers.filter(c=>c.dosed).length}<small>/ ${D.centers.length}</small></div><div class="s">${(SD.tags||[]).map(t=>Array.isArray(t)?K.p(K.esc(t[0]),t[1]||'line'):K.p(K.esc(t),'line')).join('')}</div></div>
@@ -29,7 +45,7 @@ app.innerHTML=`
  <div class="card"><div class="hd"><h2>AESI 记录</h2><span class="sub">研究者标记为 AESI 的不良事件</span><span class="sp"></span><a class="small" href="safety.html#tab=ae&aesi=1">全部 ›</a></div><div id="aesi"></div></div>
 </div>
 <div class="grid g21 mt">
- <div class="card"><div class="hd"><h2>中心风险矩阵</h2><span class="sub">有给药的中心 · 颜色越深越偏离</span><span class="sp"></span><span class="note">AE/例 低且 CS未关联 高 → 优先关注漏报</span></div><div id="ctr"></div></div>
+ <div class="card"><div class="hd"><h2>需关注中心</h2><span class="sub">风险高于按本中心给药人数推算的期望（超出随机波动）的类别</span><span class="sp"></span><a class="small" href="safety.html#tab=ov">中心总览热力图 ›</a></div><div id="ctr"></div></div>
  <div class="card"><div class="hd"><h2>入组进度</h2><span class="sub">首次给药累计</span></div><div id="enr" class="chart sm"></div>
   <div class="hd mt"><h2>主要待办</h2></div><div id="todo"></div></div>
 </div>
@@ -61,18 +77,7 @@ K.chart('#aech',{grid:{left:120,right:120,top:6,bottom:20},tooltip:{trigger:'axi
  xAxis:{type:'value',...K.axis},yAxis:{type:'category',data:order,...K.axis,axisLabel:{color:'#404040',fontSize:11}},
  series:[{type:'bar',stack:'a',name:'1级',data:order.map(k=>cats[k].n-cats[k].g2),itemStyle:{color:'#FFCC80'},barWidth:12},{type:'bar',stack:'a',name:'≥2级',data:order.map(k=>({value:cats[k].g2,itemStyle:{color:'#E67E00'}})),label:{show:true,position:'right',formatter:p=>{const c=cats[p.name];const t=(D.ibtag[p.name]||[])[0];return c.n+(t?'  '+t:'')},color:'#64676B',fontSize:10.5}}]}).on('click',p=>location.href='safety.html#tab=ae&c='+encodeURIComponent(p.name));
 /* centers */
-const C=D.centers.filter(c=>c.dosed).map(c=>({...c,aer:c.ae/c.dosed,csxr:c.csx,qr:c.q,pdp:POT.filter(x=>x.site===c.site).length,pdi:POT.filter(x=>x.site===c.site&&x.grade==='重要').length}));
-const mx=k=>Math.max(...C.map(c=>c[k]))||1;const heat=(v,k,inv)=>{const x=v/mx(k);const a=inv?(1-x):x;return `background:rgba(${k==='aer'?'64,122,170':'255,153,0'},${(a*0.55).toFixed(2)})`};
-K.table(document.getElementById('ctr'),{rows:C,sort:'csx',h:'420px',cols:[
- {k:'site',t:'中心',f:r=>`<a href="subjects.html#c=${r.site}">${K.p(r.site,'sq mono')} ${K.esc(r.name.length>14?r.name.slice(0,14)+'…':r.name)}</a>`},
- {k:'n',t:'筛选',cls:'num'},{k:'dosed',t:'给药',cls:'num'},
- {k:'aer',t:'AE/例',cls:'num',f:r=>`<span style="${heat(r.aer,'aer')};padding:1px 6px;border-radius:4px">${r.aer.toFixed(1)}</span>`,tip:'给药者AE例次/给药例数'},
- {k:'aesi',t:'AESI',cls:'num',f:r=>r.aesi?K.p(r.aesi,'red'):'·'},
- {k:'csx',t:'CS未关联',cls:'num',f:r=>r.csx?`<span class="badge-n">${r.csx}</span>`:'·',tip:'判CS但未关联AE/MH的受试者×指标行'},
- {k:'mhx',t:'CS仅MH',cls:'num',f:r=>r.mhx?`<span style="${heat(r.mhx,'mhx')};padding:1px 6px;border-radius:4px">${r.mhx}</span>`:'·'},
- {k:'ncs2',t:'NCS≥2级',cls:'num',f:r=>r.ncs2?K.p(r.ncs2,'yel'):'·'},
- {k:'labrows',t:'异常行',cls:'num',f:r=>`<span style="${heat(r.labrows,'labrows')};padding:1px 6px;border-radius:4px">${r.labrows}</span>`},
- {k:'q',t:'质疑',cls:'num',f:r=>r.q||'·'},{k:'cro',t:'CRO',cls:'num',f:r=>r.cro||'·'}].concat(PD?[{k:'pdp',t:'潜在PD',cls:'num',f:r=>r.pdp?`<a href="deviations.html#tab=exe" onclick="event.stopPropagation()">${r.pdp}</a>`:'·',tip:'潜在方案偏离条数（数据推断）'},{k:'pdi',t:'重要PD',cls:'num',f:r=>r.pdi?K.p(r.pdi,'solid-red'):'·'}]:[])});
+document.getElementById('ctr').innerHTML=hotC.length?`<table class="t"><thead><tr><th>中心</th><th class="num">给药</th><th>偏高的风险类别</th></tr></thead><tbody>${hotC.slice(0,8).map(([c,h])=>`<tr class="click" onclick="location.href='profile.html#c=${c.site}'"><td class="nowrap">${K.p(c.site,'sq mono')} ${K.esc(c.name.length>14?c.name.slice(0,14)+'…':c.name)}</td><td class="num">${c.dosed}</td><td>${h.map(x=>K.p(x,'org')).join('')}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">没有中心在 2 类及以上风险中明显偏高</div>';
 /* enrollment */
 const fds=dosed.map(s=>s.fd).sort();const pts=fds.map((d,i)=>[d,i+1]);
 K.chart('#enr',{grid:{left:36,right:12,top:10,bottom:24},tooltip:{trigger:'axis'},xAxis:{type:'time',...K.axis},yAxis:{type:'value',...K.axis,max:SD.planned?Math.ceil(SD.planned*1.08):null},series:[{type:'line',step:'end',data:pts,symbol:'none',lineStyle:{color:'#FF9900',width:2},areaStyle:{color:'rgba(255,153,0,.12)'},markLine:SD.planned?{symbol:'none',data:[{yAxis:SD.planned,label:{formatter:'计划'+SD.planned,color:'#64676B'},lineStyle:{color:'#C9CCD1',type:'dashed'}}]}:undefined}]});
@@ -86,5 +91,6 @@ const todo=(D.todo&&D.todo.length?D.todo:[
 document.getElementById('todo').innerHTML=`<table class="t"><tbody>${todo.map(t=>`<tr class="click" onclick="location.href='${t[2]}'"><td style="width:90px">${t[0]}</td><td>${t[1]}</td><td class="faint">›</td></tr>`).join('')}</tbody></table>`;
 /* 审阅要点：折叠区首次展开时渲染（与 methods.html 同一渲染器） */
 const mf=document.getElementById('mfold');if(mf)mf.addEventListener('toggle',()=>{if(mf.open&&!mf.dataset.done&&K.renderMethods){mf.dataset.done=1;K.renderMethods(document.getElementById('mbody'),{embed:true})}});
-{const kp=app.querySelector('.kpis'),dc=K.deltaCard(),kn=K.knBar(D.knowledge);if(dc&&kp)kp.insertAdjacentHTML('afterend',dc);if(kn&&kp)kp.insertAdjacentHTML('beforebegin',kn)/* mm4：知识层降级 → 顶部警示条 */}
+{const go=['monitor.html','safety.html#tab=ov','profile.html',null,null,'queries.html'];app.querySelectorAll('.kpis>.kpi').forEach((k,i)=>{if(go[i]&&k.tagName!=='A'){k.classList.add('click');k.title='点击查看明细';k.onclick=e=>{if(!e.target.closest('a'))location.href=go[i]}}});
+ const kp=app.querySelector('.kpis'),dc=K.deltaCard(),kn=K.knBar(D.knowledge);if(dc&&kp)kp.insertAdjacentHTML('afterend',dc);if(kn&&kp)kp.insertAdjacentHTML('beforebegin',kn)/* mm4：知识层降级 → 顶部警示条 */}
 });

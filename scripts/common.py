@@ -204,7 +204,12 @@ _LINK_HIST_SUF = re.compile(
 # 不作词目关联的引用：研究疾病指代（「与AD相关」等归 disease_attr 的研究疾病口径，不得造 MH 关联抢归因）
 # 疾病指代带限定词的形态（「本研究疾病」「基础疾病」…）一并拦下——SAR/RUX 实测「CS与本研究疾病相关」
 # 曾整体被抽成词目「本研究疾病」，抢走 disease_attr 的研究疾病归因（DIS/DISW 被误路由成 CSX）
-_LINK_NOT_TERM = re.compile(r'^(?:研究疾病|疾病本身|原发病|本病|疾病|AD|既往史|病史|相关|有关)$|(?:研究|本|原发|基础|该|同)[一-鿿]{0,4}疾病|疾病本身|^原发?病|^原疾病')
+_LINK_NOT_TERM = re.compile(r'^(?:研究疾病|疾病本身|原发病|本病|疾病|AD|既往史|病史|相关|有关)$|(?:研究|本|原发|基础|该|同)[一-鿿]{0,4}疾病|疾病本身|^原发?病|^原疾病'
+                            # mm5 审阅（S6）：非疾病对象不作病史/AE 词目（「与研究药物相关」「与饮食有关」「否认病史」「溶血所致」）
+                            r'|研究药物|试验药物|研究用药|^药物$|饮食|进食|运动|标本|溶血|采血|操作|检测方法|仪器|^否认|^无$|^既往无|^未见')
+# 否定写法：「与高血压不相关」「与高血压无明显相关」「否认与高血压有关」「排除高血压所致」——不是关联
+_LINK_NEG_TAIL = re.compile(r'(?:不|无|未|非|并非|没有)\s*(?:明显|直接|确切)?\s*(?:的)?\s*(?:有关|相关|关联|所致|引起)$')
+_LINK_NEG_HEAD = re.compile(r'(?:否认|排除|除外|不考虑|非)\s*$')
 _LINK_NO_CJK = re.compile(r'^[^一-鿿]+$')
 
 
@@ -216,14 +221,19 @@ def parse_desc_links(v):
     s = str(v)
     out = []
     for m in _LINK_RELATED.finditer(s):
+        if _LINK_NEG_TAIL.search(m.group(0)) or _LINK_NEG_HEAD.search(s[max(0, m.start() - 4):m.start()]) or \
+                re.search(r'(?:不|无|未|非)$', m.group(2) or ''):
+            continue                                       # mm5 审阅（S4）：否定写法不是关联
         pre, term, noun = m.group(1), m.group(2), m.group(3)
         nouns = [n for n in (pre, noun) if n]
         typ = 'AE' if any(n == '不良事件' or n.upper() == 'AE' for n in nouns) else 'MH'
         out.append((typ, term))
     for m in _LINK_HIST_SUF.finditer(s):
-        out.append(('MH', m.group(1) or m.group(2)))
+        if not _LINK_NEG_HEAD.search(s[max(0, m.start() - 4):m.start()]):
+            out.append(('MH', m.group(1) or m.group(2)))
     for m in _LINK_HIST_PRE.finditer(s):
-        out.append(('MH', m.group(1)))
+        if not _LINK_NEG_HEAD.search(s[max(0, m.start() - 4):m.start()]):
+            out.append(('MH', m.group(1)))
     seen, res = set(), []
     for typ, term in out:
         term = (term or '').strip(' 　\'"“”' + '「」『』')

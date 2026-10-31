@@ -150,18 +150,19 @@ class DiseaseRelatedCS(unittest.TestCase):
 
 class ClinConsistency(unittest.TestCase):
     """用户 2026-10-27：同一受试者相同/相近结果一次判 NCS、一次判 CS → 风险（query），不作 PD。"""
-    def test_same_level(self):
+    def test_judgment_only_follows_directional_rule(self):
+        """mm5：只有「更差（或相等）者判 NCS、更轻者判 CS」才属改判（一致性 query 覆盖）；CS 更差时不降级，仍走 CS 未关联。"""
         from types import SimpleNamespace
-        from ext_rules import same_level, judgment_only
+        from ext_rules import judgment_only
         C = SimpleNamespace(A={})
-        a = {'value': 319, 'hi': 250, 'lo': 120, 'clin': 1}
-        self.assertTrue(same_level(C, a, {'value': 320, 'hi': 250, 'lo': 120}))
-        self.assertFalse(same_level(C, a, {'value': 400, 'hi': 250, 'lo': 120}))        # 相差 >10%
-        self.assertFalse(same_level(C, {'value': 151, 'clin': 1}, {'value': 152}))       # 无参考范围（心电图间期）不比较
-        self.assertTrue(same_level(C, {'raw': '3+', 'clin': 1}, {'raw': '3+'}))
-        self.assertFalse(same_level(C, {'raw': '1+', 'clin': 1}, {'raw': '3+'}))
-        b = {'value': 320, 'hi': 250, 'lo': 120, 'clin': 2, 'post': True, 'base': {'value': 315, 'grade': 0}}
-        self.assertTrue(judgment_only(C, b, [a, b], 0.3))                             # 只是改判，不按潜在 AE 漏记
+        b = {'value': 320, 'hi': 250, 'lo': 120, 'clin': 2, 'post': True, 'unit': 'U/L', 'base': {'value': 315, 'grade': 0}}
+        worse_ncs = {'value': 330, 'hi': 250, 'lo': 120, 'clin': 1, 'post': True, 'unit': 'U/L'}
+        lighter_ncs = {'value': 319, 'hi': 250, 'lo': 120, 'clin': 1, 'post': True, 'unit': 'U/L'}
+        self.assertTrue(judgment_only(C, b, [worse_ncs, b], 0.3))
+        self.assertTrue(judgment_only(C, b, [dict(worse_ncs, value=320), b], 0.3))       # 数值相等异判
+        self.assertFalse(judgment_only(C, b, [lighter_ncs, b], 0.3))                     # CS 更差：不是改判
+        self.assertFalse(judgment_only(C, b, [dict(worse_ncs, post=False), b], 0.3))     # 不同给药阶段不可比
+        self.assertFalse(judgment_only(C, dict(b, base={'value': 100, 'grade': 0}), [worse_ncs, b], 0.3))   # 较基线加重
 
 
 class Batch6(unittest.TestCase):
@@ -303,7 +304,7 @@ class DemoBuild(unittest.TestCase):
             raw = (self.tmp / 'out/HTML/data/s' / f'{sid}.js').read_text(encoding='utf-8')
             return json.loads(raw[len('KZ_SUB('):-2])
         r8 = next(r for r in sub('02004')['labs']['甘油三酯'] if r[1] == 'W8')
-        self.assertEqual(len(r8), 17)
+        self.assertEqual(len(r8), 20)                     # mm5：再扩 [17] 分级、[18] 较基线%、[19] 疑似录入错误
         self.assertEqual(r8[14], 'disease')
         r = next(r for r in sub('02002')['labs']['丙氨酸氨基转移酶'] if r[1] == 'W4')
         self.assertEqual(r[14], 'AE')
@@ -880,21 +881,24 @@ class AeSpectrumNoMedDRA(unittest.TestCase):
 
     def test_no_soc_groups_by_ib_category_plus_other(self):
         from mm_build import ae_summary
-        aes = [self._ae('血小板计数降低', ib=['IB血液风险·血小板减少']) for _ in range(3)] + \
+        aes = [self._ae('血小板计数降低', ib=['IB重要潜在风险·血小板减少']) for _ in range(2)] + \
+              [self._ae('中性粒细胞计数降低', ib=['IB重要潜在风险·中性粒细胞减少（同SOC）'])] + \
               [self._ae(t) for t in ('头痛', '头痛', '恶心', '恶心', '皮疹', '头晕', '乏力')]
         C = self._C(aes)
         ae_summary(C)
-        self.assertLessEqual(len(C.aesum), 1 + 1)                     # 谱组数 ≤ IB 类别数 + 其他
+        self.assertLessEqual(len(C.aesum), 2 + 1)                     # 谱组数 ≤ IB 风险类别数 + 其他
         self.assertIn(self.OTHER, C.aesum)
         for k in C.aesum:
             self.assertIn(self.NOTE, k, k)
-        ib_key = next(k for k in C.aesum if k.startswith('IB血液风险'))
-        self.assertEqual(C.aesum[ib_key]['n'], 3)
+            self.assertFalse(k.startswith('IB重要潜在风险'), k)        # mm5 审阅 S8：按风险名分组，不按重要性分级
+        ib_key = next(k for k in C.aesum if k.startswith('血小板减少'))
+        self.assertEqual(C.aesum[ib_key]['n'], 2)
+        self.assertTrue(any(k.startswith('中性粒细胞减少') for k in C.aesum))   # 「（同SOC）」后缀不另成一组
         self.assertEqual(C.aesum[self.OTHER]['n'], 7)                 # 无 IB 类别的原文术语全部归「其他」
         self.assertIn('头痛', C.aesum[self.OTHER]['terms'])
         for a in C.aes:                                               # AE 记录类别同步改写（安全页同一口径）
             self.assertIn(self.NOTE, a['c'])
-            self.assertEqual(a['c'], ib_key if a['ib'] else self.OTHER)
+            self.assertTrue(a['c'] != self.OTHER if a['ib'] else a['c'] == self.OTHER)
 
     def test_low_soc_ratio_still_fallback(self):
         from mm_build import ae_summary
@@ -1015,8 +1019,8 @@ class DuplicateAePtLevel(unittest.TestCase):
     旧口径「原文术语相等即发」废止：同 PT 两写法重叠（旧口径漏发）与同写法重叠（旧口径发）均不再发。"""
 
     @staticmethod
-    def _ae(n, t, pt, s, e=''):
-        return {'n': n, 't': t, 'pt': pt, 's': s, 'e': e, 'sh': 'AE', 'row': n}
+    def _ae(n, t, pt, s, e='', soc='各类检查'):
+        return {'n': n, 't': t, 'pt': pt, 's': s, 'e': e, 'sh': 'AE', 'row': n, 'soc': soc}
 
     @staticmethod
     def _C(ae_by):
@@ -1038,17 +1042,25 @@ class DuplicateAePtLevel(unittest.TestCase):
         ae_checks(C)
         self.assertEqual(C.others, [])                                              # 旧 S31 口径废止
 
-    def test_different_pt_overlap_flagged_with_both_pt_names(self):
+    def test_suspected_same_event_flagged_with_both_pt_names(self):
+        """mm5 用户决定：同 SOC、术语相近（胆红素 ↔ 结合胆红素）、时间重叠 → 疑似同一事件重复记录或编码不一致。"""
         from mm_build import ae_checks
-        C = self._C({'S1': [self._ae(1, '上呼吸道感染', '上呼吸道感染', '2026-05-01', '2026-05-10'),
-                            self._ae(2, '流行性感冒', '流行性感冒', '2026-05-05')]})
+        C = self._C({'S1': [self._ae(1, '胆红素升高', '血胆红素升高', '2026-05-01', '2026-05-10'),
+                            self._ae(2, '结合胆红素升高', '结合胆红素升高', '2026-05-05')]})
         ae_checks(C)
         hit = [o for o in C.others if o['cat'] == 'AE一致性核对（PT级）']
         self.assertEqual(len(hit), 1)
-        self.assertIn('PT 级：上呼吸道感染 vs 流行性感冒', hit[0]['sum'])
+        self.assertIn('PT 级：血胆红素升高 vs 结合胆红素升高', hit[0]['sum'])
         self.assertIn('重复记录或编码不一致', hit[0]['sum'])
-        self.assertIn('上呼吸道感染', hit[0]['sum'])                                # 原文写法可见（可核查）
-        self.assertIn('流行性感冒', hit[0]['sum'])
+
+    def test_concurrent_different_events_not_flagged(self):
+        """ALT 与 AST 同时升高、或不同 SOC 的并发 AE：是不同的 AE，不提示。"""
+        from mm_build import ae_checks
+        C = self._C({'S1': [self._ae(1, 'ALT升高', '丙氨酸氨基转移酶升高', '2026-05-01', '2026-05-10'),
+                            self._ae(2, 'AST升高', '天门冬氨酸氨基转移酶升高', '2026-05-05'),
+                            self._ae(3, '头痛', '头痛', '2026-05-06', soc='各类神经系统疾病')]})
+        ae_checks(C)
+        self.assertEqual([o for o in C.others if o['cat'] == 'AE一致性核对（PT级）'], [])
 
     def test_missing_pt_rule_does_not_run(self):
         from mm_build import ae_checks
@@ -1627,7 +1639,7 @@ class F04AeBlankLogRows(unittest.TestCase):
     发生标志=否 且 真实术语列为空 → 跳过；标志=否但术语有值、或标志=是 → 保留。夹具全虚构。"""
 
     @staticmethod
-    def _run(flag_label='是否发生不良事件？', rows=None):
+    def _run(flag_label='是否发生不良事件？', rows=None, dom='ae'):
         import tempfile
         import openpyxl
         from normalize_listing import Book, read_spec
@@ -1645,7 +1657,13 @@ class F04AeBlankLogRows(unittest.TestCase):
             spec = {'wb': 'edc', 'sheet': 'AE', 'label_row': 1, 'var_row': 0, 'data_start': 2,
                     'cols': {'sid': '受试者编号', 'term': '访视名称'}}
             M = {'workbooks': {'edc': str(p)}, 'domains': {}}
-            return [rec for rec, *_ in read_spec(spec, {'edc': Book(str(p))}, M)]
+            return [rec for rec, *_ in read_spec(spec, {'edc': Book(str(p))}, M, dom)]
+
+    def test_other_domains_not_skipped(self):
+        """mm5 审阅修正：合并用药「是否因不良事件用药=否」、检验「是否记录为不良事件=否」是真实记录，不跳过。"""
+        for dom in ('cm', None):
+            recs = self._run(flag_label='是否因不良事件用药', rows=[['S1', '共同页', '否', '', '']], dom=dom)
+            self.assertEqual([r['sid'] for r in recs], ['S1'], dom)
 
     def test_flag_no_blank_row_skipped(self):
         recs = self._run()
@@ -1655,6 +1673,88 @@ class F04AeBlankLogRows(unittest.TestCase):
         for lb in ('有无不良事件', '是否发生AE？', '是否发生不良事件'):
             recs = self._run(flag_label=lb, rows=[['S1', '共同页', '否', '', '']])
             self.assertEqual(recs, [], lb)                           # 列名变体同样识别
+
+
+class Mm5LinkFixes(unittest.TestCase):
+    """mm5 审阅 S4/S6/S7：空术语不恒命中、否定写法不作关联、回溯不到的词目不算已关联、归因维度用回溯后关联（全虚构）。"""
+    def _C(self):
+        from types import SimpleNamespace
+        from collections import defaultdict
+        mh = defaultdict(list)
+        mh['S1'] = [{'n': 1, 't': '', 's': '2020-01-01'}, {'n': 2, 't': '高血压', 's': '2019-01-01'}]
+        return SimpleNamespace(ae_by=defaultdict(list), mh_by=mh)
+
+    def test_blank_history_term_never_matches(self):
+        from mm_build import resolve_links, real_links
+        C = self._C()
+        out = resolve_links(C, 'S1', [['MH', '研究药物', None, None]])
+        self.assertFalse(out[0][4])                                   # 旧版：'' in '研究药物' 恒真 → 误判已关联 MH#1
+        self.assertEqual(real_links(out), [])
+        ok = resolve_links(C, 'S1', [['MH', '高血压', None, None]])
+        self.assertTrue(ok[0][4])
+        self.assertEqual(ok[0][3], 2)
+
+    def test_numbered_link_counts_even_if_missing(self):
+        from mm_build import resolve_links, real_links
+        out = resolve_links(self._C(), 'S1', [['AE', '头痛', None, 9]])
+        self.assertEqual(len(real_links(out)), 1)                      # 填了编号但不存在：仍算研究者有关联（交 LINK 核对）
+
+    def test_att_of_uses_resolved_links(self):
+        from ext_rules import att_of
+        r = {'links': [['MH', '饮食', None, None]], '_lk': [], 'reason': 'disease'}
+        self.assertEqual(att_of(r), '研究疾病')
+        self.assertEqual(att_of({'links': [['MH', '高血压', None, None]], '_lk': ['MH']}), 'MH')
+
+
+class Mm5IbUmbrellaDirection(unittest.TestCase):
+    """mm5 审阅 S11：IB 伞形条目按指标兜底时方向须一致（「白细胞降低」类风险不标到「白细胞升高」）。"""
+    def test_direction(self):
+        import re
+        import mm_build
+        from types import SimpleNamespace
+        orig = mm_build._exp_list
+        mm_build._exp_list = lambda C: [{'label': 'IB重要潜在风险', 'term': '血液学检测异常', 'pt': None, 're': None, '_re': None,
+                                         'soc': '各类检查', '_labs': [(re.compile('白细胞'), 'low')]}]
+        try:
+            C = SimpleNamespace(A={}, S={})
+            self.assertEqual(mm_build.ib_match(C, {'t': '白细胞计数升高', 'g': '3级', 'soc': '各类检查'}), [])
+            self.assertEqual(len(mm_build.ib_match(C, {'t': '白细胞计数降低', 'g': '3级', 'soc': '各类检查'})), 1)
+        finally:
+            mm_build._exp_list = orig
+
+
+class Mm5EntryErrors(unittest.TestCase):
+    """mm5 疑似录入错误（用户 2026-10-31）：孤立尖峰＋约 10 的整数次幂倍 → 小数点错位；持续上升（真实变化）不报；
+    等价单位写法（U/L＝IU/L）不报；尿沉渣计数不做倍数判断；同一点在医学风险层时风险行加提示（全虚构）。"""
+    def _C(self, label, vals, units=None):
+        from types import SimpleNamespace
+        rows = [{'sid': 'S1', 'value': v, 'raw': str(v), 'unit': (units[i] if units else 'g/L'), 'visit': f'V{i + 1}',
+                 'date': f'2026-0{1 + i // 9}-{10 + i % 9:02d}', 'sheet': 'LB', 'row': i + 2, 'wb': ''} for i, v in enumerate(vals)]
+        return SimpleNamespace(A={}, F={('S1', 'lab:' + label): rows}, metric={'lab:' + label: {'label': label}},
+                               subj={'S1': {'site': '01'}}, src={'sheets': {}}, labrows=[]), rows
+
+    def test_decimal_shift_flagged(self):
+        from mm_build import entry_errors
+        C, rows = self._C('血红蛋白', [130, 128, 1290, 131, 127])
+        entry_errors(C)
+        self.assertEqual(len(C.entry), 1)
+        self.assertIn('小数点错位', C.entry[0]['why'])
+        self.assertEqual(rows[2]['_entry'], C.entry[0]['why'])
+
+    def test_sustained_rise_not_flagged(self):
+        from mm_build import entry_errors
+        C, _ = self._C('丙氨酸氨基转移酶', [30, 32, 300, 420, 380])         # 连续升高（如药物性肝损伤）不是孤立尖峰
+        entry_errors(C)
+        self.assertEqual(C.entry, [])
+
+    def test_equivalent_units_and_urine_skipped(self):
+        from mm_build import entry_errors
+        C, _ = self._C('肌酸激酶', [100, 110, 105, 98], units=['U/L', 'IU/L', 'U/L', 'U/L'])
+        entry_errors(C)
+        self.assertEqual(C.entry, [])
+        C, _ = self._C('尿红细胞', [5, 6, 300, 4, 5])
+        entry_errors(C)
+        self.assertEqual(C.entry, [])
 
 
 class F02bDiseaseTermLinks(unittest.TestCase):
@@ -1725,18 +1825,22 @@ class F05AttributionDimension(unittest.TestCase):
 
 
 class F06CtcaeDirectionAndWording(unittest.TestCase):
-    """RUX 深审 F06：①无对应 CTCAE 条目方向（原始体重测量无方向词）不得标 CTCAE 等级——
-    automap 只在指标名带方向词（体重增加/减轻）时映射「纯较基线变化」型条目，且方向须相符；
+    """RUX 深审 F06：①无对应 CTCAE 条目方向的指标不得标 CTCAE 等级——单一方向的「纯较基线变化」型条目只在指标名
+    带相符方向词时映射；含增、减两个方向的条目（WEIGHT）原始测量也映射、按变化正负分级（mm5 审阅修正）；
     ②低于下限的值不再写「升高至」（相对基线方向≠偏离参考范围方向，分离表述）。夹具全虚构。"""
 
-    def test_raw_weight_not_mapped(self):
+    def test_raw_weight_graded_by_change_direction(self):
+        """mm5 审阅修正：WEIGHT 条目同时含 Weight gain（H）与 Weight loss（L），原始体重按较基线变化正负分别分级；
+        单一方向的纯变化型条目仍要求指标名带方向词。"""
         import ctcae
         G = ctcae.load({'grading': {'version': '5.0'}})
         m = {'vs:体重': {'domain': 'vs', 'label': '体重', 'units': {'kg': 9}},
              'vs:体重增加': {'domain': 'vs', 'label': '体重增加', 'units': {}},
              'vs:体重减轻': {'domain': 'vs', 'label': '体重减轻', 'units': {}}}
         out = ctcae.automap(m, G, {})
-        self.assertNotIn('vs:体重', out)                              # 原始体重：无方向词 → 无对应条目方向，不映射
+        self.assertEqual(out.get('vs:体重'), 'WEIGHT')
+        self.assertEqual(G.grade('WEIGHT', 70, None, None, 62)[:2], (2, '体重增加'))     # +12.9%
+        self.assertEqual(G.grade('WEIGHT', 75.2, None, None, 84)[:2], (2, '体重减轻'))   # −10.5%
         self.assertEqual(out.get('vs:体重增加'), 'WEIGHT')
         self.assertEqual(out.get('vs:体重减轻'), 'WEIGHT')
 
@@ -1789,7 +1893,20 @@ class F07ThresholdSameRowMerge(unittest.TestCase):
                             F={('S1', 'lab:ALT'): [self._row()]}, metric={'lab:ALT': {'label': 'ALT'}},
                             others=[], src={'sheets': {}})
         threshold_rules(C)
-        self.assertEqual(len(C.others), 1)
+        self.assertEqual(len(C.others), 2)        # mm5 审阅修正：不同阈值（3×ULN 报告、5×ULN）是不同判据，各自出信号
+
+    def test_same_criterion_twice_one_signal_and_stop_rule_kept(self):
+        """方案不同章节重复抽出的同一判据只出一条；同值的停药规则（stop）是不同含义，保留（WD-01 依赖它）。"""
+        from mm_build import threshold_rules
+        from types import SimpleNamespace
+        R1 = {'id': 'T-A5a', 'metric': 'ALT', 'cat': '阈值规则核对', 'op': '>', 'v': 250, 'label': 'ALT > 5 ×ULN'}
+        R2 = dict(R1, id='T-A5b')
+        R3 = dict(R1, id='T-STOP', stop=True)
+        C = SimpleNamespace(A={'thresholdRules': [R1, R2, R3]}, cfg={}, pop={'S1'}, subj={'S1': {'site': '01'}},
+                            F={('S1', 'lab:ALT'): [self._row()]}, metric={'lab:ALT': {'label': 'ALT'}},
+                            others=[], src={'sheets': {}})
+        threshold_rules(C)
+        self.assertEqual(sorted(o['_rule']['id'] for o in C.others), ['T-A5a', 'T-STOP'])
 
     def test_combo_and_threshold_same_row_one_signal(self):
         from mm_build import threshold_rules, combo_rules
@@ -1838,6 +1955,14 @@ class F08DuplicateAeRecords(unittest.TestCase):
         C = self._C([self._ae(15), dict(self._ae(16), start='2026-07-01')])
         build_events(C)
         self.assertEqual(getattr(C, 'ae_dup', []), [])
+
+    def test_different_grade_or_sae_not_duplicate(self):
+        """mm5 审阅（S5）：同日同术语但等级/SAE/结束日期不同 → 两条独立记录，不去重。"""
+        from mm_build import build_events
+        for chg in ({'grade': '3级'}, {'serious': True}, {'end': '2026-06-20'}):
+            C = self._C([dict(self._ae(15), serious=False), dict(self._ae(16), **{'serious': False, **chg})])   # normalize 后 serious 为布尔
+            build_events(C)
+            self.assertEqual(getattr(C, 'ae_dup', []), [], chg)
 
     def test_duplicate_marker_query_and_single_member_query(self):
         from mm_build import build_events, ae_checks
@@ -2002,7 +2127,8 @@ class DrilldownFields(unittest.TestCase):
             self.assertTrue(raw.startswith('KZ_SUB('))
             d = json.loads(raw[len('KZ_SUB('):-2])
             r0 = d['labs']['丙氨酸氨基转移酶'][0]
-            self.assertEqual(len(r0), 17, f'既有 14 位＋尾部 3 位扩位（得 {len(r0)}）')
+            self.assertEqual(len(r0), 20, f'既有 14 位＋扩位 3 位＋mm5 全程面板 3 位（得 {len(r0)}）')
+            self.assertIsInstance(r0[19], str)                                       # 疑似录入错误说明（无则空串）
             self.assertEqual(r0[:14][7], 2)                       # 既有位不动：r[7]=clin
             self.assertEqual(r0[14], 'AE')
             self.assertEqual(r0[15], '与1号AE有关')

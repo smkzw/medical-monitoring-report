@@ -108,3 +108,8 @@ input.s,select.s{height:28px;border:1px solid var(--line);border-radius:7px;padd
 .fold{margin-top:22px;border-top:1px dashed var(--line);padding-top:8px}.fold>summary{cursor:pointer;color:var(--muted);font-size:12px;list-style:none;display:flex;align-items:center;gap:6px;user-select:none}
 .fold>summary::-webkit-details-marker{display:none}.fold>summary:before{content:"▸";font-size:10px;color:var(--faint)}.fold[open]>summary:before{content:"▾"}.fold>summary:hover{color:var(--ink)}
 .fold .fold-b{margin-top:10px}
+/* mm5：主导航＋「更多」 */
+.top nav{overflow:visible}.top nav .more{position:relative;display:flex}.top nav .more>a{cursor:default}
+.top nav .more.on>a{color:var(--ink);font-weight:700;border-bottom-color:var(--brand)}
+.top nav .more .menu{display:none;position:absolute;top:100%;left:0;min-width:150px;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.08);z-index:60;flex-direction:column;padding:4px 0}
+.top nav .more:hover .menu,.top nav .more:focus-within .menu{display:flex}.top nav .more .menu a{padding:8px 14px;border-bottom:0}

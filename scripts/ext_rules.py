@@ -602,25 +602,23 @@ def _comparable(r):
     return None
 
 
-def same_level(C, a, b):
-    """两次结果相同或相近：数值相差 ≤ analysis.clinConsistTol（默认 10%）且同向超出参考范围；定性结果写法相同。
-    无参考范围的数值（如心电图间期，临床意义评价的是整份心电图）不比较。"""
-    ka, kb = _comparable(a), _comparable(b)
-    if not ka or not kb or ka[0] != kb[0]:
-        return False
-    if ka[0] == 'q':
-        return ka[1] == kb[1]
-
-    def side(r):
-        v = r['value']
-        return 1 if r.get('hi') is not None and v > r['hi'] else -1 if r.get('lo') is not None and v < r['lo'] else 0
-    x, y = ka[1], kb[1]
-    return side(a) == side(b) != 0 and abs(x - y) <= float(C.A.get('clinConsistTol', 0.1)) * max(abs(x), abs(y))
+def _cons_key(r):
+    """判定一致性可比组：同向异常 × 同给药阶段 × 同单位 × 同参考范围（与 clin_consistency 分组同口径）。"""
+    if r.get('value') is None:
+        return None
+    d = 'H' if r.get('hi') is not None and r['value'] > r['hi'] else 'L' if r.get('lo') is not None and r['value'] < r['lo'] else ''
+    return (d, bool(r.get('post')), r.get('unit'), r.get('lo'), r.get('hi')) if d else None
 
 
 def judgment_only(C, r, rows, t_base):
-    """该 CS 点与同受试者同指标某次 NCS 判定数值相近、且较基线未加重：属判定不一致，不按「潜在 AE 漏记」处理（用户 2026-10-27）。"""
-    return not worse_vs_base(r, r.get('base'), t_base) and any(a.get('clin') == 1 and same_level(C, a, r) for a in rows)
+    """该 CS 点只是改判（判定不一致 query 会覆盖），不按「潜在 AE 漏记」处理（用户 2026-10-27）：较基线未加重，
+    且同受试者同指标同可比组里有一次偏离不小于它（更差或相等）却判 NCS 的记录——与 clin_consistency 新口径一致
+    （mm5 审阅修正：旧版用 ±10% 双向相近，新算法不对「CS 更差」发一致性 query，导致这类 CS 两头都不发）。"""
+    k = _cons_key(r)
+    if not k or worse_vs_base(r, r.get('base'), t_base):
+        return False
+    dev = cons_dev(r, k[0])
+    return any(a.get('clin') == 1 and _cons_key(a) == k and cons_dev(a, k[0]) >= dev for a in rows)
 
 
 # ----------------------------------------------------------------------------- 判定一致性（用户 2026-10-30 终版：换芯＋同受试者版）
@@ -633,7 +631,7 @@ def judgment_only(C, r, rows, t_base):
 def att_of(r):
     """CS 记录的归因（优先级 AE > MH > 研究疾病 > 未关联）：检验页关联编号优先，其次 CS 原因码（reason_map 归类）。
     links 兼容两种形态：parse_links 列表 ['AE', 术语, 日期, 编号] 与 dict {'type': 'AE', …}。"""
-    ls = r.get('links') or []
+    ls = r['_lk'] if '_lk' in r else (r.get('links') or [])    # mm5 审阅（S7）：优先用回溯后的关联类型（mm_build.annotate_links）
 
     def typ(l):
         t = l[0] if isinstance(l, (list, tuple)) else (l.get('type') if isinstance(l, dict) else l)

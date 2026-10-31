@@ -14,7 +14,7 @@ const dir = path.resolve(args[0] || 'out/site/HTML');
 const opt = k => { const i = args.indexOf(k); return i > 0 ? args[i + 1] : null; };
 const shots = path.resolve(opt('--shots') || path.join(dir, '..', 'shots'));
 fs.mkdirSync(shots, { recursive: true });
-const PAGES = ['index', 'study', 'subjects', 'timeline', 'safety', 'deviations', 'efficacy', 'objective', 'queries', 'methods'];
+const PAGES = ['index', 'profile', 'study', 'subjects', 'timeline', 'safety', 'deviations', 'monitor', 'efficacy', 'objective', 'queries', 'methods'];   // mm5：+profile 安全性概况、monitor 临床监察
 (async () => {
   const exe = [process.env.CHROMIUM, '/usr/local/bin/chromium', '/usr/bin/chromium', '/usr/bin/chromium-browser'].filter(Boolean).find(p => fs.existsSync(p));
   const browser = await pw.chromium.launch({ executablePath: exe, args: ['--no-sandbox', '--allow-file-access-from-files'] });

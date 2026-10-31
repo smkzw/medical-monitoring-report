@@ -162,7 +162,7 @@ def conv(field, v, M):
     return v if isinstance(v, (int, float)) else str(v).strip()
 
 
-def read_spec(spec, books, M):
+def read_spec(spec, books, M, dom=None):
     alias = spec.get('wb', next(iter(books)))
     book = books[alias]
     lr = spec.get('label_row', M.get('label_row', 1))
@@ -199,8 +199,9 @@ def read_spec(spec, books, M):
     # mm4 增量：差异导出模式下保留变更标记（新增/修改/删除）供工作台合并，不在此过滤（mapping 级 change_flag: [列名…]）
     cfi = next((i for i in (col_index(c, labels, vars_) for c in (M.get('change_flag') or [])) if i is not None), None)
     # F04：AE 日志页的发生标志列＋真实术语列（按标签识别，与 mapping 是否映射无关）；F03：SAE 标准勾选列。
+    # mm5 审阅修正：只在 AE 域生效——合并用药「是否因不良事件用药=否」、检验「是否记录为AE=否」都是真实记录，不能跳过
     flag_i = next((i for i, lb in enumerate(labels)
-                   if _AE_FLAG_RX.search(lb) and re.search(r'不良事件|AE', lb, re.I) and not _AE_FLAG_BAD.search(lb)), None)
+                   if _AE_FLAG_RX.search(lb) and re.search(r'不良事件|AE', lb, re.I) and not _AE_FLAG_BAD.search(lb)), None) if dom == 'ae' else None
     term_is = [i for i, lb in enumerate(labels) if _AE_TERM_RX.search(lb) and not re.search(r'编码|CODE|版本|语言', lb, re.I)]
     crit_is = [i for i, lb in enumerate(labels) if _SAE_CRIT_RX.search(lb) and not re.search(r'请说明|描述', lb)
                and i not in set(cols.values())]
@@ -382,7 +383,7 @@ def main():
         else:
             recs = []
             for s in specs:
-                for rec, *_ in read_spec(s, books, M):
+                for rec, *_ in read_spec(s, books, M, dom):
                     if dom in ('ae', 'mh', 'cm', 'proc') and 'term' in (s.get('cols') or {}) and not str(rec.get('term') or '').strip():
                         continue                         # 日志表的占位行（如「是否发生了不良事件？=否」）不是事件记录
                     if dom in ('mh', 'cm') and 'ongoing' in rec:

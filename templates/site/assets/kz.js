@@ -31,7 +31,7 @@ K.judgeCell=(r,sid)=>{const code=r[14]||'',txt=r[15]||'',sum=r[16]||'';
  const pill=r[7]===2?K.p('CS','red'):r[7]===1?K.p('NCS','yel'):r[7]===0?K.p('正常','grn'):K.p('ND','line','未评价/未查');
  const attr=code==='AE'?K.p('AE 关联','grn'):code==='MH'?K.p('病史关联','org'):code==='disease'?K.p('研究疾病','blu'):
   code==='NA'?K.p('未评价','yel'):r[7]===2?'<span class="faint">未关联</span>':'';
- const links=(sum||'').split('、').filter(Boolean).map(s=>{const ae=s.startsWith('AE ');
+ const links=(sum||'').split('；').filter(Boolean).map(s=>{const ae=s.startsWith('AE ');
   return `<a class="p click ${ae?'grn':'org'}" href="subjects.html#s=${encodeURIComponent(sid||'')}&t=${ae?'ae':'mh'}" title="查看对应${ae?'AE':'病史'}记录">${K.esc(s)}</a>`}).join(' ');
  return `<div class="flex wrap" style="gap:3px;align-items:center">${pill}${attr}</div>${links?`<div style="margin-top:2px">${links}</div>`:''}${txt?`<div class="xs muted" style="margin-top:2px">${K.esc(txt)}</div>`:''}`};
 K.PRI={4:['优先核实','red'],3:['需核实','org'],2:['结合临床','yel'],1:['筛查提示','']};
@@ -131,13 +131,15 @@ K.STC=Object.assign({'完成试验':'grn','已入组':'blu','治疗结束':'brn'
 K.status=s=>K.p(s,K.STC[s]??'');
 /* header */
 /* mm4：「方案偏离」进入主导航；「审阅要点」降为总览底部折叠区（methods.html 仍可直达） */
-K.PAGES=[['index.html','总览'],['study.html','研究依据'],['subjects.html','参与者资料'],['timeline.html','时间线'],['safety.html','AE/MH风险'],['deviations.html','方案偏离'],['efficacy.html','有效性趋势'],['objective.html','检验检查趋势'],['queries.html','医学质疑']];
+/* mm5：主导航只放日常要用的页面，其余收进「更多」（用户 2026-10-31：打开后不清楚功能在哪） */
+K.PAGES=[['index.html','总览'],['profile.html','安全性概况'],['safety.html','AE/MH风险'],['deviations.html','方案偏离'],['monitor.html','临床监察'],['queries.html','医学质疑'],['subjects.html','参与者资料']];
+K.MORE=[['study.html','研究依据'],['timeline.html','时间线'],['efficacy.html','有效性趋势'],['objective.html','检验检查趋势'],['methods.html','审阅要点与方法']];
 K.header=()=>{
   const cur=location.pathname.split('/').pop()||'index.html';const m=D().meta,c=C0(),st=c.study||{},br=c.brand||{};
   document.title=(document.title.split(' · ')[0]||'')+' · '+(st.short||st.code||'医学监察');
   const h=document.createElement('header');h.className='top';
   h.innerHTML=`<div class="bar"><img class="logo" src="${br.logo||'assets/logo_bot.svg'}" alt="${K.esc(br.org||'康哲药业')}"><div class="ttl"><b>${K.esc(st.title||'医学监察报告')}</b><span>${K.esc(st.subtitle||'')}</span></div>
-  <nav>${K.PAGES.map(([u,t])=>`<a href="${u}" class="${u===cur?'on':''}">${t}</a>`).join('')}</nav>
+  <nav>${K.PAGES.map(([u,t])=>`<a href="${u}" class="${u===cur?'on':''}">${t}</a>`).join('')}<span class="more${K.MORE.some(([u])=>u===cur)?' on':''}"><a href="javascript:void 0">${(K.MORE.find(([u])=>u===cur)||[0,'更多'])[1]} ▾</a><span class="menu">${K.MORE.map(([u,t])=>`<a href="${u}" class="${u===cur?'on':''}">${t}</a>`).join('')}</span></span></nav>
   <div class="meta">${(c.headerTags||[['数据截止 '+(m.cutoff||''),'line']]).map(t=>K.p(t[0],t[1]||'line')).join('')}${c.dataStage?K.p({daily:'日常监查·数据录入中',prelock:'锁库前·全量数据',cfdi:'锁库后·核查前'}[c.dataStage]||'','line'):''}${c.blind&&c.blind.on?K.p(c.blind.tag||'盲态','blu'):''}</div></div><div class="ribbon"></div>`;
   document.body.prepend(h);
   const f=document.createElement('div');f.className='foot';const ft=c.footer||{};f.innerHTML=`<span>${K.esc(ft.left||'产品中心-医学部')}</span><span>${K.esc(ft.right||((m.sources||[]).length?'数据来源：'+m.sources.join(' · '):'数据截止 '+(m.cutoff||'')))}</span>`;document.body.append(f);
@@ -197,13 +199,73 @@ K.listing=(rows,{cols=null,cap=true}={})=>{
 K.hlNum=t=>K.esc(t).replace(/(\d+(?:\.\d+)?(?:\s?(?:g\/L|mmol\/L|U\/L|ms|mmHg|g\/cm²|kg|%|×10\^9\/L|umol\/L|IU\/L)))/g,'<span class="num-hl">$1</span>').replace(/(20\d\d-\d\d-\d\d)/g,'<span class="num-hl">$1</span>');
 K.qById=id=>D().queries.find(q=>q.id===id);
 K.qPill=id=>`<span class="p org sq click mono" data-q="${id}">${id}</span>`;
+/* ---- mm5 全程数据面板（用户 2026-10-31：风险、质疑等条目点开要看该受试者该指标前后全部数据，并显示 CS/NCS、CS 原因等）
+ * o={sid, tests:[指标显示名…], hl:[[sheet,row]…] 本条证据点（加粗），ae:true 是否附本例 AE/MH/合并用药}。
+ * 数据来自个例文件 s/<sid>.js 的 labs/vs/ecg 行：[0日期,1访视,2值,3原值,4单位,5下限,6上限,7判定,8说明,9sheet,10行,11时间点,12时间,13基线,14归因码,15原因说明,16关联摘要,17分级,18较基线%,19疑似录入错误]。 */
+K.seriesPanel=async(el,o)=>{if(!el)return;el.innerHTML='<div class="empty">载入全程数据…</div>';const s=await K.sub(o.sid);if(!s){el.innerHTML='<div class="empty">无个例数据</div>';return}
+  const core=x=>String(x||'').replace(/（.*?）|\(.*?\)/g,'').trim();
+  const pick=t=>{for(const k of ['labs','vs','ecg']){const m=s[k]||{};if(m[t])return [t,m[t]];const kk=Object.keys(m).find(x=>core(x)===core(t));if(kk)return [kk,m[kk]]}return null};
+  const sers=[...new Map((o.tests||[]).filter(Boolean).map(pick).filter(Boolean).map(x=>[x[0],x])).values()].slice(0,4);
+  const pl=sh=>String(sh||'').replace(/^[^:]*:/,'');const HL=new Set((o.hl||[]).map(e=>pl(e[0])+'|'+e[1]));
+  const sd=d=>K.studyDay(d,s.fd);
+  el.innerHTML=sers.map((x,i)=>`<div class="sec-t"><h2>${K.esc(x[0])} · 全程</h2><span class="muted small">${x[1].length} 次记录 · 加粗为本条涉及的记录</span></div><div class="chart sm" id="sp${i}" style="height:190px"></div>
+    <table class="t"><thead><tr><th>访视</th><th>日期</th><th>结果</th><th>参考范围</th><th>较基线</th><th>等级</th><th>判定与关联</th><th>说明</th><th>来源</th></tr></thead><tbody>${x[1].slice().sort((a,b)=>String(a[0]).localeCompare(String(b[0]))).map(r=>{const h=HL.has(pl(r[9])+'|'+r[10]);
+      return `<tr${h?' style="background:#FFF6E8;font-weight:600"':''}><td>${K.p(r[1]||'—','blu')}${r[13]?' '+K.p('基线','line'):''}</td><td class="nowrap">${K.esc(r[0]||'')} <span class="xs faint">${sd(String(r[0]||'').slice(0,10))}</span></td>
+      <td class="num"><b>${K.esc(r[3]??'')}</b> <span class="xs muted">${K.esc(r[4]||'')}</span>${r[19]?`<div>${K.p('疑似录入错误','org',r[19])}</div>`:''}</td><td class="nowrap">${K.rng(r[5],r[6])}</td>
+      <td class="num">${r[18]==null?'':K.pct(r[18])}</td><td>${r[17]?K.grade(r[17]):''}</td><td>${K.judgeCell?K.judgeCell(r,o.sid):K.clin(r[7])}</td><td class="small">${K.esc(r[8]||'')}</td><td class="xs faint">${K.esc(K.loc(r[9],r[10]))}</td></tr>`}).join('')}</tbody></table>`).join('')
+    +(sers.length?'':(o.tests||[]).length?`<div class="note small">该条目涉及「${K.esc((o.tests||[]).join('、'))}」，个例数据中未找到对应的检验/检查序列。</div>`:'')
+    +(o.ae===false?'':`<div class="sec-t"><h2>本例 AE / 病史 / 合并用药</h2><span class="muted small">AE ${s.ae.length} · 病史 ${s.mh.length} · 合并用药 ${s.cm.length}</span></div><table class="t"><tbody>
+      ${s.ae.map(a=>`<tr><td style="width:56px">${K.p('AE','grn')}</td><td><b>${K.esc(a.t)}</b>${a.sae?' '+K.p('SAE','solid-red'):''}${a.aesi?' '+K.p('AESI','red'):''}</td><td class="nowrap">${K.esc(a.s||'')} → ${a.e?K.esc(a.e):'持续'}</td><td>${K.p(a.g,String(a.g)>='2'?'red':'yel')}</td><td class="small">${K.esc(a.rel||'')}</td></tr>`).join('')}
+      ${s.mh.map(a=>`<tr><td>${K.p('病史','org')}</td><td>${K.esc(a.t)}</td><td class="nowrap">${K.esc(a.s||'')}${a.ong==='是'?' · 持续':''}</td><td></td><td></td></tr>`).join('')}
+      ${s.cm.slice(0,40).map(c=>`<tr><td>${K.p('用药','blu')}</td><td>${K.esc(c.t)}</td><td class="nowrap">${K.esc(c.s||'')} → ${c.e?K.esc(c.e):c.ong?'持续':''}</td><td class="small">${K.esc(c.dose||'')}</td><td class="small">${K.esc(c.ind||c.why||'')}</td></tr>`).join('')}
+      ${s.ae.length+s.mh.length+s.cm.length?'':'<tr><td class="empty">无</td></tr>'}</tbody></table>`)
+    +`<div class="mt"><a class="small" href="subjects.html#s=${o.sid}&t=lab">参与者资料 ›</a>　<a class="small" href="profile.html#s=${o.sid}">安全性概况 ›</a>　<a class="small" href="timeline.html#s=${o.sid}">时间线 ›</a></div>`;
+  sers.forEach((x,i)=>{const pts=x[1].filter(r=>r[2]!=null).sort((a,b)=>String(a[0]).localeCompare(String(b[0])));if(!pts.length){el.querySelector('#sp'+i).style.display='none';return}
+    const lo=pts.find(r=>r[5]!=null)?.[5],hi=pts.find(r=>r[6]!=null)?.[6];
+    K.chart(el.querySelector('#sp'+i),{grid:{left:44,right:16,top:16,bottom:26},tooltip:{trigger:'item',formatter:p=>{const r=p.data.r;return `${K.esc(r[1]||'')} ${K.esc(r[0]||'')}<br><b>${K.esc(r[3])} ${K.esc(r[4]||'')}</b> ${r[7]===2?'CS':r[7]===1?'NCS':r[7]===0?'正常':'未评价'}${r[17]?' · '+r[17]+'级':''}${r[15]?'<br>'+K.esc(r[15]):''}`}},
+      xAxis:{type:'time',...K.axis},yAxis:{type:'value',scale:true,...K.axis},
+      series:[{type:'line',data:pts.map(r=>({value:[r[0],r[2]],r,itemStyle:{color:r[7]===2?'#8B0000':r[7]===1?'#E8C300':'#407AAA',borderColor:HL.has(pl(r[9])+'|'+r[10])?'#FF9900':undefined,borderWidth:HL.has(pl(r[9])+'|'+r[10])?3:0},symbolSize:HL.has(pl(r[9])+'|'+r[10])?12:r[7]>0?9:6})),lineStyle:{color:'#9DB7D3'},
+        markArea:lo!=null&&hi!=null?{silent:true,itemStyle:{color:'rgba(88,123,59,.07)'},data:[[{yAxis:lo},{yAxis:hi}]]}:undefined,
+        markLine:{symbol:'none',silent:true,data:[s.fd?{xAxis:s.fd,label:{formatter:'D1',color:'#B86400'},lineStyle:{color:'#FF9900',type:'dashed'}}:null,s.ld?{xAxis:s.ld,label:{formatter:'末次给药',color:'#64676B'},lineStyle:{color:'#C9CCD1',type:'dashed'}}:null].filter(Boolean)}}]})})};
+/* 观察/期望（按人数校正的中心偏离）：期望＝总体率×该中心人数；z＝(观察−期望)/√期望（泊松）。小中心只有超出随机波动才着色 */
+K.oe=(obs,n,rate)=>{const e=rate*n;return {o:obs,e,ratio:e>0?obs/e:null,z:e>0?(obs-e)/Math.sqrt(e):0}};
+K.oeStyle=z=>{const a=Math.max(0,Math.min(1,(z-1)/3));return z>1?`background:rgba(230,126,0,${(.12+a*.55).toFixed(2)})`:z<-1.5?'background:rgba(64,122,170,.10)':''};
+/* 中心风险类别（风险页「中心总览」热力图与总览「需关注中心」共用）：每类按中心归集条目，rate＝每例给药受试者总体率 */
+K.centerRisk=()=>{if(K._cr)return K._cr;const D=window.KZ,lab=K.lab,oth=D.others,aes=D.aes;
+  const S=K.subs(),pd=((D.pd||{}).potential)||[],entry=((D.ops||{}).entry)||[];
+  const subSite=Object.fromEntries(S.map(s=>[s.id,s.site]));
+  const CS=D.centers.filter(c=>c.n).slice().sort((a,b)=>b.dosed-a.dosed||b.n-a.n);
+  /* 风险类别：[键, 组, 列名, 取条目(按中心), 说明] —— 条目数组用于点击下钻 */
+  const L=k=>lab.filter(g=>Array.isArray(k)?k.includes(g.risk):g.risk===k);
+  const C=[
+    ['csx','检验','CS未关联',()=>L('CSX'),'判 CS 但未关联 AE/病史（受试者×指标）'],
+    ['wor','检验','较基线加重',()=>L(['MH','DISW']),'判 CS 仅关联病史或归因研究疾病，但较基线加重'],
+    ['g2','检验','≥2级未判CS',()=>L(['NCS2','NA2','G2NF','NA']),'达 ≥2 级判 NCS/未评价、超范围未评价'],
+    ['rel','检验','显著变化·未关联',()=>lab.filter(g=>g.risk==='REL'&&K.relRisk(g)),'较基线显著变化且未关联 AE/病史（按当前阈值）'],
+    ['inc','检验','判定不一致',()=>oth.filter(o=>o.cat==='临床意义判定不一致'),'相近结果判定不同'],
+    ['ae','AE','TEAE',()=>aes.filter(a=>a.te!==false),'给药后 AE 例次'],
+    ['ae3','AE','≥3级',()=>aes.filter(a=>parseInt(a.g)>=3),'≥3 级 AE 例次'],
+    ['sae','AE','SAE',()=>aes.filter(a=>a.sae),'严重不良事件'],
+    ['aesi','AE','AESI',()=>aes.filter(a=>a.aesi),'特别关注不良事件'],
+    ['pd','方案偏离','潜在PD',()=>pd,'数据推断的潜在方案偏离'],
+    ['pdi','方案偏离','重要PD',()=>pd.filter(x=>x.grade==='重要'),'潜在 PD 中分级为重要的'],
+    ['q','质疑','申办方',()=>D.queries,'申办方医学质疑'],
+    ['cro','质疑','CRO',()=>D.cro.map(c=>({sid:c[2],site:subSite[c[2]],c})),'CRO/外部已发质疑'],
+    ['ent','数据质量','疑似录入错误',()=>entry,'小数点/单位疑似录错（临床监察页）']];
+  const siteOf=x=>x.site||subSite[x.sid]||'';
+  const tot=S.filter(s=>s.fd).length||1;
+  const items={},rate={};C.forEach(([k,,,f])=>{const all=f();items[k]={};all.forEach(x=>{const s=siteOf(x);(items[k][s]=items[k][s]||[]).push(x)});rate[k]=all.length/tot});
+  const hot=site=>{const c=CS.find(x=>x.site===site);return c&&c.dosed?C.filter(([k])=>K.oe((items[k][site]||[]).length,c.dosed,rate[k]).z>2).map(x=>x[2]):[]};
+  return K._cr={cats:C,items,rate,centers:CS,hot}};
 K.showQ=id=>{const q=K.qById(id);if(!q)return;const cro=D().cro.filter(c=>c[2]===q.sid);
   K.drawer(`${q.id} · ${q.cat}`,`<div class="flex wrap mb">${K.sid(q.sid)}${K.p(K.center(q.site),'line')}${K.p(K.loc(q.sh,q.row),'sq')}${K.p(q.v,'blu')}${q.test?K.p(q.test,''):''}${K.p(q.cro,q.cro==='冲突澄清'?'red':q.cro==='未见同问'?'grn':'yel')}</div>
   <div class="box org" style="font-size:13px;line-height:1.7">${K.hlNum(q.text)}</div>
   <div class="sec-t"><h2>证据记录</h2><span class="muted small">${q.ev.length} 行 · ${K.esc((C0().query||{}).note||'已写入交付表格对应记录行的首列')}</span></div><div class="ex-rows muted">载入中…</div>
+  <div class="q-series"></div>
   <div class="sec-t"><h2>本例 ${K.esc((C0().query||{}).extLabel||'CRO 既往意见')}</h2><span class="muted small">${cro.length} 条</span></div>${cro.length?`<table class="t"><tbody>${cro.map(c=>`<tr><td class="nowrap">${K.p(c[0],'sq')} ${c[1]}</td><td>${K.p(c[3],'blu')}</td><td>${K.esc(c[4])}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">无</div>'}`);
   const box=document.querySelector('.dr .ex-rows');const X=window.KZX;const ex=X&&Object.values(X.ex).find(e=>e.q===id);
   if(ex){box.innerHTML=K.listing(ex.rows);box.classList.remove('muted')}else{box.innerHTML=`<table class="t"><tbody>${q.ev.map(e=>`<tr><td>${K.p(K.shName(e[0]),'sq')}</td><td>行 ${e[1]}</td><td>${K.p(e[2],'blu')}</td><td>${K.esc(e[3])}</td></tr>`).join('')}</tbody></table>`}
+  K.seriesPanel(document.querySelector('.dr .q-series'),{sid:q.sid,tests:[q.test,...q.ev.map(e=>e[3])],hl:q.ev.map(e=>[e[0],e[1]])});
 };
 document.addEventListener('click',e=>{const q=e.target.closest('[data-q]');if(q){e.preventDefault();K.showQ(q.dataset.q)}});
 K.CTX=((((window.KZ||{}).cfg||{}).taxonomy||{}).ctx||[['^提醒：同期另有可能对应的 AE','提醒：同期AE未关联','yel'],['^(IB|类效应|方案列明风险)','IB/类效应风险','red'],['^已关联病史「','已关联病史','grn'],['^已关联AE：','已关联AE','grn'],['^未关联AE/病史，研究者判定NCS','未关联·判NCS','yel'],['无CTCAE条目|不能仅凭数值','无CTCAE数值条目',''],['症状/处置型','需结合症状/处置',''],['单位|换算','单位待核','org'],['基线.*(回退|替代)|替代基线|改用首次','替代基线','blu'],['研究疾病表现.*未进一步加重|研究者归因：研究疾病$','研究疾病表现·未加重','grn'],['研究疾病表现.*进一步加重','疾病表现·较基线加重','org'],['可能为研究疾病表现','可能为疾病表现','']]).map(([re,l,c])=>[new RegExp(re),l,c]);
@@ -256,7 +318,10 @@ K.showPD=id=>{const it=K.pdBy(id);if(!it)return;const P=KZ.pd,X=window.KZX||{},c
   <div class="sec-t"><h2>与已记录 PD 比对</h2></div>${m?`<div class="box grn small"><b>${m.id}</b> ${K.esc(m.date)} · ${K.esc(m.rawCat)}：${K.esc(m.desc)}${m.rawGrade?' （'+K.esc(m.rawGrade)+'）':''}</div>`:`<div class="box small">${it.status==='无 PD 记录可比对'?'未提供方案偏离记录表，无法比对。':'方案偏离记录表中未见同受试者、同类别、时间相近的记录。'}</div>`}
   ${sig?`<div class="sec-t"><h2>关联信号与质疑</h2></div><div class="flex wrap">${it.sig[0]==='lab'?`<a href="safety.html#tab=lab&risk=${sig.risk}">${K.risk(sig.risk)}</a>`:`<a href="safety.html#tab=oth&cat=${encodeURIComponent(sig.cat)}">${K.p(sig.cat,'line')}</a>`}${(sig.q||[]).map(K.qPill).join('')}${K.ctxTags(sig.ctx)}</div>`:''}
   <div class="sec-t"><h2>处理建议</h2>${K.pdAct(it.action)}</div><div class="small" style="line-height:1.7">${K.esc(K.PDACT[it.action]||'')}</div>${it.tip?`<div class="note small mt" style="line-height:1.7">${K.esc(it.tip)}</div>`:''}`}
-  <div class="mt"><a class="small" href="timeline.html#s=${it.sid}">查看 ${it.sid} 时间线 ›</a>　<a class="small" href="deviations.html#id=${it.id}">在方案偏离页定位 ›</a></div>`,conf?K.pdCat(it.cat):`${K.pdCat(it.cat)}${K.p(it.layer+'层面','line')}`)};
+  <div class="pd-series"></div>
+  <div class="mt"><a class="small" href="timeline.html#s=${it.sid}">查看 ${it.sid} 时间线 ›</a>　<a class="small" href="deviations.html#id=${it.id}">在方案偏离页定位 ›</a></div>`,conf?K.pdCat(it.cat):`${K.pdCat(it.cat)}${K.p(it.layer+'层面','line')}`);
+  const tests=[sig&&sig.test,...(it.src||[]).map(s=>s[2])].filter(Boolean);
+  if(tests.length)K.seriesPanel(document.querySelector('.dr .pd-series'),{sid:it.sid,tests,hl:(sig&&sig.pts||[]).map(p=>[p[7],p[8]]).concat((it.src||[]).map(s=>[s[0],s[1]])),ae:false})};
 document.addEventListener('click',e=>{const a=e.target.closest('[data-pd]');if(a){e.preventDefault();K.showPD(a.dataset.pd)}});
 K.applyThr();
 })();

@@ -12,6 +12,7 @@ import datetime as dt
 import hashlib
 import json
 import re
+import statistics
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -19,7 +20,7 @@ from pathlib import Path
 import ctcae
 import ext_rules
 import pd_rules
-from common import days, dshow, dump_json, fmt, is_full_date, load_json, move_word, quantile, study_day, zero_dose
+from common import days, dshow, dump_json, fmt, is_full_date, load_json, move_word, open_workbook_lenient, quantile, study_day, zero_dose
 
 AGG_EXCL = set()
 
@@ -297,7 +298,8 @@ def build_events(C):
         cat = a.get('cat')
         if not cat:
             # F09（RUX 深审）：分桶单一来源——带 MedDRA SOC 列的记录以 SOC 列为准（实测 2 例 catmap 错桶）；
-            # 无 SOC 时仍走 catmap → 原文术语回退。
+            # 无 SOC 时仍走 catmap → 原文术语回退。（mm5 审阅 S9 复核后保留此口径：SOC 是正式编码；AE 自带 IB 标签 a.ib，
+            # 不依赖 ibtag 的类别键）
             cat = a.get('soc') or next((b for p, b in catmap if p.search(txt)), None) or term
         gi = grade_int(gtxt(a.get('grade'))) or 0
         aesi_hit = [d.get('name') or d.get('id') for d in C.aesiDefs if (d['_t'] and d['_t'].search(txt)) or (d['_soc'] and d['_soc'].search(str(a.get('soc') or '')))
@@ -320,7 +322,8 @@ def build_events(C):
     C.ae_dup = []
     by_fp = defaultdict(list)
     for a in C.aes:
-        fp = (a['sid'], a.get('pt') or a['t'], a['s'])
+        # mm5 审阅（S5）：指纹含结束日期/等级/SAE——同日肺炎 1 级与 3 级 SAE 是两条不同记录，不能把后者当重复去掉
+        fp = (a['sid'], a.get('pt') or a['t'], a['s'], a.get('e') or '', str(a.get('g') or ''), bool(a.get('sae')))
         if is_full_date(a['s']):
             by_fp[fp].append(a)
     for fp, grp in by_fp.items():
@@ -372,13 +375,18 @@ def ae_summary(C):
                for k, v in sorted(cats.items(), key=lambda kv: -kv[1]['n'])}
 
 
+def _ib_cat(tag):
+    """IB 标签「重要性·风险名（同SOC/同类非严重）」→ 风险名（mm5 审阅 S8：旧版取「·」前的重要性分级，AE 谱塌缩成 2–4 桶）。"""
+    return re.sub(r'[（(][^）)]*[）)]$', '', str(tag).split('·', 1)[-1]).strip()
+
+
 def _ae_summary_by_ib(post):
     """无字典兜底分组：IB 风险类别（首标签）＋其他；组数 >20 时保留前 19 类、其余并入「其他」；组名带降级注明。"""
     cats = defaultdict(lambda: {'n': 0, 's': set(), 'g2': 0, 'rel': 0, 'aesi': 0, 'terms': Counter()})
-    by_cat = Counter(a['ib'][0].split('·')[0] for a in post if a.get('ib'))
+    by_cat = Counter(_ib_cat(a['ib'][0]) for a in post if a.get('ib'))
     keep = {k for k, _ in by_cat.most_common(19)}
     for a in post:
-        k0 = a['ib'][0].split('·')[0] if a.get('ib') else ''
+        k0 = _ib_cat(a['ib'][0]) if a.get('ib') else ''
         name = (k0 if k0 in keep else '其他') + _AE_NO_SOC_NOTE
         a['c'] = name
         c = cats[name]
@@ -457,6 +465,15 @@ def _share_stem(a, b):
     return n >= 2
 
 
+def _dir_ok(d, term):
+    """IB 指标方向（high/low）与 AE 术语方向不矛盾：「白细胞降低」类风险不标到「白细胞升高」上。"""
+    if d == 'high':
+        return not re.search(r'减少|降低|下降|减低', term)
+    if d == 'low':
+        return not re.search(r'升高|增多|增高|增加', term)
+    return True
+
+
 def ib_match(C, rec):
     out = []
     for e in _exp_list(C):
@@ -477,7 +494,7 @@ def ib_match(C, rec):
             if rec['soc'] in [s for s in socs if not s.startswith('各类检查')]:
                 out.append(name + '（同SOC，严重/≥3级）')       # 第②级：真实同 SOC，严重/≥3 级过滤不变（伞形/非伞形一致）
             elif rec['soc'] in socs and (
-                    (e['_labs'] and any(rx_.search(rec['t']) for rx_, _ in e['_labs']))    # 第③级·伞形（用户 2026-10-29）：带 analyte 且 AE 术语与指标共享实质词
+                    (e['_labs'] and any(rx_.search(rec['t']) and _dir_ok(d, rec['t']) for rx_, d in e['_labs']))    # 第③级·伞形（用户 2026-10-29）：带 analyte 且 AE 术语与指标共享实质词；mm5 审阅 S11：方向一致
                     or (not _umbrella_term(term) and _share_stem(term, rec['t']))):        # 第③级·非伞形：风险术语与 AE 术语共享 ≥2 字实质内容词
                 out.append(name + '（各类检查，严重/≥3级）')      # 伞形无 analyte、具体条目无共享词 → 均不放行（D001「血液学检测异常→各类检查」311 条噪音链回归闸）
     return list(dict.fromkeys(out))
@@ -626,10 +643,28 @@ def resolve_links(C, sid, links):
         if ev is None and no is None and (term or '').strip():
             # F02 词目型（说明列「与XX有关/XX既往史」）：按术语回溯到具体记录并回填编号；对不上保持未关联
             t = re.sub(r'[（(].*$', '', term.strip())
-            ev = next((x for x in pool if t and (t in (x.get('t') or '') or (x.get('t') or '') in t)), None)
+
+            def _same(xt, t=t):                      # mm5 审阅（S4）：空术语记录不得「恒命中」；两边至少 2 字
+                xt = (xt or '').strip()
+                return bool(t and xt and min(len(t), len(xt)) >= 2 and (t in xt or xt in t))
+            ev = next((x for x in pool if _same(x.get('t'))), None)
             no = ev['n'] if ev is not None else None
         out.append([kind, term or (ev or {}).get('t', ''), (ev or {}).get('s', ''), no, bool(ev)])
     return out
+
+
+def real_links(links):
+    """resolve_links 结果中算作「研究者已关联」的：回溯到真实记录，或研究者填了编号（编号不存在另由 LINK 核对）。
+    说明列抽出、但回溯不到任何记录的词目不算关联（mm5 审阅 S6：否则丢研究疾病豁免、掩盖未关联）。"""
+    return [l for l in links if l[4] or l[3] is not None]
+
+
+def annotate_links(C):
+    """每个检验点记下回溯后的关联类型（_lk），供判定一致性的归因维度使用（mm5 审阅 S7：att_of 不再看原始词目）。"""
+    for (sid, _mid), rows in C.F.items():
+        for r in rows:
+            if r.get('links'):
+                r['_lk'] = [l[0] for l in real_links(resolve_links(C, sid, r['links']))]
 
 
 def drill_fields(C, sid, r):
@@ -647,7 +682,7 @@ def drill_fields(C, sid, r):
         code = 'NA'
     else:
         code = ''
-    summ = '、'.join(f"{'病史' if l[0] == 'MH' else 'AE'} {l[1]}{'·' + l[2] if l[2] else ''}" for l in ok)
+    summ = '；'.join(f"{'病史' if l[0] == 'MH' else 'AE'} {l[1]}{'·' + l[2] if l[2] else ''}" for l in ok)   # 「；」分隔（术语本身可能含「、」）
     return [code, str(r.get('reason_text') or '')[:60], summ]
 
 
@@ -730,7 +765,7 @@ def build_labrows(C):
         # 全部 CS 点都归因研究疾病且无关联 → DIS（研究疾病可解释，不发 query，可见）；其中给药后较基线恶化 → DISW（D21：仍须评估 AE）。
         # 原因选「病史/不良事件」但未关联编号 → 仍按 CSX（事实即「未关联」），上下文注明数据缺失。
         cs_pts = [r for r in P if r.get('clin') == 2]
-        dis_only = bool(cs_pts) and not links and all(ext_rules.disease_attr(C, r) for r in cs_pts)   # 原因选项或备注归因研究疾病
+        dis_only = bool(cs_pts) and not real_links(links) and all(ext_rules.disease_attr(C, r) for r in cs_pts)   # 原因选项或备注归因研究疾病
         if anycs and dis_only:
             # 用户 2026-10-27：归因研究疾病不算「未关联」；只有较基线明显加重、且未记录「研究疾病加重」类 AE 才作为风险
             t_base = float(C.cfg['thresholds'].get('base', 0.3))
@@ -751,7 +786,7 @@ def build_labrows(C):
                     d = r.get('date')
                     return not is_full_date(d) or any((not is_full_date(x.get('s')) or x['s'] <= d) and
                                                       (not is_full_date(x.get('e')) or x['e'] >= d) for x in ev)
-                orphan = [r for r in cs_pts if not r.get('links') and not _cover(r)]
+                orphan = [r for r in cs_pts if not real_links(resolve_links(C, sid, r.get('links') or [])) and not _cover(r)]
                 if orphan:
                     risk = 'CSX'
                     ctx.append('CS 结果未关联且不在已关联事件期间：' + '、'.join(f"{r.get('visit')}（{r.get('date')}）" for r in orphan[:3]))
@@ -958,13 +993,14 @@ def add_other(C, sid, cat, pr, summ, v=None, d=None, sh='', row=None, test='', c
     return o
 
 
-def _thr_hit(C, r):
-    """F07（RUX 深审）：阈值/组合规则跨规则共享的同行命中登记——组合规则（ALT|AST）与单列规则命中同一
-    检验行只保留先配置的一条，同值不再重复成段。返回 True 表示此前已有规则命中该行。"""
+def _thr_hit(C, r, sig):
+    """F07（RUX 深审）：同一判据（方案不同章节重复抽出的同一阈值）命中同一检验行只保留先配置的一条。
+    mm5 审阅修正：去重键含判据本身（sig＝比较方式/阈值/是否停药/类别，组合规则为规则 id）——不同含义的规则
+    （ALT≥3×ULN 报告 与 ALT≥5×ULN 停药、Hy's law）各自出信号，否则停药规则与 WD-01 永不触发。返回 True 表示已登记。"""
     seen = getattr(C, '_thr_seen', None)
     if seen is None:
         seen = C._thr_seen = set()
-    k = (r['sid'], r.get('wb') or '', r.get('sheet') or '', r.get('row'), r.get('mid'))
+    k = (r['sid'], r.get('wb') or '', r.get('sheet') or '', r.get('row'), r.get('mid'), sig)
     if k in seen:
         return True
     seen.add(k)
@@ -996,7 +1032,7 @@ def threshold_rules(C):
                 if R.get('once') and (sid, R['id']) in seen:
                     continue
                 seen.add((sid, R['id']))
-                if _thr_hit(C, r):
+                if _thr_hit(C, r, ('thr', R.get('on', 'val'), R.get('op', '>='), R['v'], bool(R.get('stop')), R.get('cat'))):
                     continue
                 rel, ctx, pr, risk = [], [], R.get('pr', 3), ''
                 if are:
@@ -1058,8 +1094,11 @@ def combo_rules(C):
                         else:
                             ctx.append('未见对应 AE 记录')
                     det = '；'.join(f"{C.metric[p['mid']]['label']} {p.get('raw')} {p.get('unit') or ''}".strip() + (f"（{p['value'] / p['hi']:.1f}×ULN）" if p.get('hi') and p.get('value') is not None else '') for p in parts)
-                    if _thr_hit(C, r0):
-                        break                     # F07：同一行已被单列/组合规则命中 → 不再重复成段
+                    c0 = conds[0]                 # 单条件、无排除条件的组合规则与单列阈值是同一判据
+                    sig = (('thr', c0.get('on') or 'val', c0.get('op', '>='), c0['v'], bool(R.get('stop')), R.get('cat', '阈值规则核对'))
+                           if len(conds) == 1 and not nots else ('combo', R.get('id') or R.get('name')))
+                    if _thr_hit(C, r0, sig):
+                        continue                  # F07：同一组合规则重复配置时只出一条（不影响其余行与其他规则）
                     summ = fill(R.get('sum', '{name}：{detail}（{visit} {date}）'), name=R.get('name', R['id']), detail=det, visit=r0.get('visit'), date=r0['date'])
                     add_other(C, sid, R.get('cat', '阈值规则核对'), pr, summ, r0.get('visit'), r0['date'], r0['sheet'], r0['row'], C.metric[r0['mid']]['label'],
                               r0.get('clin'), rel, ctx, risk, R, R.get('lane'), R.get('level'),
@@ -1143,9 +1182,114 @@ def ae_checks(C):
                     # pt 缺失（字典降级）时本规则不运行（知识层降级状态在研究依据页可见）。
                     if not x.get('pt') or not y.get('pt') or x['pt'] == y['pt']:
                         continue
+                    # mm5 用户决定（2026-10-31）：只留疑似同一事件——同 SOC 且术语相近（同一指标/事件词的上下位或升降写法）；
+                    # ALT 与 AST、CK 与 LDH 这类同期并发的不同 AE 不提示
+                    if not (x.get('soc') and x.get('soc') == y.get('soc') and (_ae_similar(x['pt'], y['pt']) or _ae_similar(x['t'], y['t']))):
+                        continue
                     add_other(C, sid, 'AE一致性核对（PT级）', 2, f"同一受试者同期记录了不同 AE（PT 级：{x['pt']} vs {y['pt']}）："
                               f"「{x['t']}」#{x['n']} {x['s']}~{x['e'] or '持续'} / 「{y['t']}」#{y['n']} {y['s']}~{y['e'] or '持续'}，请核实是否重复记录或编码不一致",
                               None, y['s'], y['sh'], y['row'], y['t'], rel=[['AE', x['t'], x['s'], x['n']], ['AE', y['t'], y['s'], y['n']]], risk='AE')
+
+
+_AE_DIR_WORDS = re.compile(r'升高|降低|增高|减低|增加|减少|增多|异常|阳性|升|降|偏高|偏低|计数|水平|值')
+_AE_PREFIX = re.compile(r'^(?:血清|血浆|血|尿|全血)')
+
+
+def _ae_core(s):
+    """AE 术语核心词：去掉方向词与标本前缀（「血胆红素升高」→「胆红素」，「结合胆红素升高」→「结合胆红素」）。"""
+    return _AE_PREFIX.sub('', _AE_DIR_WORDS.sub('', str(s or '')).strip())
+
+
+def _ae_similar(a, b):
+    """两个 AE 术语是否疑似同一事件：核心词一方包含另一方（至少 2 字）。"""
+    x, y = _ae_core(a), _ae_core(b)
+    return bool(x and y and min(len(x), len(y)) >= 2 and (x in y or y in x))
+
+
+def entry_errors(C):
+    """mm5 疑似录入错误（用户 2026-10-31：某指标多次都在 50 上下、突然一次 500 多 → 很可能小数点/单位录错）。
+    只看检验/生命体征/心电图数值（有效性另有「有效性数据量级异常」）。判据（同受试者同指标、该指标 ≥4 个数值）：
+    ①孤立尖峰——前后相邻两次都在本人其余结果中位数的 2 倍以内（持续上升的真实变化如药物性肝损伤不算）；
+    ②与本人其余结果中位数之比约为 10 的整数次幂（±15%，疑似小数点错位）或 ≥20 倍/≤1/20（疑似录入或单位错误）。
+    另：单位与本人该指标多数记录（≥3 条）不同 → 单位不一致。只作数据质量提示（临床监察页），不发医学质疑；
+    该点若也进了医学风险层，风险行上下文标「可能为录入错误，请先核对源数据」，避免对录入错误发医学质疑。"""
+    import math
+    C.entry = []
+    skip = re.compile(C.A.get('entryCheckExclude') or r'尿.*(白细胞|红细胞|隐血|潜血|管型|上皮|细菌|结晶|酵母)|隐血|潜血')   # 尿沉渣计数天然大幅波动
+
+    def ucanon(u):                                       # 等价单位写法视为相同（U/L＝IU/L，×10^9/L＝10^9/L，µ＝μ＝u）
+        u = re.sub(r'\s|×|\*', '', str(u or '')).lower().replace('µ', 'u').replace('μ', 'u').replace('秒', 's')
+        return '' if u in ('na', 'n/a', '/', '-', '—', '无') else re.sub(r'^iu', 'u', u).replace('/iu', '/u')
+    for (sid, mid), rows in C.F.items():
+        if mid.split(':')[0] not in ('lab', 'vs', 'ecg') or skip.search(C.metric[mid]['label']):
+            continue
+        num = [r for r in sorted(rows, key=lambda r: (r.get('date') or '', r.get('time') or '', r.get('row') or 0))
+               if isinstance(r.get('value'), (int, float)) and r['value'] > 0]
+        units = Counter(ucanon(r.get('unit')) for r in num if ucanon(r.get('unit')))
+        mu, mn = (units.most_common(1) or [('', 0)])[0]
+        for i, r in enumerate(num):
+            why = ''
+            if len(num) >= 4:
+                others = [x['value'] for j, x in enumerate(num) if j != i]
+                med = statistics.median(others)
+                ratio = r['value'] / med if med > 0 else None
+                if ratio and (ratio >= 8 or ratio <= 1 / 8):
+                    k = round(math.log10(ratio))
+                    near_pow = k != 0 and abs(math.log10(ratio) - k) <= math.log10(1.15)
+                    nb = [num[j]['value'] for j in (i - 1, i + 1) if 0 <= j < len(num)]
+                    isolated = bool(nb) and all(0.5 <= v / med <= 2 for v in nb)
+                    if isolated and near_pow:
+                        why = (f"约为本人其余结果的 {10 ** k} 倍" if k > 0 else f"仅约为本人其余结果的 1/{10 ** -k}") + "，疑似小数点错位"
+                    elif isolated and (ratio >= 20 or ratio <= 1 / 20):
+                        why = (f"为本人其余结果中位数（{fmt(med)}）的 {fmt(ratio, 0)} 倍" if ratio >= 1 else
+                               f"仅为本人其余结果中位数（{fmt(med)}）的 1/{fmt(1 / ratio, 0)}") + "，疑似录入或单位错误"
+            if not why and mn >= 3 and ucanon(r.get('unit')) and ucanon(r['unit']) != mu:
+                mu_raw = next((str(x.get('unit')) for x in num if ucanon(x.get('unit')) == mu), mu)
+                why = f"单位「{r['unit']}」与本人其余记录（「{mu_raw}」）不同，请核对单位与数值"
+            if why:
+                r['_entry'] = why
+                C.entry.append({'sid': sid, 'site': C.subj[sid]['site'], 'test': C.metric[mid]['label'], 'visit': r.get('visit') or '',
+                                'date': r.get('date') or '', 'raw': r.get('raw'), 'unit': r.get('unit') or '', 'why': why,
+                                'sh': ev_sh(C, r.get('sheet'), r.get('wb') or ''), 'row': r.get('row')})
+    for g in C.labrows:                                  # 同一点也在医学风险层：先核对源数据，避免对录入错误发医学质疑
+        hit = [x for x in C.F.get((g['sid'], g.get('mid')), []) if x.get('_entry') and any(p[7] == x.get('sheet') and p[8] == x.get('row') for p in g['pts'])]
+        if hit:
+            g['ctx'].append(f"可能为录入错误，请先核对源数据：{hit[0].get('visit')} {hit[0].get('raw')} {hit[0].get('unit') or ''}（{hit[0]['_entry']}）")
+
+
+def build_ops(C):
+    """mm5 临床监察数据块（KZ.ops，前端「临床监察」页）：受试者里程碑、访视记录、方案访视窗、给药依从摘要、知情版本、疑似录入错误。
+    全部来自已映射的 listing 字段；EDC 录入/核查时间戳 listing 中没有，录入及时性与 SDV 进度不做。"""
+    vis = defaultdict(list)
+    first = {}
+    for v in C.visits:
+        if v.get('visit'):
+            vis[v['sid']].append([v['visit'], v.get('date') or ''])
+        d = v.get('date')
+        if is_full_date(d) and (v['sid'] not in first or d < first[v['sid']]):
+            first[v['sid']] = d
+    ex = defaultdict(lambda: {'n': 0, 'miss': 0, 'pause': 0, 'fast': 0, 'devi': 0})
+    for e in C.exposure:
+        x = ex[e['sid']]
+        x['n'] += 1
+        x['miss'] += bool(e.get('miss_qty') not in (None, '', 0, '0')) or zero_dose(e)
+        x['pause'] += bool(str(e.get('pause') or '').strip() and not re.match(r'^(否|无|N|No)$', str(e.get('pause')).strip(), re.I))
+        x['fast'] += bool(re.match(r'^(否|未空腹|N|No)$', str(e.get('fast') or '').strip(), re.I))
+        dp, da = e.get('dose_plan'), e.get('dose_act')
+        x['devi'] += bool(dp not in (None, '') and da not in (None, '') and str(dp).strip() != str(da).strip())
+    icf = defaultdict(list)
+    for r in C.icf:
+        icf[r['sid']].append([str(r.get('ver') or ''), r.get('date') or ''])
+    subs = []
+    for sid, s in C.subj.items():
+        subs.append([sid, s['site'], s['status'], s.get('icf') or '', first.get(sid, ''), s.get('rand') or '', s.get('rand_d') or '',
+                     s['fd'] or '', s['ld'] or '', s.get('eot_d') or '', s.get('eot_why') or '', s.get('eos_d') or '', s.get('eos_why') or '',
+                     1 if str(s.get('rescreen') or '').strip() in ('是', 'Y', '1', 'True', 'true') else 0, s.get('prev_sid') or ''])
+    alld = [d for d in (f.get('date') for f in C.findings) if is_full_date(d)]
+    C.ops = {'subs': subs, 'vis': dict(vis), 'win': C.A.get('visitWindows') or {}, 'planned': (C.S.get('study') or {}).get('planned'),
+             'cutoff': C.cfg.get('study', {}).get('cutoff') or (max(alld) if alld else ''), 'stage': C.cfg.get('dataStage') or '',
+             'ex': {k: v for k, v in ex.items()}, 'icf': dict(icf), 'entry': C.entry,
+             'fields': ['id', 'site', 'status', 'icf', 'first', 'rand', 'rand_d', 'fd', 'ld', 'eot_d', 'eot_why', 'eos_d', 'eos_why', 'rescreen', 'prev']}
 
 
 def range_checks(C):
@@ -1880,7 +2024,10 @@ def build_subject_files(C, out):
                 # mm4 钻取行扩位（drill_fields）：既有 14 位不动，尾部追加 [归因码, 原文说明, 关联摘要]
                 d[doms[dom]][C.metric[mid]['label']] = [[r.get('date'), r.get('visit'), r.get('value'), r.get('raw'), r.get('unit') or '', r.get('lo'), r.get('hi'),
                                                         r.get('clin'), r.get('desc') or '', r['sheet'], r['row'], r.get('tpt') or '', r.get('time') or '', 1 if r.get('isb') else 0]
-                                                        + drill_fields(C, sid, r) for r in rows]
+                                                        + drill_fields(C, sid, r)
+                                                        # mm5 全程数据面板：[17] 分级、[18] 较基线 %、[19] 疑似录入错误说明（既有 0–16 位不动）
+                                                        + [r.get('grade'), None if r.get('pct') is None else round(r['pct'], 1), r.get('_entry') or '']
+                                                        for r in rows]
             else:
                 extg[rows[0].get('group') or dom].extend(rows)
         for g, rows in extg.items():
@@ -1902,7 +2049,6 @@ def build_subject_files(C, out):
 
 # ----------------------------------------------------------------------------- evidence rows (KZX.ex)
 def build_ex(C):
-    import openpyxl
     sheets = C.src.get('sheets', {})
     wbs = {}
     need = defaultdict(set)
@@ -1920,7 +2066,7 @@ def build_ex(C):
     for sh, rs in need.items():
         meta = sheets[sh]
         path = C.src['workbooks'][meta['wb']]
-        wb = wbs.get(path) or openpyxl.load_workbook(path, read_only=True, data_only=True)
+        wb = wbs.get(path) or open_workbook_lenient(path)[0]   # mm5：带伤 EDC 导出（截断 dimension）也读全
         wbs[path] = wb
         ws = wb[meta['sheet']]   # PR-8: sheets keyed by unique id — open by plain sheet name
         labels = None
@@ -1955,7 +2101,7 @@ BUILTIN_METHODS = [
     ('M02', 'CS 仅关联病史', '同上 + 病史页', '仅关联 MH 时比较给药后与规定基线的等级/数值，加重者提示应记 AE', '以病史替代 AE', '较基线加重者发 query；同级者仅提示'),
     ('M03', 'NCS 但 {GL} ≥2 级', '数值 + {GL} 数值条目', '数值达 ≥2 级仍判 NCS 时请研究者说明依据；无 {GL} 数值条目者不自动分级', '判定尺度偏松', '发 query：说明依据或更正'),
     ('M04', '基线定义', '方案规定的基线（指定访视、首次给药或随机前最近一次、或多次均值，可按指标分别规定）', '规定基线缺失时按规则回退（默认首剂前最近有效值）并注明「替代基线」', '基线错配', '仅提示，不单独发 query'),
-    ('M05', '同中心判定一致性', '同中心同指标同单位/范围/方向，数值相差 ≤5%', '一例 CS 一例 NCS 时提示判定尺度不一致；不以多数判定作为标准', '中心判定偏差', '先核对症状/复查/处置差异'),
+    ('M05', '同中心判定一致性', '同中心同指标同单位/范围/同向异常/同给药阶段', '偏离更远（或数值相等）者判 NCS、更轻者判 CS 时提示判定尺度不一致；更差者判 CS 不提示；不以多数判定作为标准', '中心判定偏差', '先核对症状/复查/处置差异'),
     ('M06', '方案阈值专项', '方案规定的 AE/AESI/停药/回看阈值', '方案原文定义的 AE/AESI/停药/回看阈值逐点比对，并核对是否有对应 AE/AESI 记录', '漏报 AESI', '按方案要求的严重程度决定是否发质疑'),
     ('M07', 'AE 记录质量', 'AE 页', '给药前事件相关性、AE 等级与关联检验 {GL} 等级对照、合并用药标记、AESI 标记、同术语重叠记录', '记录不一致', '发 query 或提示'),
     ('M08', '禁限用药 / 洗脱期', '合并用药页 + 方案禁用药清单', '按方案禁用药名单匹配药名＋用药时段与首剂前窗口/治疗期重叠；洗脱期按知情/首剂回推', '方案偏离', '发 query 并核对方案偏离记录表'),
@@ -2215,8 +2361,10 @@ def analyze(C):
     ae_summary(C)
     build_findings(C)
     _strip_disease_term_links(C)                         # F02 边界：研究疾病词目不作 MH 关联（先于一切关联消费方）
+    annotate_links(C)                                    # 回溯后的关联类型（判定一致性归因维度用）
     build_labrows(C)
     rel_candidates(C)
+    entry_errors(C)                                      # mm5 疑似录入错误（数据质量提示，不发 query）
     threshold_rules(C)
     combo_rules(C)
     ae_checks(C)
@@ -2234,6 +2382,7 @@ def analyze(C):
     build_soa(C)
     calibers(C)
     pd_rules.run(C)                                      # mm4：方案偏离（已记录 PD 归一＋潜在 PD＋分级＋比对）→ KZ.pd
+    build_ops(C)                                         # mm5 临床监察数据块 → KZ.ops
     build_trend(C)
     build_eff(C)
     defaults(C)
@@ -2258,13 +2407,17 @@ def analyze(C):
     KZ = {'cfg': C.cfg, 'meta': {'cutoff': cutoff, 'qs': len(C.queries), 'counts': {k: len(getattr(C, k)) for k in ('subjects', 'visits', 'exposure', 'ae', 'mh', 'cm', 'findings', 'efficacy', 'pd', 'extq')},
                                  'status': dict(stc), 'n': len(S), 'centers': len(C.centers), 'dosed': len(C.pop), 'built': dt.datetime.now().strftime('%Y-%m-%d %H:%M'),
                                  'sources': C.cfg.get('footer', {}).get('left', '')},
-          'subs': subs, 'centers': C.centers, 'aes': [{k: v for k, v in x.items() if not k.startswith('_') and k != 'sh'} for x in C.aes if x['sid'] in C.pop],
+          'subs': subs, 'centers': C.centers, 'aes': [{**{k: v for k, v in x.items() if not k.startswith('_') and k != 'sh'}, 'rl': bool(x.get('_rel'))} for x in C.aes if x['sid'] in C.pop],   # rl＝与试验药相关（TRAE）
           'aesum': C.aesum, 'aecat': list(C.aesum), 'ibtag': ibtag, 'labrows': [{k: v for k, v in g.items() if k != 'mid' or g.get('risk') == 'REL'} for g in C.labrows],
           'others': [{k: v for k, v in o.items() if not k.startswith('_')} for o in C.others],
           'queries': [{k: v for k, v in q.items() if not k.startswith('_')} for q in C.queries], 'qcommon': C.qcommon,
           'cro': [[x.get('form') or '', x.get('row') or '', x.get('sid') or '', x.get('visit') or '', x.get('text') or ''] for x in C.extq],
           'cons': C.cons, 'rules': C.S.get('rules') or [], 'unres': C.S.get('unres') or [], 'methods': C.methods, 'eff': C.KZeff, 'effissues': [], 'v8': [],
-          'tgroup': {}, 'study': C.S.get('study') or {}, 'review': C.review, 'todo': C.todo, 'pd': C.pdd,
+          'tgroup': {}, 'study': C.S.get('study') or {}, 'review': C.review, 'todo': C.todo, 'pd': C.pdd, 'ops': C.ops,
+          # mm5 安全性概况（三级 Profile）：病史与合并用药明细（仅给药者；术语原文）
+          'mhcm': {'mh': [[sid, m.get('t') or '', 1 if m.get('ong') == '是' else 0] for sid in sorted(C.pop) for m in C.mh_by[sid]],
+                   'cm': [[sid, c.get('t') or '', c.get('s') or '', c.get('e') or '', 1 if c.get('ong') else 0, c.get('ind') or c.get('why') or '']
+                          for sid in sorted(C.pop) for c in C.cm_by[sid]]},
           # mm4 研究依据页：方案规则的只读视图（编译后的可执行口径，供「监查规则」按领域展示；不含任何受试者数据）
           'basis': {k: C.A.get(k) for k in ('visitWindows', 'eligibility', 'eligibilitySubject', 'prohibited', 'washout', 'aesi', 'reportRules',
                                              'thresholdRules', 'comboRules', 'indicationBackground', 'cmProtocolRequired', 'pd', 'effRulesText') if C.A.get(k)}}

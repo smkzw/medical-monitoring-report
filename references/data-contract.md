@@ -9,7 +9,7 @@
 | `meta` | dict | 生成时间、源文件、人群口径、计数 |
 | `subs` | list | 受试者摘要（id, site, center, status, icf, fd, ld, age, sex, 风险计数…；盲态下无 grp） |
 | `centers` | list | 中心汇总（n、csx/mhx/ncs2、AE 率、漏斗图数据） |
-| `aes` / `aesum` | list / dict | AE 明细（含分类、IB 标签、TEAE、相关性、SAE/AESI）/ 汇总 |
+| `aes` / `aesum` | list / dict | AE 明细（含分类、IB 标签、TEAE、相关性、SAE/AESI；mm5 `rl`＝与试验药相关，TRAE 用）/ 汇总 |
 | `labrows` | list | 检验风险组：`sid test mid risk pts[[visit,date,raw,unit,grade,clin,pct,sheet,row,desc]] base rel ctx q cro qkey…` |
 | `others` | list | 规则信号：`sid cat pr sum v d sh row test rel ctx risk q qkey…` |
 | `queries` | list | `id sid cat sh text parts ev[[sheet,row,visit,test]] cro qkey…`（PR-8：`sh`/`ev[0]` 用逐工作簿唯一 id `wb:sheet`，如 `lab:LB`） |
@@ -19,6 +19,8 @@
 | `eff` | dict | 有效性：metrics, data, anomalies, rulesText |
 | `review` / `todo` / `unres` | list | 审阅流程、待办、未决 |
 | `pd` | dict | mm4 方案偏离：`taxonomy[[码,名称,层面,说明,DVCAT]]`、`potential[{id,sid,site,cat,layer,rule,title,dv,fact,date,visit,grade,why,action,src[[sheet,row,标签]],sig[类型,索引,qkey],ctx,status,matched}]`、`confirmed[{id,sid,site,cat,layer,rawCat,sub,desc,date,grade,rawGrade,status,src,matched[规则]}]`、`rules[{id,cat,title,grade,action,dv,logic,cfg,data,state,n}]`、`notDetectable`、`cutoff`、`hasListing`、`sites`、`critical`；signal 回链：`others[i].pdId`/`labrows[i].pdId` |
+| `ops` | dict | mm5 临床监察：`subs`（字段名见 `fields`：id,site,status,icf,first 首个访视日期,rand,rand_d,fd,ld,eot_d,eot_why,eos_d,eos_why,rescreen,prev）、`vis{sid:[[访视,日期]]}`、`win`（方案访视窗）、`planned`、`cutoff`、`stage`、`ex{sid:{n,miss,pause,fast,devi}}`、`icf{sid:[[版本,日期]]}`、`entry[{sid,site,test,visit,date,raw,unit,why,sh,row}]`（疑似录入错误） |
+| `mhcm` | dict | mm5 安全性概况：`mh[[sid,术语,持续0/1]]`、`cm[[sid,药名,开始,结束,持续0/1,用药原因]]`（仅给药者） |
 | `basis` | dict | mm4 研究依据页只读视图（visitWindows/eligibility*/prohibited/washout/aesi/reportRules/thresholdRules/comboRules/indicationBackground/cmProtocolRequired/pd/effRulesText） |
 
 `qkey`（labrows / others / queries 各自带，PR-2）：跨快照稳定的业务键，格式 `lab|<sid>|<risk>|<wb>:<sheet>|<mid>|<主访视>`、
@@ -39,7 +41,7 @@ labrows `pts` 行：`[visit,date,raw,unit,grade,clin,pct,sheet,row,desc,dev,wb]`
 `assets/ctcae.js` 只读此文件，不含任何版本特定阈值。`validate_contract.py` 校验 `KZG.label == cfg.ctcaeVersion` 且 map 中代码均在表内。
 
 ## data/s/<sid>.js → `KZ_SUB({...})`
-个例：基本信息、`visits[[code,label,date,flag]]`、`ae` `mh` `cm` `ec`（给药）`pr` `labs` `vs` `ecg`（按指标的时间序列；行 `[date,visit,value,raw,unit,lo,hi,clin,desc,sheet,row,tpt,time,isBaseline]`）`ext`（CRO 质疑）`eff` `tl`（时间线事件/风险行）。
+个例：基本信息、`visits[[code,label,date,flag]]`、`ae` `mh` `cm` `ec`（给药）`pr` `labs` `vs` `ecg`（按指标的时间序列；行 `[0 date,1 visit,2 value,3 raw,4 unit,5 lo,6 hi,7 clin,8 desc,9 sheet,10 row,11 tpt,12 time,13 isBaseline,14 归因码,15 原因说明,16 关联摘要（「；」分隔）,17 分级,18 较基线%,19 疑似录入错误说明]`，既有位不动、只在尾部扩位）`ext`（CRO 质疑）`eff` `tl`（时间线事件/风险行）。
 `KZ.subs` 中每个受试者都必须有对应文件（按需加载）。
 
 ## 不变量

@@ -78,7 +78,7 @@ mm4 新增：`calibers:[[主题, 采用口径, 状态, 规则id, 说明]]`（关
 - `efficacy`：`[{id, label, unit, kind:continuous|ordinal|binary, src:"eff:<metric>"|"lab:<test>"|"exam:<test>", derive:chg|pct, baseVisit, visits, keyVisit, signed, refLines, categories, note, kpi, agg:"max"}]`。
   mm4 起由工作台确定性生成（`mm3/protocol/efficacy.py`：方案终点 × listing 量表/检验/检查指标），不再手填；`src` 可指向 lab/exam 指标（如 Hb、肌瘤体积）；`agg:"max"` 用于终点写「最大的…」时同访视多条记录取最大。基线取方案基线访视（D1/首次给药前）；该指标没有 D1 访视时取给药前最后一次。lab/exam 来源的测量值做量级检查（同一受试者某次与本人其余访视中位数相差 ≥10 倍 → pr3 query「有效性数据量级异常」，疑似单位/录入错误，同时在有效性页列出；量表不查）。
 - `diseaseTerms`：研究疾病缩写（如 `["AD"]`，工作台从方案「特应性皮炎（AD）」写法编译），用于识别备注里的研究疾病归因。
-- `clinConsistTol`：临床意义判定一致性的「相近」容差（默认 0.1）。
+- ~~`clinConsistTol`~~：已废止（2026-10-30 判定一致性改为方向性口径，见 analysis-rules）。
 - `expectedAE`：`[{term, label, re, pt, soc, basis, src: ib|protocol, loc, labs: [[analyte, label, direction]]}]` 产品风险（工作台从 IB 风险表/方案风险章节编译）：AE 按术语/PT 匹配打「IB重要潜在风险·…」标记（同 SOC 的标「同SOC」），检验按风险的检验表现在背景中注明。
 - `queryTexts`：`{qkey: {h, text}}` 工作台模型按事实卡写好的质疑句子；`h` 与本次构建的事实卡哈希一致才采用，否则用程序措辞。事实卡输出在 `analysis/query_cards.json`。
 - `formNames`：`{表单代码: 中文名}`，缺省读 EDC 导出的目录页（TOC）；页面证据位置显示「血生化（LBCH）第 n 行」。

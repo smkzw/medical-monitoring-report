@@ -66,10 +66,10 @@ async function show(id){
   <div class="tabs" id="ptabs"></div><div id="pp"></div>`;
   const dayOf=x=>K.studyDay(x,d.fd);
   const dt=x=>x?`${x}${d.fd?` <span class="xs faint">${dayOf(x.slice(0,10))}</span>`:''}`:'';
-  const T=[['ae','AE',d.ae.length],['mh','病史/手术',d.mh.length+d.sur.length],['cm','合并用药',d.cm.length],['lab','检验矩阵',Object.keys(d.labs).length],...(Object.keys(d.vs||{}).length||Object.keys(d.ecg||{}).length?[['vs',Object.keys(d.vs||{}).length?(Object.keys(d.ecg||{}).length?'生命体征/心电图':'生命体征'):'心电图',null]]:[]),...((d.ext||[]).length?[['img',CF.extTab||'专项检查',d.ext.length]]:[]),['eff','有效性',Object.values(d.eff||{}).reduce((a,x)=>a+x.length,0)],['q','质疑/'+EXS,qs.length+cro.length]];
+  const T=[...(d.fd&&K.profile?[['ov','概况']]:[]),['ae','AE',d.ae.length],['mh','病史/手术',d.mh.length+d.sur.length],['cm','合并用药',d.cm.length],['lab','检验矩阵',Object.keys(d.labs).length],...(Object.keys(d.vs||{}).length||Object.keys(d.ecg||{}).length?[['vs',Object.keys(d.vs||{}).length?(Object.keys(d.ecg||{}).length?'生命体征/心电图':'生命体征'):'心电图',null]]:[]),...((d.ext||[]).length?[['img',CF.extTab||'专项检查',d.ext.length]]:[]),['eff','有效性',Object.values(d.eff||{}).reduce((a,x)=>a+x.length,0)],['q','质疑/'+EXS,qs.length+cro.length]];
   const pp=document.getElementById('pp');
-  const R={ae:tAE,mh:tMH,cm:tCM,lab:tLab,vs:tVS,img:tImg,eff:tEff,q:tQ};
-  let t0=H.t&&R[H.t]?H.t:'ae';H.t=null;
+  const R={ov:()=>K.profile(pp,{sid:id}),ae:tAE,mh:tMH,cm:tCM,lab:tLab,vs:tVS,img:tImg,eff:tEff,q:tQ};
+  let t0=H.t&&R[H.t]?H.t:(d.fd&&K.profile?'ov':'ae');H.t=null;   /* mm5：已给药受试者默认先看概况（对照所在中心与整体） */
   const tb=K.tabs(document.getElementById('ptabs'),T,t0,x=>{K.setHash({s:id,c:st.c,t:x});R[x]()});
   m.querySelectorAll('[data-go]').forEach(e=>e.onclick=()=>{const [k,val]=e.dataset.go.split(':');if(k==='lab'){tb.set('lab');setTimeout(()=>labChart(val),50)}else{tb.set('ae');setTimeout(()=>{const o=D.others[+val];drawOt(o)},50)}});
   function drawOt(o){K.drawer(`${o.cat}`,`<div class="flex wrap mb">${K.sid(o.sid)}${K.pri(o.pr)}${K.p(o.v||'','blu')}${K.p(K.loc(o.sh,o.row),'sq')}</div><div class="box org">${K.hlNum(o.sum)}</div>${o.rel.length?`<div class="sec-t"><h2>已关联</h2></div>${o.rel.map(r=>K.p(r[0]+' '+r[1],'grn')).join(' ')}`:''}${o.q.length?`<div class="sec-t"><h2>质疑</h2></div>${o.q.map(K.qPill).join(' ')}`:''}${o.ctx.length?`<div class="sec-t"><h2>判读背景</h2></div><ul class="lst small muted">${o.ctx.map(c=>`<li>${K.esc(c)}</li>`).join('')}</ul>`:''}${o.cro?`<div class="sec-t"><h2>${K.esc(EXL)}</h2></div><div class="small">${K.esc(o.cro)}</div>`:''}`)}
