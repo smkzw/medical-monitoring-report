@@ -93,5 +93,26 @@ ok(jNone.includes('未关联'), 'CS 行全空应显示「未关联」灰字');
 const jPlain = K.judgeCell(drow(0, '', '', ''), 'S1');
 ok(jPlain === '' || !jPlain.includes('未关联'), '正常行不显示「未关联」（仅 CS 行）');
 
+/* ---- V5：校正与尾概率、null 安全比较、处置后加重重开、研究层面容忍限度 ---- */
+global.localStorage = (() => { const m = new Map(); return { getItem: k => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)) }; })();
+global.CustomEvent = class { constructor(n, o) { this.type = n; this.detail = (o || {}).detail; } };
+global.document.dispatchEvent = () => {};
+require(path.resolve(dir, 'kz5.js'));
+const bq = K.bh([0.01, 0.04, 0.03, null]);
+ok(Math.abs(bq[0] - 0.03) < 1e-9 && Math.abs(bq[1] - 0.04) < 1e-9 && bq[3] === null, 'K.bh：BH 校正（0.01×3/1＝0.03；后缀最小）且 null 原样');
+ok(K.qlt(null, 0.1) === false && K.qlt(0.05, 0.1) === true, 'K.qlt：null 不得当作 0（null<0.1 在 JS 为真）');
+ok(Math.abs(K.poisUp(1, 1) - (1 - Math.exp(-1))) < 1e-6, 'K.poisUp 精确尾概率');
+ok(K.poisUp(200, 100) < 1e-6 && K.poisLo(50, 100) < 1e-4, '期望 >60 用正态近似仍给出极小尾概率');
+ok(K.qStyle(null, null) === '' && K.qStyle(0.2, null) === '', '不显著不着色');
+const sg = { sid: 'S1', test: 'ALT', risk: 'MH', mg: 1 };
+K.sigSet('lab', sg, 'done', '已发质疑');
+ok(K.sigGet('lab', sg).s === 'done', '处置状态保存');
+sg.risk = 'CSX';
+ok(K.sigGet('lab', sg).re === true && K.sigGet('lab', sg).s === 'open', '处置后加重（MH→CSX）自动重新打开');
+window.KZ = { cfg: { study: { code: 'T' } }, kri: { defs: [{ k: 'wd', l: '提前退出率', u: '%', dir: 'high', qtl: [10, 15, 20] }], tiers: [['strict', '严格'], ['std', '标准'], ['loose', '宽松']], tierDefault: 'std', study: { wd: [16, 100] }, sites: {}, na: {} } };
+const qs = K.qtlState('wd', [16, 100]);
+ok(qs.st === 'exceed' && Math.abs(qs.v - 16) < 1e-9 && qs.lim === 15, '容忍限度：标准档 16% > 15% → 超出');
+ok(K.qtlState('wd', [13, 100]).st === 'warn', '超过限度的 80% → 接近限度');
+
 if (fails) { console.error(`${fails} 处断言失败`); process.exit(1); }
-console.log('render logic ok: knCard/knBar/knHint/ptCons/judgeCell');
+console.log('render logic ok: knCard/knBar/knHint/ptCons/judgeCell/bh/poisUp/qlt/sig/qtl');

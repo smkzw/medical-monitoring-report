@@ -1,0 +1,507 @@
+"""V5 监察扩展（用户 2026-10-31 晚：临床监察与总览全面推进）。全部确定性、只读已映射的 listing 字段，由 mm_build.analyze 调用。
+
+- visit_due / upcoming：按方案访视窗（首剂锚点）推算截至数据截止应完成的访视、逾期/超窗，以及未来 14 天应到访视（原在前端 p-monitor 计算，移到后端供 KRI 共用）。
+- freshness：各中心最近一条记录日期 → 数据新鲜度。followup：每例随访人日（热力图按暴露时间算期望数）。
+- kri：中心 × 关键风险指标（KRI）与研究层面数值，研究层面容忍限度（QTL）三档默认值（经验值，需研究团队确认）。
+- ctq：关键数据（关键访视 / 关键评估 / 停药相关指标）标记，行动项加权用。
+- lab_shift：范围内明显变化（肌酐 KDIGO 幅度、QTcF 较基线 >60 ms、血红蛋白降 ≥20 g/L）与持续变化趋势预警（提示，不发质疑）。
+- cred：数据可信度（中心层面）：末位数字偏好、多次访视数值完全相同、中心基线均值偏离、同日多名受试者生命体征完全相同。
+口径见 references/analysis-rules.md §19。
+"""
+import datetime as _dt
+import math
+import re
+import statistics
+from collections import Counter, defaultdict
+
+import ext_rules
+from common import days, dshow, fmt, is_full_date
+
+ENDED = ('完成试验', '提前退出', '筛选失败')
+
+
+def _add(d, n):
+    return (_dt.date.fromisoformat(d) + _dt.timedelta(days=n)).isoformat()
+
+
+def _win(s):
+    if isinstance(s, (list, tuple)):
+        return (s[0] if s else None), (s[1] if len(s) > 1 else 0) or 0, (s[2] if len(s) > 2 else 0) or 0
+    return s.get('target'), s.get('minus') or 0, s.get('plus') or 0
+
+
+def _end(s):
+    xs = [d for d in (s.get('eos_d'), s.get('eot_d')) if is_full_date(d)]
+    return min(xs) if xs else ''
+
+
+def bh(ps):
+    """Benjamini–Hochberg 校正后的 q 值（与输入同序；None 原样返回）。"""
+    idx = sorted((i for i, p in enumerate(ps) if p is not None), key=lambda i: ps[i])
+    q, m, run = [None] * len(ps), len(idx), 1.0
+    for r in range(m - 1, -1, -1):
+        i = idx[r]
+        run = min(run, ps[i] * m / (r + 1))
+        q[i] = run
+    return q
+
+
+def binom_upper(x, n, p):
+    """P(X ≥ x)，X~Binomial(n,p)。"""
+    if x <= 0:
+        return 1.0
+    if x > n:
+        return 0.0
+    lp, lq = math.log(p), math.log1p(-p)
+    tot = 0.0
+    for k in range(x, n + 1):
+        tot += math.exp(math.lgamma(n + 1) - math.lgamma(k + 1) - math.lgamma(n - k + 1) + k * lp + (n - k) * lq)
+    return min(1.0, tot)
+
+
+def pois_upper(o, e):
+    """P(X ≥ o)，X~Poisson(e)。"""
+    if o <= 0:
+        return 1.0
+    if e <= 0:
+        return 0.0
+    term, cdf = math.exp(-e), 0.0
+    for k in range(o):
+        cdf += term
+        term *= e / (k + 1)
+    return max(0.0, min(1.0, 1 - cdf))
+
+
+def norm_two(z):
+    return math.erfc(abs(z) / math.sqrt(2))
+
+
+def crit_items(C):
+    """方案关键评估（analysis.pd.criticalItems 正则）→ (正则, 数据中实际匹配到的指标名)。方案写法与 listing 名称常差一个后缀
+    （「EASI评分」↔「EASI得分」）：原样匹配不到时去掉 评分/得分/总分/分数/评估 后缀再匹配。"""
+    pat = (C.A.get('pd') or {}).get('criticalItems')
+    if not pat:
+        return None, []
+    names = {str(r.get('metric') or '') for r in C.efficacy} | {str(f.get('test') or '') for f in C.findings}
+    for p in (pat, re.sub(r'(评分|得分|总分|分数|评估)', '', pat)):
+        try:
+            rx_ = re.compile(p)
+        except re.error:
+            continue
+        hit = sorted(n for n in names if n and rx_.search(n))
+        if hit:
+            return rx_, hit
+    return re.compile(pat), []
+
+
+def planned_n(C):
+    st = C.S.get('study') or {}
+    for v in (st.get('planned'), (C.cfg.get('study') or {}).get('planned')):
+        try:
+            if v:
+                return int(v)
+        except (TypeError, ValueError):
+            pass
+    for f in ((st.get('design') or {}).get('facts') or []):
+        if len(f) >= 2 and re.search(r'计划(例数|入组|样本)', str(f[0])):
+            m = re.search(r'\d+', str(f[1]))
+            if m:
+                return int(m.group())
+    return None
+
+
+# ----------------------------------------------------------------------------- 访视推算 / 新鲜度 / 随访人日
+def visit_due(C, cutoff):
+    """→ (due, upcoming)。due 行 [sid, site, 访视, 窗起, 窗止, 实际日期, 状态 overdue|out|ok, 实际研究日, 目标日, −窗, +窗]；
+    upcoming 行 [sid, site, 访视, 窗起, 窗止, 目标日期]（未来 14 天内窗口开启或在窗、受试者未结束）。"""
+    W = C.A.get('visitWindows') or {}
+    rec = defaultdict(dict)
+    for v in C.visits:
+        if v.get('visit'):
+            rec[v['sid']][v['visit']] = v.get('date') or ''
+    horizon = _add(cutoff, 14) if is_full_date(cutoff) else ''
+    due, up = [], []
+    for sid, s in C.subj.items():
+        fd = s.get('fd')
+        if not is_full_date(fd):
+            continue
+        e = _end(s)
+        for v, spec in W.items():
+            t, mi, pl = _win(spec)
+            if t is None:
+                continue
+            lo, hi, got = _add(fd, t - 1 - mi), _add(fd, t - 1 + pl), rec[sid].get(v, '')
+            if not got:
+                if e and lo > e:
+                    continue
+                if not cutoff or hi >= cutoff:
+                    if horizon and not e and s.get('status') not in ENDED and lo <= horizon:
+                        up.append([sid, s['site'], v, lo, hi, _add(fd, t - 1)])
+                    continue
+            sd = days(got, fd) + 1 if is_full_date(got) else None
+            st = 'overdue' if not got else ('out' if sd is not None and (sd < t - mi or sd > t + pl) else 'ok')
+            due.append([sid, s['site'], v, lo, hi, got, st, sd, t, mi, pl])
+    return due, up
+
+
+def freshness(C, cutoff):
+    """{site: [最近记录日期, 距数据截止天数, 在研受试者数]}（晚于数据截止的日期视为录入错误，不计）。"""
+    last = defaultdict(str)
+    for dom in ('visits', 'exposure', 'ae', 'findings', 'efficacy', 'cm'):
+        for r in getattr(C, dom, None) or []:
+            s = C.subj.get(r.get('sid'))
+            if not s:
+                continue
+            for k in ('date', 'start', 'end'):
+                d = r.get(k)
+                if is_full_date(d) and (not cutoff or d <= cutoff) and d > last[s['site']]:
+                    last[s['site']] = d
+    active = Counter(s['site'] for s in C.subj.values() if s.get('fd') and not _end(s) and s.get('status') not in ENDED)
+    return {site: [d, days(cutoff, d) if cutoff else None, active.get(site, 0)] for site, d in sorted(last.items())}
+
+
+def followup(C, cutoff):
+    """{sid: 随访人日}：首剂 → 研究结束（无则在研者到数据截止、已结束者到最后观察日），不超过数据截止。"""
+    fu = {}
+    for sid in C.pop:
+        s = C.subj[sid]
+        fd = s.get('fd')
+        if not is_full_date(fd):
+            continue
+        e = s.get('eos_d') if is_full_date(s.get('eos_d')) else ''
+        if not e:
+            e = (s.get('lo') or s.get('ld') or fd) if s.get('status') in ENDED or _end(s) else (cutoff or s.get('lo') or fd)
+        if cutoff and e > cutoff:
+            e = cutoff
+        fu[sid] = max(1, (days(e, fd) or 0) + 1)
+    return fu
+
+
+# ----------------------------------------------------------------------------- KRI / QTL
+# 键, 名称, 组, 单位, 不利方向, 研究层面容忍限度 (严格, 标准, 宽松)（None＝只作 KRI）, 口径
+KRI_DEFS = [
+    ('sf', '筛选失败率', '入组', '%', 'high', None, '筛选失败 / 筛选'),
+    ('wd', '提前退出率', '入组', '%', 'high', (10, 15, 20), '提前退出或提前终止治疗 / 给药'),
+    ('ovd', '访视逾期率', '执行', '%', 'high', None, '逾期未见记录 / 应完成访视（日常监查阶段含尚未录入）'),
+    ('oow', '访视超窗率', '执行', '%', 'high', (5, 10, 15), '超窗 / 已完成访视'),
+    ('ipd', '重要潜在方案偏离', '执行', '%', 'high', (5, 10, 15), '有重要潜在方案偏离的受试者 / 给药'),
+    ('elig', '入排不符仍入组', '执行', '%', 'high', (1, 2, 5), '入排类潜在偏离的受试者 / 给药'),
+    ('icf', '知情同意问题', '执行', '%', 'high', (0, 1, 3), '知情类潜在偏离的受试者 / 筛选'),
+    ('comp', '依从性不符', '执行', '%', 'high', (5, 10, 15), '依从性超出方案范围的受试者 / 给药（方案无依从性公式时按有漏服记录的受试者）'),
+    ('pem', '主要终点缺失', '数据', '%', 'high', (3, 5, 10), '关键访视已完成但关键评估无记录 / 已完成的关键访视'),
+    ('ae', 'TEAE 报告率', '安全', '/100人月', 'low', None, 'TEAE 例次 / 随访人月 ×100（偏低提示可能漏报）'),
+    ('sae', 'SAE 报告率', '安全', '/100人月', 'both', None, 'SAE 例次 / 随访人月 ×100'),
+    ('late', 'SAE/AESI 报告超时', '安全', '%', 'high', (0, 5, 10), '报告超时 / SAE 与 AESI 例次'),
+    ('csx', 'CS 未关联', '安全', '/例', 'high', None, '判 CS 未关联 AE/病史（受试者×指标）/ 给药'),
+    ('q', '申办方质疑', '数据', '/例', 'high', None, '申办方医学质疑 / 给药'),
+    ('ent', '疑似录入错误', '数据', '/千条', 'high', None, '疑似录入错误 / 数值型检验检查记录 ×1000'),
+    ('fresh', '数据新鲜度', '数据', '天', 'high', None, '数据截止 − 最近一条记录日期（研究层面取各中心中位数）'),
+]
+QTL_TIERS = [['strict', '严格'], ['std', '标准'], ['loose', '宽松']]
+
+
+def kri(C):
+    cut = C.ops.get('cutoff') or ''
+    S = C.subj
+    sites = sorted({s['site'] for s in S.values()})
+    dosed = [sid for sid in C.pop if S[sid].get('fd')]
+    pd = (C.pdd or {}).get('potential') or []
+    ran = {r['id']: r.get('state') for r in (C.pdd or {}).get('rules') or []}
+    by_rule = defaultdict(set)
+    for p in pd:
+        by_rule[p['rule']].add(p['sid'])
+    imp = {p['sid'] for p in pd if p.get('grade') == '重要'}
+    elig = set().union(*[v for k, v in by_rule.items() if k.startswith('ELIG')]) if by_rule else set()
+    icf = set().union(*[v for k, v in by_rule.items() if k.startswith('ICF')]) if by_rule else set()
+    ex = C.ops.get('ex') or {}
+    comp = by_rule.get('IP-03', set()) if ran.get('IP-03') == 'ran' else {sid for sid, x in ex.items() if x.get('miss')}
+    due = C.ops.get('due') or []
+    P = C.A.get('pd') or {}
+    cv, (ci, ci_hit) = set(P.get('criticalVisits') or []), crit_items(C)
+    have = defaultdict(set)
+    if ci:
+        for r in list(C.efficacy) + list(C.findings):
+            if ci.search(str(r.get('metric') or r.get('test') or '')) and (r.get('value') not in (None, '') or r.get('raw') not in (None, '')):
+                have[r['sid']].add(r.get('visit'))
+    crit_rows = [d for d in due if d[2] in cv and d[5]] if cv and ci else []
+    fu = C.ops.get('fu') or {}
+    te = [a for a in C.aes if a['sid'] in C.pop and a.get('te')]
+    nnum = Counter(S[f['sid']]['site'] for f in C.findings if f['sid'] in S and isinstance(f.get('value'), (int, float))
+                   and str(f.get('mid') or '').split(':')[0] in ('lab', 'vs', 'ecg'))
+    fresh = C.ops.get('fresh') or {}
+    na = {}
+    if not cv or not ci:
+        na['pem'] = '方案关键访视（analysis.pd.criticalVisits）或关键评估（criticalItems）未配置'
+    elif not ci_hit:
+        na['pem'] = f"关键评估「{P.get('criticalItems')}」在数据中找不到对应指标"
+    if not any(k.startswith('ELIG') and v == 'ran' for k, v in ran.items()):
+        na['elig'] = '入排数值条件未配置'
+    if not any(k.startswith('ICF') and v == 'ran' for k, v in ran.items()):
+        na['icf'] = '知情同意核查未执行'
+    if ran.get('SAFE-02') != 'ran':
+        na['late'] = 'AE 表无获知/报告日期'
+    if not (C.A.get('visitWindows')):
+        na['ovd'] = na['oow'] = '方案访视窗未配置'
+
+    def calc(ids):
+        ids = set(ids)
+        ds = [x for x in dosed if x in ids]
+        sv = [d for d in due if d[0] in ids]
+        got = [d for d in sv if d[5]]
+        cr = [d for d in crit_rows if d[0] in ids]
+        fud = sum(fu.get(x, 0) for x in ds)
+        te_ = [a for a in te if a['sid'] in ids]
+        ssa = [a for a in te_ if a.get('sae') or a.get('aesi')]
+        wd = [x for x in ds if S[x]['status'] == '提前退出' or (S[x].get('eot_d') and S[x]['status'] != '完成试验' and S[x].get('eot_why'))]
+        site_set = {S[x]['site'] for x in ids}
+        return {
+            'sf': [sum(S[x]['status'] == '筛选失败' for x in ids), len(ids)],
+            'wd': [len(wd), len(ds)],
+            'ovd': [sum(d[6] == 'overdue' for d in sv), len(sv)],
+            'oow': [sum(d[6] == 'out' for d in got), len(got)],
+            'ipd': [len(imp & set(ds)), len(ds)],
+            'elig': [len(elig & set(ds)), len(ds)],
+            'icf': [len(icf & ids), len(ids)],
+            'comp': [len(comp & set(ds)), len(ds)],
+            'pem': [sum(d[2] not in have.get(d[0], set()) for d in cr), len(cr)],
+            'ae': [len(te_), fud],
+            'sae': [sum(1 for a in te_ if a.get('sae')), fud],
+            'late': [sum(1 for p in pd if p['rule'] == 'SAFE-02' and p['sid'] in ids), len(ssa)],
+            'csx': [sum(1 for g in C.labrows if g['sid'] in ids and g['risk'] == 'CSX'), len(ds)],
+            'q': [sum(1 for q in C.queries if q['sid'] in ids), len(ds)],
+            'ent': [sum(1 for e in C.entry if e['sid'] in ids), sum(nnum.get(s, 0) for s in site_set)],
+        }
+    out_sites = {}
+    for site in sites:
+        ids = [sid for sid, s in S.items() if s['site'] == site]
+        v = calc(ids)
+        f = fresh.get(site)
+        v['fresh'] = [f[1], 1] if f and f[1] is not None and f[2] else [None, 1]
+        out_sites[site] = v
+    study = calc(list(S))
+    fr = [f[1] for f in fresh.values() if f[1] is not None and f[2]]
+    study['fresh'] = [statistics.median(fr) if fr else None, 1]
+    defs = [{'k': k, 'l': l, 'g': g, 'u': u, 'dir': d, 'qtl': list(q) if q else None, 'note': n} for k, l, g, u, d, q, n in KRI_DEFS]
+    return {'defs': defs, 'tiers': QTL_TIERS, 'tierDefault': 'std', 'study': study, 'sites': out_sites, 'na': na,
+            'pem': {'visits': sorted(cv), 'items': ci_hit},
+            'source': '容忍限度为经验默认值，需研究团队确认（ICH E6(R3) §3.10.1.3 要求申办方预设可接受范围）'}
+
+
+# ----------------------------------------------------------------------------- 关键数据（CtQ）
+def ctq(C):
+    """给检验风险行、专项信号、疑似录入错误、潜在 PD 标 ctq＝原因（关键访视 / 关键评估 / 停药相关指标）。"""
+    P = C.A.get('pd') or {}
+    cv = set(P.get('criticalVisits') or [])
+    ci = crit_items(C)[0]
+    stop = [re.compile(R['metric']) for R in C.A.get('thresholdRules', []) if R.get('stop') and R.get('metric')]
+
+    def why(test='', visits=(), mid=''):
+        w = []
+        if cv and any(v in cv for v in visits if v):
+            w.append('关键访视')
+        if ci and test and ci.search(test):
+            w.append('关键评估')
+        mids = [mid] if mid else [f'{d}:{test}' for d in ('lab', 'vs', 'ecg')] if test else []
+        if stop and any(r.search(m) for r in stop for m in mids):
+            w.append('停药相关指标')
+        return '、'.join(w)
+    for g in C.labrows:
+        w = why(g.get('test') or '', (), g.get('mid') or '')            # 检验异常是否关键看指标本身，不看发生在哪次访视
+        if w:
+            g['ctq'] = w
+    for o in C.others:
+        w = why(o.get('test') or '', [o.get('v')] if re.search('访视', o.get('cat') or '') else ())
+        if w:
+            o['ctq'] = w
+    for e in C.entry:
+        w = why(e.get('test') or '')
+        if w:
+            e['ctq'] = w
+    for p in (C.pdd or {}).get('potential') or []:
+        w = why(next((s[2] for s in p.get('src') or [] if len(s) > 2 and s[2]), ''), [p.get('visit')])
+        if w:
+            p['ctq'] = w
+
+
+# ----------------------------------------------------------------------------- 范围内明显变化 / 趋势预警
+def _cr_abs(unit):
+    u = re.sub(r'\s', '', str(unit or '')).lower().replace('µ', 'u').replace('μ', 'u')
+    return 0.3 if 'mg/dl' in u else 26.5 if 'umol/l' in u else None
+
+
+def _in_range(r):
+    v = r.get('value')
+    return isinstance(v, (int, float)) and not r.get('oor') and not (r.get('grade') or 0)
+
+
+def _hours(a, b):
+    """b − a 的小时数；没有时刻时按日期差（同日/次日视为 ≤48 小时）。"""
+    d = days(b.get('date'), a.get('date'))
+    if d is None:
+        return None
+    ta, tb = str(a.get('time') or ''), str(b.get('time') or '')
+    m1, m2 = re.match(r'(\d{1,2}):(\d{2})', ta), re.match(r'(\d{1,2}):(\d{2})', tb)
+    if m1 and m2:
+        return d * 24 + (int(m2.group(1)) - int(m1.group(1))) + (int(m2.group(2)) - int(m1.group(2))) / 60
+    return d * 24 if d <= 1 else d * 24 + 24
+
+
+def lab_shift(C, add_other):
+    """两类提示信号（pr＝2，不发质疑）：范围内明显变化、持续变化趋势。add_other 由 mm_build 传入（避免循环导入）。"""
+    tb = float((C.cfg.get('thresholds') or {}).get('base', 0.3))
+    skip = re.compile(C.A.get('entryCheckExclude') or r'尿.*(白细胞|红细胞|隐血|潜血|管型|上皮|细菌|结晶|酵母)|隐血|潜血')
+    conv = C.A.get('unitConv', {})
+    for (sid, mid), rows in C.F.items():
+        if sid not in C.pop or mid.split(':')[0] not in ('lab', 'vs', 'ecg'):
+            continue
+        label = C.metric[mid]['label']
+        if skip.search(label):
+            continue
+        code = C.cmap.get(mid)
+        post = [r for r in rows if r.get('post') and isinstance(r.get('value'), (int, float)) and not r.get('_entry')]
+        b = next((r.get('base') for r in rows if r.get('base')), None)
+        bv = (b or {}).get('value') if isinstance((b or {}).get('value'), (int, float)) else None
+
+        def emit(r, summ, crit):
+            add_other(C, sid, '范围内明显变化', 2, summ, r.get('visit'), r.get('date'), r.get('sheet'), r.get('row'), label, r.get('clin'),
+                      None, [crit], '', {'query': False}, bkey=f"{label}|{crit[:12]}|{r.get('visit') or ''}|{r.get('date') or ''}", wb=r.get('wb') or '')
+        if code == 'CREAT':
+            done = False
+            for a, r in zip(post, post[1:]):
+                h, thr = _hours(a, r), _cr_abs(r.get('unit') or a.get('unit'))
+                if thr and h is not None and h <= 48 and r['value'] - a['value'] >= thr and _in_range(r):
+                    emit(r, f"{label} {r.get('visit') or ''} {r.get('raw')} {r.get('unit') or ''}，较前次（{a.get('visit') or dshow(a.get('date'))} {a.get('raw')}）"
+                            f"升高 {fmt(r['value'] - a['value'])}（48 小时内），仍在参考范围内",
+                         '参照 KDIGO 2012 急性肾损伤标准：48 小时内升高 ≥0.3 mg/dL（26.5 µmol/L）')
+                    done = True
+                    break
+            if not done and bv:
+                r = next((x for x in post if x['value'] >= 1.5 * bv and _in_range(x)), None)
+                if r:
+                    emit(r, f"{label} {r.get('visit') or ''} {r.get('raw')} {r.get('unit') or ''}，为基线（{b.get('raw')}）的 {r['value'] / bv:.1f} 倍，仍在参考范围内",
+                         '参照 KDIGO 2012 急性肾损伤幅度：较基线 ≥1.5 倍（标准要求 7 天内，试验采样间隔通常更长，仅作提示）')
+        elif code == 'HGB' and bv:
+            def fac(x):
+                u = x.get('unit') or ''
+                return conv.get(mid, {}).get(u) if u in conv.get(mid, {}) else C.G.factor('HGB', u)
+            r = next((x for x in post if fac(x) and (bv - x['value']) * fac(x) >= 20 and _in_range(x)), None)
+            if r:
+                emit(r, f"{label} {r.get('visit') or ''} {r.get('raw')} {r.get('unit') or ''}，较基线（{b.get('raw')}）下降 {fmt((bv - r['value']) * fac(r))} g/L，仍在参考范围内",
+                     '参照 ISTH 大出血判据中的血红蛋白降幅（≥20 g/L）')
+        elif code == 'QTCF' and bv:
+            r = next((x for x in post if x['value'] - bv > 60 and _in_range(x)), None)
+            if r:
+                emit(r, f"{label} {r.get('visit') or ''} {r.get('raw')} {r.get('unit') or 'ms'}，较基线（{b.get('raw')}）增加 {fmt(r['value'] - bv)} ms，尚未达异常分级",
+                     '参照 ICH E14：QTc 较基线增加 >60 ms')
+        # 趋势预警：朝不利方向连续 3 次变化、累计较基线 ≥T_base，且给药后全部结果仍在参考范围内
+        d = ext_rules.metric_dir(mid) or ext_rules.metric_dir(label)
+        if d not in ('up', 'down') or not bv or len(post) < 3 or not all(_in_range(x) for x in post):
+            continue
+        sg = 1 if d == 'up' else -1
+        run = 1                                                # 末端连续不利变化的取值个数
+        for a, r in zip(post, post[1:]):
+            run = run + 1 if (r['value'] - a['value']) * sg > 0 else 1
+        last, first = post[-1], post[-run]
+        pct = (last['value'] - bv) / abs(bv) * 100
+        p0 = (last['value'] - first['value']) / abs(first['value']) * 100 if first['value'] else 0
+        if run >= 4 and pct * sg >= tb * 100 and p0 * sg >= tb * 100:
+            seq = ' → '.join(str(x.get('raw')) for x in post[-run:])
+            add_other(C, sid, '持续变化趋势', 2,
+                      f"{label} 连续 {run - 1} 次{'升高' if d == 'up' else '下降'}（{seq} {last.get('unit') or ''}），末次较基线（{b.get('raw')}）{pct:+.0f}%，仍在参考范围内",
+                      last.get('visit'), last.get('date'), last.get('sheet'), last.get('row'), label, last.get('clin'), None,
+                      [f'趋势预警：朝不利方向连续变化、累计较基线 ≥{tb:.0%}，尚未超出参考范围'], '', {'query': False},
+                      bkey=f"{label}|趋势", wb=last.get('wb') or '')
+
+
+# ----------------------------------------------------------------------------- 数据可信度
+_BPHR = re.compile(r'收缩压|舒张压|SBP|DBP|血压|心率|脉搏|Pulse|\bHR\b', re.I)
+_FLAT = re.compile(r'收缩压|舒张压|SBP|DBP|心率|脉搏|Pulse|\bHR\b|体重|Weight', re.I)
+
+
+def cred(C):
+    """中心层面数据可信度信号（建议核对，不作结论）。→ {sites:{site:{dig,flat,shift,dup}}, flat:[…], dup:[…], shiftTop:{site:[…]}}"""
+    S = C.subj
+    sites = sorted({s['site'] for s in S.values()})
+    dig = defaultdict(lambda: [0, 0])
+    flat_e, flat_n, flat_items = Counter(), Counter(), []
+    trip = defaultdict(dict)                                   # (site, date) → {sid: {kind: value}}
+    base = defaultdict(dict)                                   # mid → {sid: 基线值}
+    for (sid, mid), rows in C.F.items():
+        if sid not in S:
+            continue
+        site, label, dom = S[sid]['site'], C.metric[mid]['label'], mid.split(':')[0]
+        num = [r for r in rows if isinstance(r.get('value'), (int, float))]
+        if dom == 'vs' and _BPHR.search(label):
+            for r in num:
+                raw = str(r.get('raw') if r.get('raw') is not None else '').strip()
+                if re.fullmatch(r'\d{2,3}', raw):
+                    dig[site][0] += 1
+                    dig[site][1] += raw[-1] in '05'
+                kind = 'S' if re.search(r'收缩|SBP', label, re.I) else 'D' if re.search(r'舒张|DBP', label, re.I) else 'H' if re.search(r'心率|脉搏|Pulse|HR', label, re.I) else ''
+                if kind and is_full_date(r.get('date')):
+                    trip[(site, r['date'])].setdefault(sid, {})[kind] = r['value']
+        if dom == 'vs' and _FLAT.search(label) and len(num) >= 4:
+            flat_e[site] += 1
+            if len({r['value'] for r in num}) == 1:
+                flat_n[site] += 1
+                flat_items.append([sid, site, label, str(num[0].get('raw')), len(num)])
+        b = next((r.get('base') for r in rows if r.get('base')), None)
+        mu_ = (C.metric[mid]['units'].most_common(1) or [('', 0)])[0][0]
+        if dom == 'vs' and b and isinstance(b.get('value'), (int, float)) and (b.get('unit') or '') == mu_:
+            base[mid][sid] = b['value']                        # 只用生命体征：检验多为各中心本地实验室，方法/单位差异天然存在
+    out = {s: {} for s in sites}
+    n_all, k_all = sum(v[0] for v in dig.values()), sum(v[1] for v in dig.values())
+    ps = [(s, binom_upper(dig[s][1], dig[s][0], 0.2) if dig[s][0] >= 30 else None) for s in sites]
+    for (s, p), q in zip(ps, bh([p for _, p in ps])):
+        out[s]['dig'] = [dig[s][0], dig[s][1], p, q]
+    rate = sum(flat_n.values()) / (sum(flat_e.values()) or 1)
+    ps = [(s, pois_upper(flat_n[s], rate * flat_e[s]) if flat_e[s] else None) for s in sites]
+    for (s, p), q in zip(ps, bh([p for _, p in ps])):
+        out[s]['flat'] = [flat_e[s], flat_n[s], p, q]
+    tests = []                                                 # (site, mid, z, n, 中心均值, 整体均值)
+    for mid, vals in base.items():
+        if len(vals) < 30:
+            continue
+        allv = list(vals.values())
+        mu, sd = statistics.mean(allv), statistics.pstdev(allv)
+        if not sd:
+            continue
+        bys = defaultdict(list)
+        for sid, v in vals.items():
+            bys[S[sid]['site']].append(v)
+        for s, vs in bys.items():
+            if len(vs) >= 3:
+                tests.append((s, mid, (statistics.mean(vs) - mu) / (sd / math.sqrt(len(vs))), len(vs), statistics.mean(vs), mu))
+    qs = bh([norm_two(t[2]) for t in tests])
+    for s in sites:
+        mine = [(t, q) for t, q in zip(tests, qs) if t[0] == s]
+        atyp = sorted([(t, q) for t, q in mine if q is not None and q < 0.05], key=lambda x: -abs(x[0][2]))
+        out[s]['shift'] = [len(mine), len(atyp), [[C.metric[t[1]]['label'], round(t[2], 1), t[3], fmt(t[4]), fmt(t[5])] for t, _ in atyp[:5]]]
+    dup_items = []
+    for (site, date), m in trip.items():
+        full = {sid: (x['S'], x['D'], x['H']) for sid, x in m.items() if all(k in x for k in 'SDH')}
+        grp = defaultdict(list)
+        for sid, t in full.items():
+            grp[t].append(sid)
+        for t, sids in grp.items():
+            if len(sids) >= 2:
+                dup_items.append([site, date, sorted(sids), '/'.join(fmt(v) for v in t)])
+    dc = Counter(d[0] for d in dup_items)
+    for s in sites:
+        out[s]['dup'] = [dc.get(s, 0)]
+    return {'sites': out, 'flat': flat_items[:300], 'dup': dup_items[:200], 'digAll': [n_all, k_all],
+            'flatRate': rate, 'note': '参照 Venet 等 2012（Clin Trials 9(6):705–713）集中统计监查思路的简化版；只提示中心层面的异常模式，需结合源数据核对，不作结论'}
+
+
+def finalize(C):
+    """build_ops 之后调用：补齐 ops（due/upcoming/fresh/fu/planned）、KRI、CtQ、数据可信度。"""
+    cut = C.ops.get('cutoff') or ''
+    C.ops['due'], C.ops['upcoming'] = visit_due(C, cut)
+    C.ops['fresh'] = freshness(C, cut)
+    C.ops['fu'] = followup(C, cut)
+    C.ops['planned'] = C.ops.get('planned') or planned_n(C)
+    C.ops['nnum'] = dict(Counter(C.subj[f['sid']]['site'] for f in C.findings if f['sid'] in C.subj and isinstance(f.get('value'), (int, float))
+                                 and str(f.get('mid') or '').split(':')[0] in ('lab', 'vs', 'ecg')))
+    ctq(C)
+    C.kri = kri(C)
+    C.cred = cred(C)

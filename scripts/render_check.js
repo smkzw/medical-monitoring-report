@@ -14,7 +14,7 @@ const dir = path.resolve(args[0] || 'out/site/HTML');
 const opt = k => { const i = args.indexOf(k); return i > 0 ? args[i + 1] : null; };
 const shots = path.resolve(opt('--shots') || path.join(dir, '..', 'shots'));
 fs.mkdirSync(shots, { recursive: true });
-const PAGES = ['index', 'profile', 'study', 'subjects', 'timeline', 'safety', 'deviations', 'monitor', 'efficacy', 'objective', 'queries', 'methods'];   // mm5：+profile 安全性概况、monitor 临床监察
+const PL = JSON.parse(fs.readFileSync(path.join(__dirname, 'pages.json'), 'utf8')), PAGES = PL.pages;   // V5：页面清单与 ego 版共用 scripts/pages.json
 (async () => {
   const exe = [process.env.CHROMIUM, '/usr/local/bin/chromium', '/usr/bin/chromium', '/usr/bin/chromium-browser'].filter(Boolean).find(p => fs.existsSync(p));
   const browser = await pw.chromium.launch({ executablePath: exe, args: ['--no-sandbox', '--allow-file-access-from-files'] });
@@ -22,7 +22,8 @@ const PAGES = ['index', 'profile', 'study', 'subjects', 'timeline', 'safety', 'd
   const report = []; let bad = 0;
   const sid = opt('--sid') || (() => { try { const t = fs.readFileSync(path.join(dir, 'data', 'core.js'), 'utf8'); const m = t.match(/"queries":\s*\[\s*\{"id":\s*"Q001",\s*"sid":\s*"([^"]+)"/); return m && m[1]; } catch (e) { return null; } })();
   const targets = PAGES.map(p => [p, `${p}.html`]);
-  if (sid) targets.push(['subjects_drill', `subjects.html#s=${sid}`], ['timeline_drill', `timeline.html#s=${sid}`]);
+  if (sid) PL.drill.forEach(p => targets.push([p + '_drill', `${p}.html#s=${sid}`]));
+  (PL.deep || []).forEach(u => targets.push(['deep_' + u.replace(/[^a-z0-9]+/gi, '_'), u]));
   for (const [name, rel] of targets) {
     const page = await ctx.newPage();
     const errs = [];

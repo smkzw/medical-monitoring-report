@@ -130,17 +130,20 @@ K.subBy=id=>{K.subs();return K._subsBy[id]};
 K.STC=Object.assign({'完成试验':'grn','已入组':'blu','治疗结束':'brn','提前退出':'red','筛选失败':'','筛选中':'yel'},(((window.KZ||{}).cfg||{}).statusColors)||{});
 K.status=s=>K.p(s,K.STC[s]??'');
 /* header */
-/* mm4：「方案偏离」进入主导航；「审阅要点」降为总览底部折叠区（methods.html 仍可直达） */
-/* mm5：主导航只放日常要用的页面，其余收进「更多」（用户 2026-10-31：打开后不清楚功能在哪） */
-K.PAGES=[['index.html','总览'],['profile.html','安全性概况'],['safety.html','AE/MH风险'],['deviations.html','方案偏离'],['monitor.html','临床监察'],['queries.html','医学质疑'],['subjects.html','参与者资料']];
-K.MORE=[['study.html','研究依据'],['timeline.html','时间线'],['efficacy.html','有效性趋势'],['objective.html','检验检查趋势'],['methods.html','审阅要点与方法']];
+/* V5（用户 2026-10-31 晚）：主导航固定 8 项；「临床监察」「安全性概览」是由多个页面组成的空间，页内第二行为空间子导航。
+ * 方案偏离并入临床监察空间；「审阅要点与方法」页取消。 */
+K.SPACES={monitor:[['monitor.html','监察概况'],['deviations.html','方案偏离'],['center.html','中心画像']],
+  safety:[['profile.html','概览'],['safety.html','AE/MH 风险'],['objective.html','检验检查趋势']]};
+K.PAGES=[['index.html','总览及行动项'],['monitor.html','临床监察','monitor'],['profile.html','安全性概览','safety'],['efficacy.html','有效性概览'],
+  ['subjects.html','参与者资料'],['timeline.html','时间线'],['queries.html','医学质疑'],['study.html','研究依据']];
+K.spaceOf=p=>Object.keys(K.SPACES).find(s=>K.SPACES[s].some(([u])=>u===p))||'';
 K.header=()=>{
   const cur=location.pathname.split('/').pop()||'index.html';const m=D().meta,c=C0(),st=c.study||{},br=c.brand||{};
   document.title=(document.title.split(' · ')[0]||'')+' · '+(st.short||st.code||'医学监察');
   const h=document.createElement('header');h.className='top';
   h.innerHTML=`<div class="bar"><img class="logo" src="${br.logo||'assets/logo_bot.svg'}" alt="${K.esc(br.org||'康哲药业')}"><div class="ttl"><b>${K.esc(st.title||'医学监察报告')}</b><span>${K.esc(st.subtitle||'')}</span></div>
-  <nav>${K.PAGES.map(([u,t])=>`<a href="${u}" class="${u===cur?'on':''}">${t}</a>`).join('')}<span class="more${K.MORE.some(([u])=>u===cur)?' on':''}"><a href="javascript:void 0">${(K.MORE.find(([u])=>u===cur)||[0,'更多'])[1]} ▾</a><span class="menu">${K.MORE.map(([u,t])=>`<a href="${u}" class="${u===cur?'on':''}">${t}</a>`).join('')}</span></span></nav>
-  <div class="meta">${(c.headerTags||[['数据截止 '+(m.cutoff||''),'line']]).map(t=>K.p(t[0],t[1]||'line')).join('')}${c.dataStage?K.p({daily:'日常监查·数据录入中',prelock:'锁库前·全量数据',cfdi:'锁库后·核查前'}[c.dataStage]||'','line'):''}${c.blind&&c.blind.on?K.p(c.blind.tag||'盲态','blu'):''}</div></div><div class="ribbon"></div>`;
+  <nav>${K.PAGES.map(([u,t,sp])=>`<a href="${u}" class="${u===cur||(sp&&sp===K.spaceOf(cur))?'on':''}">${t}</a>`).join('')}</nav>
+  <div class="meta">${(c.headerTags||[['数据截止 '+(m.cutoff||''),'line']]).map(t=>K.p(t[0],t[1]||'line')).join('')}${c.dataStage?K.p({daily:'日常监查·数据录入中',prelock:'锁库前·全量数据',cfdi:'锁库后·核查前'}[c.dataStage]||'','line'):''}${c.blind&&c.blind.on?K.p(c.blind.tag||'盲态','blu'):''}</div></div><div class="ribbon"></div>${(()=>{const sp=K.spaceOf(cur);return sp?`<div class="subnav"><div class="in">${K.SPACES[sp].map(([u,t])=>`<a href="${u}" class="${u===cur?'on':''}">${t}</a>`).join('')}</div></div>`:''})()}`;
   document.body.prepend(h);
   const f=document.createElement('div');f.className='foot';const ft=c.footer||{};f.innerHTML=`<span>${K.esc(ft.left||'产品中心-医学部')}</span><span>${K.esc(ft.right||((m.sources||[]).length?'数据来源：'+m.sources.join(' · '):'数据截止 '+(m.cutoff||'')))}</span>`;document.body.append(f);
   const mk=document.createElement('div');mk.className='dr-mask';const dr=document.createElement('aside');dr.className='dr';dr.innerHTML='<div class="dh"><h2></h2><span class="dsub"></span><button class="x" title="关闭">×</button></div><div class="db"></div>';
@@ -219,7 +222,7 @@ K.seriesPanel=async(el,o)=>{if(!el)return;el.innerHTML='<div class="empty">载�
       ${s.mh.map(a=>`<tr><td>${K.p('病史','org')}</td><td>${K.esc(a.t)}</td><td class="nowrap">${K.esc(a.s||'')}${a.ong==='是'?' · 持续':''}</td><td></td><td></td></tr>`).join('')}
       ${s.cm.slice(0,40).map(c=>`<tr><td>${K.p('用药','blu')}</td><td>${K.esc(c.t)}</td><td class="nowrap">${K.esc(c.s||'')} → ${c.e?K.esc(c.e):c.ong?'持续':''}</td><td class="small">${K.esc(c.dose||'')}</td><td class="small">${K.esc(c.ind||c.why||'')}</td></tr>`).join('')}
       ${s.ae.length+s.mh.length+s.cm.length?'':'<tr><td class="empty">无</td></tr>'}</tbody></table>`)
-    +`<div class="mt"><a class="small" href="subjects.html#s=${o.sid}&t=lab">参与者资料 ›</a>　<a class="small" href="profile.html#s=${o.sid}">安全性概况 ›</a>　<a class="small" href="timeline.html#s=${o.sid}">时间线 ›</a></div>`;
+    +`<div class="mt"><a class="small" href="subjects.html#s=${o.sid}&t=lab">参与者资料 ›</a>　<a class="small" href="profile.html#s=${o.sid}">安全性概览 ›</a>　<a class="small" href="timeline.html#s=${o.sid}">时间线 ›</a></div>`;
   sers.forEach((x,i)=>{const pts=x[1].filter(r=>r[2]!=null).sort((a,b)=>String(a[0]).localeCompare(String(b[0])));if(!pts.length){el.querySelector('#sp'+i).style.display='none';return}
     const lo=pts.find(r=>r[5]!=null)?.[5],hi=pts.find(r=>r[6]!=null)?.[6];
     K.chart(el.querySelector('#sp'+i),{grid:{left:44,right:16,top:16,bottom:26},tooltip:{trigger:'item',formatter:p=>{const r=p.data.r;return `${K.esc(r[1]||'')} ${K.esc(r[0]||'')}<br><b>${K.esc(r[3])} ${K.esc(r[4]||'')}</b> ${r[7]===2?'CS':r[7]===1?'NCS':r[7]===0?'正常':'未评价'}${r[17]?' · '+r[17]+'级':''}${r[15]?'<br>'+K.esc(r[15]):''}`}},
@@ -227,12 +230,23 @@ K.seriesPanel=async(el,o)=>{if(!el)return;el.innerHTML='<div class="empty">载�
       series:[{type:'line',data:pts.map(r=>({value:[r[0],r[2]],r,itemStyle:{color:r[7]===2?'#8B0000':r[7]===1?'#E8C300':'#407AAA',borderColor:HL.has(pl(r[9])+'|'+r[10])?'#FF9900':undefined,borderWidth:HL.has(pl(r[9])+'|'+r[10])?3:0},symbolSize:HL.has(pl(r[9])+'|'+r[10])?12:r[7]>0?9:6})),lineStyle:{color:'#9DB7D3'},
         markArea:lo!=null&&hi!=null?{silent:true,itemStyle:{color:'rgba(88,123,59,.07)'},data:[[{yAxis:lo},{yAxis:hi}]]}:undefined,
         markLine:{symbol:'none',silent:true,data:[s.fd?{xAxis:s.fd,label:{formatter:'D1',color:'#B86400'},lineStyle:{color:'#FF9900',type:'dashed'}}:null,s.ld?{xAxis:s.ld,label:{formatter:'末次给药',color:'#64676B'},lineStyle:{color:'#C9CCD1',type:'dashed'}}:null].filter(Boolean)}}]})})};
-/* 观察/期望（按人数校正的中心偏离）：期望＝总体率×该中心人数；z＝(观察−期望)/√期望（泊松）。小中心只有超出随机波动才着色 */
-K.oe=(obs,n,rate)=>{const e=rate*n;return {o:obs,e,ratio:e>0?obs/e:null,z:e>0?(obs-e)/Math.sqrt(e):0}};
-K.oeStyle=z=>{const a=Math.max(0,Math.min(1,(z-1)/3));return z>1?`background:rgba(230,126,0,${(.12+a*.55).toFixed(2)})`:z<-1.5?'background:rgba(64,122,170,.10)':''};
-/* 中心风险类别（风险页「中心总览」热力图与总览「需关注中心」共用）：每类按中心归集条目，rate＝每例给药受试者总体率 */
-K.centerRisk=()=>{if(K._cr)return K._cr;const D=window.KZ,lab=K.lab,oth=D.others,aes=D.aes;
-  const S=K.subs(),pd=((D.pd||{}).potential)||[],entry=((D.ops||{}).entry)||[];
+/* 观察/期望：期望＝总体率×分母（随访人日、记录数或人数）。V5：显著性用精确泊松尾概率（期望 >60 用正态近似），
+ * 再按 Benjamini–Hochberg 全表校正（上一轮自审：约 360 格逐格 z>2，纯随机也会标出约 8 格）。 */
+K.erfc=x=>{const z=Math.abs(x),t=1/(1+.5*z),r=t*Math.exp(-z*z-1.26551223+t*(1.00002368+t*(.37409196+t*(.09678418+t*(-.18628806+t*(.27886807+t*(-1.13520398+t*(1.48851587+t*(-.82215223+t*.17087277)))))))));return x>=0?r:2-r};
+K.poisUp=(o,e)=>{if(o<=0)return 1;if(e<=0)return 0;if(e>60)return .5*K.erfc((o-.5-e)/Math.sqrt(2*e));let t=Math.exp(-e),c=0;for(let i=0;i<o;i++){c+=t;t*=e/(i+1)}return Math.max(0,Math.min(1,1-c))};
+K.poisLo=(o,e)=>{if(e<=0)return 1;if(e>60)return .5*K.erfc((e-o-.5)/Math.sqrt(2*e));let t=Math.exp(-e),c=0;for(let i=0;i<=o;i++){c+=t;t*=e/(i+1)}return Math.min(1,c)};
+K.bh=ps=>{const ix=ps.map((p,i)=>[p,i]).filter(x=>x[0]!=null).sort((a,b)=>a[0]-b[0]),m=ix.length,q=ps.map(()=>null);let run=1;for(let r=m-1;r>=0;r--){run=Math.min(run,ix[r][0]*m/(r+1));q[ix[r][1]]=run}return q};
+K.oe=(obs,n,rate)=>{const e=rate*n;return {o:obs,e,ratio:e>0?obs/e:null,z:e>0?(obs-e)/Math.sqrt(e):0,pu:K.poisUp(obs,e),pl:K.poisLo(obs,e)}};
+/* 按校正后的 q 着色：高侧 q<0.05 明显偏高、q<0.10 偏高；低侧（只对「偏低＝可能漏报」的类别）q<0.10 标蓝 */
+K.qlt=(v,a)=>v!=null&&v<a;   /* q 值可为 null（不适用）：null<0.1 在 JS 中为真，必须先判非空 */
+K.qStyle=(qu,ql)=>qu!=null&&qu<.05?'background:rgba(230,126,0,.62)':qu!=null&&qu<.10?'background:rgba(230,126,0,.30)':ql!=null&&ql<.10?'background:rgba(64,122,170,.18)':'';
+K.qTip=x=>x?`观察 ${x.o} / 期望 ${x.e.toFixed(1)}${x.qu!=null?` · 校正后 q=${x.qu<.001?'<0.001':x.qu.toFixed(3)}`:''}${x.ql!=null&&x.ql<.10?` · 偏低 q=${x.ql.toFixed(3)}`:''}`:'';
+/* 一列（各中心）比率：rows=[[分子,分母]…]，期望＝整体率×分母，逐行泊松上尾、按列 BH → [{o,e,qu,style}|null] */
+K.colFlags=(rows,all)=>{const r=rows.map(([n,d])=>d?K.oe(n,d,all):null),q=K.bh(r.map(x=>x?x.pu:null));return r.map((x,i)=>x?{...x,qu:q[i],style:K.qStyle(q[i])}:null)};
+/* 中心风险类别（风险页「中心总览」热力图、总览「需关注中心」、中心画像、行动项共用）。
+ * V5 期望数按随访人日（KZ.ops.fu；录入错误按该中心数值型检验记录数 ops.nnum），旧构建无 fu 时按给药人数。 */
+K.centerRisk=()=>{if(K._cr)return K._cr;const D=window.KZ,lab=K.lab,oth=D.others,aes=D.aes,O=D.ops||{};
+  const S=K.subs(),pd=((D.pd||{}).potential)||[],entry=(O.entry)||[];
   const subSite=Object.fromEntries(S.map(s=>[s.id,s.site]));
   const CS=D.centers.filter(c=>c.n).slice().sort((a,b)=>b.dosed-a.dosed||b.n-a.n);
   /* 风险类别：[键, 组, 列名, 取条目(按中心), 说明] —— 条目数组用于点击下钻 */
@@ -243,6 +257,7 @@ K.centerRisk=()=>{if(K._cr)return K._cr;const D=window.KZ,lab=K.lab,oth=D.others
     ['g2','检验','≥2级未判CS',()=>L(['NCS2','NA2','G2NF','NA']),'达 ≥2 级判 NCS/未评价、超范围未评价'],
     ['rel','检验','显著变化·未关联',()=>lab.filter(g=>g.risk==='REL'&&K.relRisk(g)),'较基线显著变化且未关联 AE/病史（按当前阈值）'],
     ['inc','检验','判定不一致',()=>oth.filter(o=>o.cat==='临床意义判定不一致'),'相近结果判定不同'],
+    ['trd','检验','范围内变化/趋势',()=>oth.filter(o=>o.cat==='范围内明显变化'||o.cat==='持续变化趋势'),'参考范围内的明显变化与持续不利趋势（提示）'],
     ['ae','AE','TEAE',()=>aes.filter(a=>a.te!==false),'给药后 AE 例次'],
     ['ae3','AE','≥3级',()=>aes.filter(a=>parseInt(a.g)>=3),'≥3 级 AE 例次'],
     ['sae','AE','SAE',()=>aes.filter(a=>a.sae),'严重不良事件'],
@@ -253,10 +268,16 @@ K.centerRisk=()=>{if(K._cr)return K._cr;const D=window.KZ,lab=K.lab,oth=D.others
     ['cro','质疑','CRO',()=>D.cro.map(c=>({sid:c[2],site:subSite[c[2]],c})),'CRO/外部已发质疑'],
     ['ent','数据质量','疑似录入错误',()=>entry,'小数点/单位疑似录错（临床监察页）']];
   const siteOf=x=>x.site||subSite[x.sid]||'';
-  const tot=S.filter(s=>s.fd).length||1;
-  const items={},rate={};C.forEach(([k,,,f])=>{const all=f();items[k]={};all.forEach(x=>{const s=siteOf(x);(items[k][s]=items[k][s]||[]).push(x)});rate[k]=all.length/tot});
-  const hot=site=>{const c=CS.find(x=>x.site===site);return c&&c.dosed?C.filter(([k])=>K.oe((items[k][site]||[]).length,c.dosed,rate[k]).z>2).map(x=>x[2]):[]};
-  return K._cr={cats:C,items,rate,centers:CS,hot}};
+  const fu=O.fu||null,nn=O.nnum||{},den={};S.forEach(s=>{if(s.fd)den[s.site]=(den[s.site]||0)+(fu?(fu[s.id]||0):1)});
+  const dOf=(k,site)=>k==='ent'&&O.nnum?(nn[site]||0):(den[site]||0);
+  const lowK=new Set(['ae']);                          /* TEAE 偏低：可能漏报 */
+  const items={},rate={},cell={};C.forEach(([k,,,f])=>{const all=f();items[k]={};all.forEach(x=>{const s=siteOf(x);(items[k][s]=items[k][s]||[]).push(x)});
+    const tot=CS.reduce((a,c)=>a+dOf(k,c.site),0)||1;rate[k]=all.length/tot});
+  const flat=[];C.forEach(([k])=>{cell[k]={};CS.forEach(c=>{const d=dOf(k,c.site);if(!d)return;const x=K.oe((items[k][c.site]||[]).length,d,rate[k]);cell[k][c.site]=x;flat.push([k,x])})});
+  const qu=K.bh(flat.map(f=>f[1].pu)),ql=K.bh(flat.map(f=>lowK.has(f[0])?f[1].pl:null));flat.forEach((f,i)=>{f[1].qu=qu[i];f[1].ql=ql[i]});
+  const hot=site=>C.filter(([k])=>K.qlt(((cell[k]||{})[site]||{}).qu,.10)).map(x=>x[2]);
+  const low=site=>C.filter(([k])=>K.qlt(((cell[k]||{})[site]||{}).ql,.10)).map(x=>x[2]);
+  return K._cr={cats:C,items,rate,centers:CS,hot,low,cell,den,unit:fu?'随访人日':'给药人数'}};
 K.showQ=id=>{const q=K.qById(id);if(!q)return;const cro=D().cro.filter(c=>c[2]===q.sid);
   K.drawer(`${q.id} · ${q.cat}`,`<div class="flex wrap mb">${K.sid(q.sid)}${K.p(K.center(q.site),'line')}${K.p(K.loc(q.sh,q.row),'sq')}${K.p(q.v,'blu')}${q.test?K.p(q.test,''):''}${K.p(q.cro,q.cro==='冲突澄清'?'red':q.cro==='未见同问'?'grn':'yel')}</div>
   <div class="box org" style="font-size:13px;line-height:1.7">${K.hlNum(q.text)}</div>
@@ -307,8 +328,8 @@ K.showPD=id=>{const it=K.pdBy(id);if(!it)return;const P=KZ.pd,X=window.KZX||{},c
   const ev=(X.pdex||{})[it.id];
   const refs=[...new Set(((sig&&sig.ctx)||[]).concat(it.ctx||[]).join(' ').match(/R-[A-Z]+-\d+/g)||[])];
   const related=conf?(P.potential||[]).filter(x=>x.matched===it.id):[];
-  K.drawer(`${it.id} · ${K.esc(conf?(it.rawCat||'已记录方案偏离'):it.title)}`,`
-  <div class="flex wrap mb">${K.sid(it.sid)}${K.p(K.center(it.site),'line')}${it.visit?K.p(it.visit,'blu'):''}${it.date?K.p(it.date,'line'):''}${K.pdGrade(it.grade)}${conf?(it.rawGrade?K.p('原文：'+it.rawGrade,'line'):''):K.pdStatus(it.status)}${conf?'':K.pdAct(it.action)}</div>
+  K.drawer(`${it.id} · ${K.esc(conf?(it.rawCat||'已记录方案偏离'):it.title)}`,`${conf?'':'<div class="sigbox"></div>'}
+  <div class="flex wrap mb">${K.sid(it.sid)}${it.ctq?K.p('关键数据','solid-red',it.ctq):''}${K.p(K.center(it.site),'line')}${it.visit?K.p(it.visit,'blu'):''}${it.date?K.p(it.date,'line'):''}${K.pdGrade(it.grade)}${conf?(it.rawGrade?K.p('原文：'+it.rawGrade,'line'):''):K.pdStatus(it.status)}${conf?'':K.pdAct(it.action)}</div>
   <div class="box ${it.grade==='重要'?'red':'org'}" style="font-size:13px;line-height:1.7">${K.hlNum(conf?it.desc:it.fact)}</div>
   ${conf?'':`<div class="sec-t"><h2>分级与依据</h2></div><div class="flex small" style="align-items:flex-start;line-height:1.7">${K.pdGrade(it.grade)}<span>${K.esc(it.why)}</span></div>
   <div class="xs muted mt" style="line-height:1.7">重要偏离：可能显著影响受试者权益、安全或福祉，或显著影响关键数据的完整性、准确性、可靠性（ICH E3 Q&A R1；ICH E6(R3)）。潜在 PD 由数据推断，核实属实前不计入 PD 率。</div>`}
@@ -320,6 +341,7 @@ K.showPD=id=>{const it=K.pdBy(id);if(!it)return;const P=KZ.pd,X=window.KZX||{},c
   <div class="sec-t"><h2>处理建议</h2>${K.pdAct(it.action)}</div><div class="small" style="line-height:1.7">${K.esc(K.PDACT[it.action]||'')}</div>${it.tip?`<div class="note small mt" style="line-height:1.7">${K.esc(it.tip)}</div>`:''}`}
   <div class="pd-series"></div>
   <div class="mt"><a class="small" href="timeline.html#s=${it.sid}">查看 ${it.sid} 时间线 ›</a>　<a class="small" href="deviations.html#id=${it.id}">在方案偏离页定位 ›</a></div>`,conf?K.pdCat(it.cat):`${K.pdCat(it.cat)}${K.p(it.layer+'层面','line')}`);
+  if(!conf&&K.sigCtl)K.sigCtl(document.querySelector('.dr .sigbox'),'pd',it);
   const tests=[sig&&sig.test,...(it.src||[]).map(s=>s[2])].filter(Boolean);
   if(tests.length)K.seriesPanel(document.querySelector('.dr .pd-series'),{sid:it.sid,tests,hl:(sig&&sig.pts||[]).map(p=>[p[7],p[8]]).concat((it.src||[]).map(s=>[s[0],s[1]])),ae:false})};
 document.addEventListener('click',e=>{const a=e.target.closest('[data-pd]');if(a){e.preventDefault();K.showPD(a.dataset.pd)}});

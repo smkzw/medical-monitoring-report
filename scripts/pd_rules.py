@@ -19,6 +19,7 @@ import re
 from collections import Counter, defaultdict
 
 import ext_rules
+from monitor_v5 import crit_items
 from common import days, dshow, fmt, is_full_date, yes, zero_dose
 
 # (分类码, 名称, 层面, 说明, CDISC DVCAT（SDTM CT C225352；与 TransCelerate 7 类一一对应）)
@@ -211,7 +212,7 @@ class _PD:
         self.crit_visits = set(crit)
         # 数据阶段（工作台入口选择）：daily 日常监查（滚动录入）/ prelock 锁库前全量 / cfdi 锁库后核查前；缺省按全量
         self.stage = C.cfg.get('dataStage') or 'prelock'
-        self.crit_items = re.compile(self.P['criticalItems']) if self.P.get('criticalItems') else None
+        self.crit_items = crit_items(C)[0]       # V5：与 KRI 同一容错匹配（方案「EASI评分」↔ 数据「EASI得分」），否则关键评估缺失永不升级为重要
 
     def add(self, rule, sid, fact, *, date=None, visit=None, src=None, grade=None, why='', sig=None, action=None, ctx=None, tip=''):
         cat, title, g0, act0, _, _ = RULES[rule]

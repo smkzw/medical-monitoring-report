@@ -19,7 +19,9 @@
 | `eff` | dict | 有效性：metrics, data, anomalies, rulesText |
 | `review` / `todo` / `unres` | list | 审阅流程、待办、未决 |
 | `pd` | dict | mm4 方案偏离：`taxonomy[[码,名称,层面,说明,DVCAT]]`、`potential[{id,sid,site,cat,layer,rule,title,dv,fact,date,visit,grade,why,action,src[[sheet,row,标签]],sig[类型,索引,qkey],ctx,status,matched}]`、`confirmed[{id,sid,site,cat,layer,rawCat,sub,desc,date,grade,rawGrade,status,src,matched[规则]}]`、`rules[{id,cat,title,grade,action,dv,logic,cfg,data,state,n}]`、`notDetectable`、`cutoff`、`hasListing`、`sites`、`critical`；signal 回链：`others[i].pdId`/`labrows[i].pdId` |
-| `ops` | dict | mm5 临床监察：`subs`（字段名见 `fields`：id,site,status,icf,first 首个访视日期,rand,rand_d,fd,ld,eot_d,eot_why,eos_d,eos_why,rescreen,prev）、`vis{sid:[[访视,日期]]}`、`win`（方案访视窗）、`planned`、`cutoff`、`stage`、`ex{sid:{n,miss,pause,fast,devi}}`、`icf{sid:[[版本,日期]]}`、`entry[{sid,site,test,visit,date,raw,unit,why,sh,row}]`（疑似录入错误） |
+| `ops` | dict | mm5 临床监察：`subs`（字段名见 `fields`：id,site,status,icf,first 首个访视日期,rand,rand_d,fd,ld,eot_d,eot_why,eos_d,eos_why,rescreen,prev）、`vis{sid:[[访视,日期]]}`、`win`（方案访视窗）、`planned`、`cutoff`、`stage`、`ex{sid:{n,miss,pause,fast,devi}}`、`icf{sid:[[版本,日期]]}`、`entry[{sid,site,test,visit,date,raw,unit,why,sh,row,ctq?}]`（疑似录入错误）；V5 追加 `due[[sid,site,访视,窗起,窗止,实际,overdue|out|ok,研究日,目标日,−窗,+窗]]`、`upcoming[[sid,site,访视,窗起,窗止,目标日期]]`、`fresh{site:[最近记录日,距截止天数,在研例数]}`、`fu{sid:随访人日}`、`nnum{site:数值型检验记录数}`、`planned`（缺省取方案设计摘要「计划例数」） |
+| `kri` | dict | V5：`defs[{k,l,g,u,dir,qtl:[严格,标准,宽松]|null,note}]`、`tiers`、`tierDefault`、`study{k:[分子,分母]}`、`sites{site:{k:[分子,分母]}}`、`na{k:原因}`、`pem{visits,items}`、`source`；随阈值档位（TIER_KEYS） |
+| `cred` | dict | V5 数据可信度：`sites{site:{dig:[n,末位0/5数,p,q], flat:[可判组数,完全相同组数,p,q], shift:[检验数,偏离数,[[指标,z,n,中心均值,整体均值]]], dup:[组数]}}`、`flat[[sid,site,指标,值,次数]]`、`dup[[site,日期,[sid],值]]`、`digAll`、`flatRate`、`note` |
 | `mhcm` | dict | mm5 安全性概况：`mh[[sid,术语,持续0/1]]`、`cm[[sid,药名,开始,结束,持续0/1,用药原因]]`（仅给药者） |
 | `basis` | dict | mm4 研究依据页只读视图（visitWindows/eligibility*/prohibited/washout/aesi/reportRules/thresholdRules/comboRules/indicationBackground/cmProtocolRequired/pd/effRulesText） |
 
@@ -48,3 +50,8 @@ labrows `pts` 行：`[visit,date,raw,unit,grade,clin,pct,sheet,row,desc,dev,wb]`
 - 证据 `[sheet,row]` 必须指向 `_source.json.sheets` 中的 sheet（PR-8 起键＝逐工作簿唯一 id `wb:sheet`；同名 sheet 于不同工作簿各有其键，`sheets_by_name` 供名称反查），`--source-check` 时必须是源 workbook 的非空行。
 - query id 唯一；labrows/others 的 sid 必须在 subs 中。
 - `cfg.blind.on` 时任何文件不得出现分组字段/分组名（守卫检查）。
+
+### V5 追加字段
+- 检验风险行、专项信号、疑似录入错误、潜在 PD 可带 `ctq`（关键数据原因：关键访视 / 关键评估 / 停药相关指标）。检验与录入错误只按指标判定，访视只用于方案偏离与访视类信号。
+- 新专项类别：`范围内明显变化`、`持续变化趋势`（pr＝2，不发质疑），归入领域「检验变化预警」。
+- 工作台系统层（`window.KZS`，可无）：`sigstate{键:{s,r,n,rk,by,at}}`（处置状态）、`history[{bid,snap,cutoff,n{lab,oth,pd,ent,q},rd{new,worse,resolved},kri,sites}]`（跨上传，旧→新，≤12）、`timeliness{basis,snaps,sites{site:{n,med,p90,gt14,mod:[修改删除数,当前记录数],lastNew}}}`；汇总失败时 `trendError`。

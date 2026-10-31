@@ -72,6 +72,27 @@ def main():
     for k in REQ_CFG:
         if k not in KZ.get('cfg', {}):
             WARN.append(f'cfg.{k} missing (front-end falls back to defaults)')
+    kr = KZ.get('kri')                                      # V5：KRI / 研究层面容忍限度
+    if kr is None:
+        WARN.append('KZ.kri missing (pre-V5 build: KRI / 容忍限度 / 中心画像 KRI 不显示)')
+    elif not (isinstance(kr, dict) and isinstance(kr.get('defs'), list) and isinstance(kr.get('study'), dict) and isinstance(kr.get('sites'), dict)):
+        ERR.append('KZ.kri should be {defs:list, study:dict, sites:dict}')
+    else:
+        keys = {d.get('k') for d in kr['defs']}
+        for df in kr['defs']:
+            if df.get('qtl') is not None and (not isinstance(df['qtl'], list) or len(df['qtl']) != 3):
+                ERR.append(f"KZ.kri.defs {df.get('k')}: qtl should be [严格, 标准, 宽松]")
+        for scope in [kr['study']] + list(kr['sites'].values()):
+            bad = [k for k, v in scope.items() if k not in keys or not (isinstance(v, list) and len(v) == 2)]
+            if bad:
+                ERR.append(f'KZ.kri value {bad[0]} should be [分子, 分母] of a defined KRI')
+                break
+    for row in (KZ.get('ops') or {}).get('due') or []:
+        if len(row) != 11:
+            ERR.append(f'ops.due row has {len(row)} fields (expected 11)')
+            break
+    if 'cred' in KZ and not isinstance((KZ['cred'] or {}).get('sites'), dict):
+        ERR.append('KZ.cred.sites should be dict')
     sids = {s[0] for s in KZ.get('subs', [])}
     for s in KZ.get('subs', []):
         if len(s) < 21:

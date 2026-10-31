@@ -19,6 +19,7 @@ from pathlib import Path
 
 import ctcae
 import ext_rules
+import monitor_v5
 import pd_rules
 from common import days, dshow, dump_json, fmt, is_full_date, load_json, move_word, open_workbook_lenient, quantile, study_day, zero_dose
 
@@ -2184,10 +2185,10 @@ def defaults(C):
         cats = list(dict.fromkeys(o['cat'] for o in C.others))
         grp = defaultdict(list)
         for c in cats:
-            k = ('不良事件记录' if c.startswith('AE') or 'AESI' in c else '合并用药' if '用药' in c else '入排/访视' if re.search('入排|访视', c)
+            k = ('检验变化预警' if c in ('范围内明显变化', '持续变化趋势') else '不良事件记录' if c.startswith('AE') or 'AESI' in c else '合并用药' if '用药' in c else '入排/访视' if re.search('入排|访视', c)
                  else '检验异常·绑定核查' if re.search(r'CS|关联|研究疾病|病史', c) else '检验记录质量' if re.search(r'参考范围|定性|未评价|判定不一致|量级异常', c) else '方案阈值专项')
             grp[k].append(c)
-        col = {'方案阈值专项': 'red', '不良事件记录': 'org', '合并用药': 'brn', '入排/访视': 'blu', '检验异常·绑定核查': 'org', '检验记录质量': ''}
+        col = {'检验变化预警': 'yel', '方案阈值专项': 'red', '不良事件记录': 'org', '合并用药': 'brn', '入排/访视': 'blu', '检验异常·绑定核查': 'org', '检验记录质量': ''}
         tax['domains'] = [[k, v, col.get(k, '')] for k, v in grp.items()] + [['检验异常', list(dict.fromkeys(QT[k][0] for k in QT)), 'org']]
     meths = C.S.get('methods') or [{'id': m[0], 'domain': m[1].replace('{GL}', C.GL), 'data': m[2].replace('{GL}', C.GL), 'principle': m[3].replace('{GL}', C.GL),
                                     'risk': m[4], 'action': m[5], 'source': '报告内置核查方法'} for m in BUILTIN_METHODS]
@@ -2281,7 +2282,7 @@ def defaults(C):
     else:
         C.todo = C.S['todo']
     if getattr(C, 'todo_hint', ''):                 # 扩展规则词表缺失 → 待办区提示（D-P5-2 fail-visible，不覆盖默认）
-        C.todo.append(['词表', 'yel', C.todo_hint, 'methods.html'])
+        C.todo.append(['词表', 'yel', C.todo_hint, 'study.html'])
 
 
 # ----------------------------------------------------------------------------- main
@@ -2304,7 +2305,7 @@ def main():
 # 用户 2026-10-28：阈值切换后整份报告（各页列表、计数、质疑、潜在 PD）都要跟着变。T_base 影响构建期分层（较基线加重/研究疾病加重/
 # 判定不一致等）及其质疑与潜在 PD，页面无法即时重算，故构建时每档各算一遍；页面按所选档位载入（assets/kz-tier.js）。
 THR_TIERS = (0.2, 0.3, 0.5)
-TIER_KEYS = ('labrows', 'others', 'queries', 'subs', 'pd', 'centers', 'cons', 'review', 'methods')   # 随 T_base 变化的数据
+TIER_KEYS = ('labrows', 'others', 'queries', 'subs', 'pd', 'centers', 'cons', 'review', 'methods', 'kri')   # 随 T_base 变化的数据
 # 质疑/潜在 PD 按顺序编号，档位不同编号会位移：按编号索引的原文（extra.js 的 ex/pdex）随档位一起替换（X）。
 # todo 由工作台在构建后追加条目：档位只替换 skill 生成的前 todoBase 条，追加的保留（kz.js 合并）；unres 只由工作台写，不随档位。
 
@@ -2365,6 +2366,7 @@ def analyze(C):
     build_labrows(C)
     rel_candidates(C)
     entry_errors(C)                                      # mm5 疑似录入错误（数据质量提示，不发 query）
+    monitor_v5.lab_shift(C, add_other)                   # V5 范围内明显变化＋持续变化趋势（提示，不发 query）
     threshold_rules(C)
     combo_rules(C)
     ae_checks(C)
@@ -2383,6 +2385,7 @@ def analyze(C):
     calibers(C)
     pd_rules.run(C)                                      # mm4：方案偏离（已记录 PD 归一＋潜在 PD＋分级＋比对）→ KZ.pd
     build_ops(C)                                         # mm5 临床监察数据块 → KZ.ops
+    monitor_v5.finalize(C)                               # V5 访视推算/新鲜度/随访人日/KRI/CtQ/数据可信度
     build_trend(C)
     build_eff(C)
     defaults(C)
@@ -2413,7 +2416,7 @@ def analyze(C):
           'queries': [{k: v for k, v in q.items() if not k.startswith('_')} for q in C.queries], 'qcommon': C.qcommon,
           'cro': [[x.get('form') or '', x.get('row') or '', x.get('sid') or '', x.get('visit') or '', x.get('text') or ''] for x in C.extq],
           'cons': C.cons, 'rules': C.S.get('rules') or [], 'unres': C.S.get('unres') or [], 'methods': C.methods, 'eff': C.KZeff, 'effissues': [], 'v8': [],
-          'tgroup': {}, 'study': C.S.get('study') or {}, 'review': C.review, 'todo': C.todo, 'pd': C.pdd, 'ops': C.ops,
+          'tgroup': {}, 'study': C.S.get('study') or {}, 'review': C.review, 'todo': C.todo, 'pd': C.pdd, 'ops': C.ops, 'kri': C.kri, 'cred': C.cred,
           # mm5 安全性概况（三级 Profile）：病史与合并用药明细（仅给药者；术语原文）
           'mhcm': {'mh': [[sid, m.get('t') or '', 1 if m.get('ong') == '是' else 0] for sid in sorted(C.pop) for m in C.mh_by[sid]],
                    'cm': [[sid, c.get('t') or '', c.get('s') or '', c.get('e') or '', 1 if c.get('ong') else 0, c.get('ind') or c.get('why') or '']

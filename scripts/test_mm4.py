@@ -293,7 +293,11 @@ class DemoBuild(unittest.TestCase):
         self.assertTrue((html / 'deviations.html').is_file())
         kz = (html / 'assets/kz.js').read_text(encoding='utf-8')
         self.assertIn("['deviations.html','方案偏离']", kz)
-        self.assertNotIn("['methods.html','审阅要点']]", kz)
+        self.assertNotIn("methods.html", kz)                         # V5：审阅要点与方法页取消
+        self.assertFalse((html / 'methods.html').exists())
+        self.assertTrue((html / 'center.html').is_file())
+        for f in html.glob('*.html'):
+            self.assertIn('assets/kz5.js', f.read_text(encoding='utf-8'), f.name)
         self.assertTrue(any(t.get('k') == 'pd' for t in self.KZ['review']))
         self.assertTrue(self.KZ['study'].get('calibers'))
 
@@ -355,13 +359,11 @@ class Wording(unittest.TestCase):
     def test_templates_no_internal_words(self):
         """K22：页面模板里的固定文案（不经数据面）——参与者页标签/矩阵分组、审阅要点副标题、方案偏离页说明。"""
         A = ROOT / 'templates/site/assets'
-        for f, bads in {'p-subjects.js': ("'ECG'", '生命体征/ECG'), 'p-methods.js': ('真实 listing',),
+        for f, bads in {'p-subjects.js': ("'ECG'", '生命体征/ECG'),
                         'p-deviations.js': ('listing 不含所需信息',), 'p-timeline.js': ('ECG/VS',), 'p-index.js': ('listing 首列',)}.items():
             t = (A / f).read_text(encoding='utf-8')
             for bad in bads:
                 self.assertNotIn(bad, t, f'{f} 残留「{bad}」')
-        # 审阅要点实例卡的外部质疑行：证据位置经 K.loc 显示中文表单名（V4.1：证据位置显示中文表单名）
-        self.assertNotIn("P(c.sheet.replace(/^\\(\\d+\\)/,''),'sq')} 行${c.row}", (A / 'p-methods.js').read_text(encoding='utf-8'))
 
 
 class M19MissingDate(unittest.TestCase):
@@ -2133,6 +2135,117 @@ class DrilldownFields(unittest.TestCase):
             self.assertEqual(r0[14], 'AE')
             self.assertEqual(r0[15], '与1号AE有关')
             self.assertIn('AE 丙氨酸氨基转移酶升高·2026-06-10', r0[16])
+
+
+class V5Monitor(unittest.TestCase):
+    """V5（用户 2026-10-31 晚）：统计工具、访视推算、关键评估名称容错、范围内明显变化与趋势预警、数据可信度、KRI（全虚构夹具）。"""
+
+    def test_bh_and_tails(self):
+        from monitor_v5 import bh, binom_upper, pois_upper
+        q = bh([0.01, 0.04, 0.03, None, 0.5])
+        self.assertAlmostEqual(q[0], 0.04)                       # 0.01×4/1，取后缀最小 → 0.04
+        self.assertIsNone(q[3])
+        self.assertAlmostEqual(pois_upper(0, 3.0), 1.0)
+        self.assertAlmostEqual(pois_upper(1, 1.0), 1 - 2.718281828 ** -1, places=6)
+        self.assertLess(binom_upper(40, 100, 0.2), 1e-4)
+        self.assertGreater(binom_upper(20, 100, 0.2), 0.4)
+
+    def _C(self):
+        from types import SimpleNamespace
+        subj = {'S1': {'site': '01', 'fd': '2026-01-01', 'status': '已入组', 'lo': '2026-03-01'},
+                'S2': {'site': '01', 'fd': '2026-01-01', 'status': '提前退出', 'eos_d': '2026-01-10', 'lo': '2026-01-10'}}
+        visits = [{'sid': 'S1', 'visit': 'W2', 'date': '2026-01-15'}, {'sid': 'S1', 'visit': 'W4', 'date': '2026-02-05'}]
+        return SimpleNamespace(A={'visitWindows': {'W2': [15, 3, 3], 'W4': [29, 3, 3], 'W8': [57, 3, 3], 'W12': [84, 3, 3]}}, subj=subj, visits=visits,
+                               pop={'S1', 'S2'}, S={}, cfg={}, efficacy=[], findings=[])
+
+    def test_visit_due_and_upcoming(self):
+        from monitor_v5 import visit_due
+        due, up = visit_due(self._C(), '2026-03-20')
+        st = {(d[0], d[2]): d[6] for d in due}
+        self.assertEqual(st[('S1', 'W2')], 'ok')
+        self.assertEqual(st[('S1', 'W4')], 'out')                 # D36，窗 29±3
+        self.assertEqual(st[('S1', 'W8')], 'overdue')
+        self.assertNotIn(('S2', 'W4'), st)                        # 结束于访视窗之前，不应完成
+        self.assertEqual([u[2] for u in up], ['W12'])             # 窗 3/23–3/29，在未来 14 天内
+
+    def test_followup_and_planned(self):
+        from monitor_v5 import followup, planned_n
+        C = self._C()
+        fu = followup(C, '2026-03-20')
+        self.assertEqual(fu['S1'], 79)                            # 在研：首剂 → 数据截止
+        self.assertEqual(fu['S2'], 10)                            # 已结束：首剂 → 研究结束
+        C.S = {'study': {'design': {'facts': [['计划例数', '160']]}}}
+        self.assertEqual(planned_n(C), 160)
+
+    def test_crit_items_suffix_tolerant(self):
+        from types import SimpleNamespace
+        from monitor_v5 import crit_items
+        C = SimpleNamespace(A={'pd': {'criticalItems': 'EASI评分'}}, efficacy=[{'metric': 'EASI得分'}], findings=[])
+        rx_, hit = crit_items(C)
+        self.assertEqual(hit, ['EASI得分'])
+        self.assertTrue(rx_.search('EASI得分'))
+
+    def _lab(self, code, label, vals, base, unit='g/L', lo=None, hi=None, times=None):
+        from types import SimpleNamespace
+        import ctcae
+        b = {'value': base, 'raw': str(base)}
+        rows = [{'sid': 'S1', 'value': v, 'raw': str(v), 'unit': unit, 'lo': lo, 'hi': hi, 'visit': f'V{i + 1}', 'post': True, 'base': b,
+                 'date': f'2026-02-{10 + i:02d}' if times else f'2026-0{2 + i}-10', 'time': (times[i] if times else None),
+                 'sheet': 'LB', 'row': i + 2, 'wb': '', 'oor': (hi is not None and v > hi) or (lo is not None and v < lo), 'grade': 0} for i, v in enumerate(vals)]
+        mid = 'lab:' + label
+        C = SimpleNamespace(A={}, F={('S1', mid): rows}, metric={mid: {'label': label}}, cmap={mid: code} if code else {}, pop={'S1'},
+                            cfg={'thresholds': {'base': 0.3}}, G=ctcae.load({'grading': {'version': '6.0'}}))
+        out = []
+        return C, out, (lambda C_, sid, cat, pr, summ, *a, **k: out.append((cat, pr, summ, a[7] if len(a) > 7 else None)))
+
+    def test_in_range_hb_drop_and_creatinine(self):
+        import monitor_v5
+        C, out, add = self._lab('HGB', '血红蛋白', [150, 128], 152, lo=115, hi=175)
+        monitor_v5.lab_shift(C, add)
+        self.assertEqual([o[0] for o in out], ['范围内明显变化'])
+        self.assertIn('下降 24 g/L', out[0][2])
+        C, out, add = self._lab('CREAT', '肌酐', [60, 90], 58, unit='µmol/L', lo=45, hi=104, times=['08:00', '09:00'])
+        monitor_v5.lab_shift(C, add)
+        self.assertTrue(any('KDIGO' in o[3][0] for o in out))     # 次日 +30 µmol/L（≥26.5）且仍在范围内
+        C, out, add = self._lab('CREAT', '肌酐', [60, 70], 58, unit='µmol/L', lo=45, hi=104, times=['08:00', '09:00'])
+        monitor_v5.lab_shift(C, add)
+        self.assertEqual(out, [])
+
+    def test_trend_requires_three_unfavourable_steps(self):
+        import ext_rules
+        import monitor_v5
+        ext_rules.set_metric_dir({})
+        C, out, add = self._lab(None, '丙氨酸氨基转移酶', [12, 15, 19, 26], 11, unit='U/L', hi=40)
+        monitor_v5.lab_shift(C, add)
+        self.assertEqual([o[0] for o in out], ['持续变化趋势'])
+        self.assertIn('连续 3 次升高', out[0][2])
+        C, out, add = self._lab(None, '丙氨酸氨基转移酶', [12, 15, 19], 11, unit='U/L', hi=40)   # 只有 2 次变化
+        monitor_v5.lab_shift(C, add)
+        self.assertEqual(out, [])
+        C, out, add = self._lab(None, '丙氨酸氨基转移酶', [12, 15, 19, 45], 11, unit='U/L', hi=40)  # 已超出参考范围：交给风险层
+        monitor_v5.lab_shift(C, add)
+        self.assertEqual(out, [])
+
+    def test_cred_digit_preference_and_flat(self):
+        from types import SimpleNamespace
+        from collections import Counter
+        from monitor_v5 import cred
+        F, metric = {}, {}
+        subj = {}
+        for s in range(8):
+            for site, vals in (('01', [120, 125, 130, 135, 140, 115]), ('02', [121, 127, 133, 138, 142, 117])):
+                sid = f'{site}{s}'
+                subj[sid] = {'site': site}
+                for lab, off in (('收缩压', 0), ('心率', -50)):
+                    mid = 'vs:' + lab
+                    metric[mid] = {'label': lab, 'units': Counter({'mmHg': 1})}
+                    F[(sid, mid)] = [{'value': v + off, 'raw': str(v + off), 'date': f'2026-01-{10 + i:02d}', 'unit': 'mmHg', 'base': None} for i, v in enumerate(vals)]
+        F[('010', 'vs:心率')] = [{'value': 72, 'raw': '72', 'date': f'2026-01-{10 + i:02d}', 'unit': 'mmHg', 'base': None} for i in range(5)]
+        out = cred(SimpleNamespace(F=F, metric=metric, subj=subj))
+        self.assertLess(out['sites']['01']['dig'][2], 0.001)      # 01 全部末位 0/5
+        self.assertGreater(out['sites']['02']['dig'][2], 0.05)
+        self.assertEqual(out['sites']['01']['flat'][1], 1)
+        self.assertEqual(out['flat'][0][:3], ['010', '01', '心率'])
 
 
 if __name__ == '__main__':

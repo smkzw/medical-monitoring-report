@@ -1,0 +1,32 @@
+{
+ "_note": "报告页面清单（V5）：render_check.js 与 render_check_ego.mjs 共用；改页面时只改这里。drill＝带 #s=<受试者> 的个例钻取页。 deep＝带页签/筛选参数直接打开的深链（V5：页签在页面顶部即渲染，直接深链能暴露函数未初始化一类问题）。",
+ "pages": [
+  "index",
+  "monitor",
+  "deviations",
+  "center",
+  "profile",
+  "safety",
+  "objective",
+  "efficacy",
+  "subjects",
+  "timeline",
+  "queries",
+  "study"
+ ],
+ "drill": [
+  "subjects",
+  "timeline"
+ ],
+ "deep": [
+  "safety.html#tab=lab&risk=CSX",
+  "safety.html#tab=oth",
+  "safety.html#tab=ae",
+  "monitor.html#tab=vis",
+  "monitor.html#tab=kri",
+  "monitor.html#tab=cred",
+  "monitor.html#tab=ent",
+  "deviations.html#tab=sci",
+  "study.html#sys"
+ ]
+}

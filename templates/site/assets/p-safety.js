@@ -11,31 +11,37 @@ const centerOpts=[['','全部中心'],...D.centers.filter(c=>c.dosed).map(c=>[c.
 K.tabs(document.getElementById('tabs'),tabs,H.tab||'ov',v=>{K.setHash({...(v===(H.tab||'ov')?H:{}),tab:v});R[v]()});
 /* ---------- mm5 中心总览：中心 × 风险类别热力图（用户 2026-10-31：体现各中心风险分布，视觉重点按入组人数校正；同时看入组/筛败/进度） */
 function tabOv(){
-  const CR=K.centerRisk(),S=K.subs(),C=CR.cats,items=CR.items,rate=CR.rate,CS=CR.centers;
+  /* V5：期望数按随访人日（录入错误按数值型检验记录数）；显著性为精确泊松尾概率经 Benjamini–Hochberg 全表校正；TEAE 另看低侧（可能漏报） */
+  const CR=K.centerRisk(),S=K.subs(),C=CR.cats,items=CR.items,cell=CR.cell,CS=CR.centers,O=D.ops||{},fu=O.fu||{};
   const st=sid=>S.filter(s=>s.site===sid);
   const sfAll=S.filter(s=>s.status==='筛选失败').length/(S.length||1);
+  const sfF=K.colFlags(CS.map(c=>{const ss=st(c.site);return [ss.filter(s=>s.status==='筛选失败').length,ss.length]}),sfAll);
+  const pm=site=>st(site).reduce((a,s)=>a+(fu[s.id]||0),0)/30.4375;
   const prog=c=>{const ss=st(c.site),n=ss.length||1,grp=[['完成试验','grn','完成'],['已入组','blu','在组'],['治疗结束','line','治疗结束'],['提前退出','red','提前退出'],['筛选失败','faint','筛败']];
     return `<div class="bar-in" style="display:flex;height:10px;width:120px" title="${grp.map(([k,,l])=>l+' '+ss.filter(s=>s.status===k).length).join(' · ')}">${grp.map(([k,cl])=>{const m=ss.filter(s=>s.status===k).length;return m?`<i style="width:${m/n*100}%;background:var(--${cl==='faint'?'line':cl==='line'?'muted':cl==='grn'?'green':cl==='blu'?'blue':'risk'})"></i>`:''}).join('')}</div>`};
   const groups=[...new Set(C.map(c=>c[1]))];
-  pane.innerHTML=`<div class="card"><div class="hd"><h2>中心总览</h2><span class="sub">颜色＝观察数较「按本中心给药人数推算的期望数」高出多少（超出随机波动才着色，小中心不会因为人少被放大）；数字为条数，悬停看观察/期望；点击看明细</span></div>
-   <div class="flex wrap mb xs muted" style="gap:12px"><span><i class="dot" style="background:rgba(230,126,0,.25)"></i> 略高（z 1–2）</span><span><i class="dot" style="background:rgba(230,126,0,.5)"></i> 偏高（z 2–3）</span><span><i class="dot" style="background:rgba(230,126,0,.67)"></i> 明显偏高（z ≥3）</span><span><i class="dot" style="background:rgba(64,122,170,.25)"></i> 明显偏低（可能漏记）</span><span>筛败率着色同理（对照总体 ${(sfAll*100).toFixed(0)}%）</span></div>
-   <div style="overflow-x:auto"><table class="t heat" id="ovt"><thead><tr><th rowspan="2">中心</th><th rowspan="2" class="num">筛选</th><th rowspan="2" class="num">筛败</th><th rowspan="2" class="num">给药</th><th rowspan="2">进度</th>${groups.map(g=>`<th colspan="${C.filter(c=>c[1]===g).length}" style="text-align:center;border-left:1px solid var(--line)">${g}</th>`).join('')}<th rowspan="2" class="num" title="着色（z>2）的类别数">需关注</th></tr>
+  pane.innerHTML=`<div class="card"><div class="hd"><h2>中心总览</h2><span class="sub">颜色＝观察数比「按本中心${K.esc(CR.unit)}推算的期望数」高出多少，且经多重比较校正后仍显著才着色（人少、随访短的中心不会被放大）；数字为条数，悬停看观察/期望；点击看明细</span></div>
+   <div class="flex wrap mb xs muted" style="gap:12px"><span><i class="dot" style="background:rgba(230,126,0,.30)"></i> 偏高（校正后 q&lt;0.10）</span><span><i class="dot" style="background:rgba(230,126,0,.62)"></i> 明显偏高（q&lt;0.05）</span><span><i class="dot" style="background:rgba(64,122,170,.18)"></i> TEAE 偏少（q&lt;0.10，可能漏报）</span><span>筛败率着色同理（对照总体 ${(sfAll*100).toFixed(0)}%，按列校正）</span></div>
+   <div style="overflow-x:auto"><table class="t heat" id="ovt"><thead><tr><th rowspan="2">中心</th><th rowspan="2" class="num">筛选</th><th rowspan="2" class="num">筛败</th><th rowspan="2" class="num">给药</th><th rowspan="2" class="num" title="随访人月（首剂至研究结束或数据截止）">随访人月</th><th rowspan="2">进度</th>${groups.map(g=>`<th colspan="${C.filter(c=>c[1]===g).length}" style="text-align:center;border-left:1px solid var(--line)">${g}</th>`).join('')}<th rowspan="2" class="num" title="校正后偏高的类别数">需关注</th></tr>
    <tr>${C.map((c,i)=>`<th class="h" title="${K.esc(c[4])}" style="${i&&C[i-1][1]!==c[1]?'border-left:1px solid var(--line)':''}">${c[2]}</th>`).join('')}</tr></thead><tbody>
-   ${CS.map(c=>{const ss=st(c.site),sf=ss.filter(s=>s.status==='筛选失败').length,z=K.oe(sf,ss.length,sfAll).z;let hot=0;
-     const cells=C.map(([k],i)=>{const n=(items[k][c.site]||[]).length,o=c.dosed?K.oe(n,c.dosed,rate[k]):{e:0,z:0};if(o.z>2)hot++;
-       return `<td class="h ${n?'click':''}" data-k="${k}" data-s="${c.site}" style="${c.dosed?K.oeStyle(o.z):''}${i&&C[i-1][1]!==C[i][1]?';border-left:1px solid var(--line)':''}" title="观察 ${n} / 期望 ${o.e.toFixed(1)}${c.dosed?'（每例 '+(n/c.dosed).toFixed(2)+'，总体 '+rate[k].toFixed(2)+'）':''}">${n||'<span class="faint">·</span>'}</td>`}).join('');
-     return `<tr><td class="nowrap"><a href="profile.html#c=${c.site}" title="中心安全性概况">${K.p(c.site,'sq mono')} ${K.esc(c.name.length>12?c.name.slice(0,12)+'…':c.name)}</a></td><td class="num">${c.n}</td><td class="num" style="${K.oeStyle(z)}" title="筛败率 ${(sf/(ss.length||1)*100).toFixed(0)}%">${sf}</td><td class="num"><b>${c.dosed}</b></td><td>${prog(c)}</td>${cells}<td class="num">${hot?K.p(hot,'org'):'·'}</td></tr>`}).join('')}
+   ${CS.map((c,ci)=>{const ss=st(c.site),sf=ss.filter(s=>s.status==='筛选失败').length,hot=CR.hot(c.site).length;
+     const cells=C.map(([k],i)=>{const n=(items[k][c.site]||[]).length,x=(cell[k]||{})[c.site];
+       return `<td class="h ${n?'click':''}" data-k="${k}" data-s="${c.site}" style="${x?K.qStyle(x.qu,x.ql):''}${i&&C[i-1][1]!==C[i][1]?';border-left:1px solid var(--line)':''}" title="${K.esc(K.qTip(x))}">${n||'<span class="faint">·</span>'}</td>`}).join('');
+     return `<tr><td class="nowrap"><a href="center.html#c=${c.site}" title="中心画像">${K.p(c.site,'sq mono')} ${K.esc(c.name.length>12?c.name.slice(0,12)+'…':c.name)}</a></td><td class="num">${c.n}</td><td class="num" style="${(sfF[ci]||{}).style||''}" title="筛败率 ${(sf/(ss.length||1)*100).toFixed(0)}%">${sf}</td><td class="num"><b>${c.dosed}</b></td><td class="num">${c.dosed?pm(c.site).toFixed(0):'·'}</td><td>${prog(c)}</td>${cells}<td class="num">${hot?K.p(hot,'org'):'·'}</td></tr>`}).join('')}
    </tbody></table></div></div>`;
-  pane.querySelectorAll('#ovt td.click').forEach(td=>td.onclick=()=>{const k=td.dataset.k,s=td.dataset.s,c=C.find(x=>x[0]===k),xs=items[k][s]||[];
+  pane.querySelectorAll('#ovt td.click').forEach(td=>td.onclick=()=>{const k=td.dataset.k,s=td.dataset.s,c=C.find(x=>x[0]===k),xs=items[k][s]||[],x=(cell[k]||{})[s];
     const row=x=>k==='q'?`<tr class="click" data-q="${x.id}"><td>${K.sid(x.sid)}</td><td>${K.esc(x.cat)}</td><td class="small">${K.esc(String(x.text).slice(0,80))}</td></tr>`
       :k==='pd'||k==='pdi'?`<tr class="click" data-pd="${x.id}"><td>${K.sid(x.sid)}</td><td>${K.pdGrade(x.grade)}</td><td class="small">${K.esc(x.title)}：${K.esc(String(x.fact||'').slice(0,60))}</td></tr>`
-      :x.pts?`<tr class="click" data-g="${lab.indexOf(x)}"><td>${K.sid(x.sid)}</td><td>${K.risk(x.risk)}</td><td>${K.esc(x.test)}</td></tr>`
-      :x.cat&&x.sum?`<tr><td>${K.sid(x.sid)}</td><td>${K.esc(x.cat)}</td><td class="small">${K.esc(String(x.sum).slice(0,80))}</td></tr>`
+      :x.pts?`<tr class="click" data-g="${lab.indexOf(x)}"><td>${K.sid(x.sid)}</td><td>${K.risk(x.risk)} ${K.sigPill('lab',x)}</td><td>${K.esc(x.test)}</td></tr>`
+      :x.cat&&x.sum?`<tr class="click" data-o="${oth.indexOf(x)}"><td>${K.sid(x.sid)}</td><td>${K.esc(x.cat)} ${K.sigPill('oth',x)}</td><td class="small">${K.esc(String(x.sum).slice(0,80))}</td></tr>`
       :x.c&&x.t?`<tr><td>${K.sid(x.sid)}</td><td><b>${K.esc(x.t)}</b> ${x.sae?K.p('SAE','solid-red'):''}${x.aesi?K.p('AESI','red'):''}</td><td>${K.esc(x.g)} · ${K.esc(x.s||'')}</td></tr>`
-      :x.why?`<tr><td>${K.sid(x.sid)}</td><td>${K.esc(x.test)} ${K.p(x.visit,'blu')}</td><td class="small">${K.esc(x.raw)} ${K.esc(x.unit)} · ${K.esc(x.why)}</td></tr>`
+      :x.why?`<tr class="click" data-e="${(O.entry||[]).indexOf(x)}"><td>${K.sid(x.sid)}</td><td>${K.esc(x.test)} ${K.p(x.visit,'blu')}</td><td class="small">${K.esc(x.raw)} ${K.esc(x.unit)} · ${K.esc(x.why)}</td></tr>`
       :`<tr><td>${K.sid(x.sid)}</td><td colspan="2" class="small">${K.esc((x.c||[]).join(' · '))}</td></tr>`;
-    const b=K.drawer(`${s} ${K.esc(K.center(s))} · ${c[2]}`,`<div class="note small mb">${K.esc(c[4])} · ${xs.length} 条</div><table class="t"><tbody>${xs.map(row).join('')}</tbody></table>`);
-    b.querySelectorAll('[data-g]').forEach(r=>r.onclick=()=>showLab(lab[+r.dataset.g]))});
+    const hk={site:s,k};
+    const b=K.drawer(`${s} ${K.esc(K.center(s))} · ${c[2]}`,`${x&&(K.qlt(x.qu,.10)||K.qlt(x.ql,.10))?'<div class="sigbox"></div>':''}<div class="note small mb">${K.esc(c[4])} · ${xs.length} 条 · ${K.esc(K.qTip(x))}</div><table class="t"><tbody>${xs.map(row).join('')}</tbody></table><div class="mt"><a class="small" href="center.html#c=${s}">中心画像 ›</a></div>`);
+    if(x&&(K.qlt(x.qu,.10)||K.qlt(x.ql,.10)))K.sigCtl(b.querySelector('.sigbox'),'ctr',K.qlt(x.ql,.10)&&k==='ae'?{site:s,k:'ae-low'}:hk);
+    b.querySelectorAll('[data-g]').forEach(r=>r.onclick=()=>K.showLabG(lab[+r.dataset.g]));b.querySelectorAll('[data-o]').forEach(r=>r.onclick=()=>K.showOth(oth[+r.dataset.o]));
+    b.querySelectorAll('[data-e]').forEach(r=>r.onclick=()=>K.showEnt((O.entry||[])[+r.dataset.e]))});
 }
 /* ---------- lab */
 function tabLab(){
@@ -48,13 +54,13 @@ function tabLab(){
   const cnt=k=>k==='REL'?lab.filter(g=>g.risk==='REL'&&K.relRisk(g)).length:k==='MHX-T'?lab.filter(g=>g.risk==='MHX-T'&&K.mhxOn(g)).length:lab.filter(g=>g.risk===k).length;
   const rk=K.chips(document.getElementById('rk'),Object.keys(K.RISK).map(k=>[k,K.RISK[k][0],cnt(k)]).filter(x=>x[2]),v=>{st.risk=v;draw()},{value:st.risk});
   K.thrBar(document.getElementById('kz-thrbar'));
-  const cfL=K.chgBar(document.getElementById('chg-lab'),'lab',()=>draw(),'检验异常');
+  const cfL=K.chgBar(document.getElementById('chg-lab'),'lab',()=>draw(),'检验异常'),sgL=K.sigBar(document.getElementById('chg-lab'),()=>draw());
   K.chips(document.getElementById('grp'),groups.map(g=>[g,g,lab.filter(x=>x.grp===g).length]),v=>{st.grp=v||'';draw()},{all:'全部分组'});
   document.getElementById('cat').onchange=e=>{st.cat=e.target.value;draw()};document.getElementById('site').onchange=e=>{st.site=e.target.value;draw()};document.getElementById('q').oninput=e=>{st.q=e.target.value.trim();draw()};
   const order={CSX:0,DISW:1,MH:2,NCS2:3,NA2:3,G2NF:3,NA:4,MHU:4,CSI:4,'MHX-T':5,AE:6,MHL:7,DIS:8,NCS:9,REL:5};
   const ord=r=>r.risk==='REL'&&(r.bind||'none')!=='none'?10:(order[r.risk]??11);
   const tb=K.table(document.getElementById('tb'),{rows:[],h:'640px',pageSize:80,cols:[
-    {k:'risk',t:'风险',s:r=>-ord(r),f:r=>K.risk(r.risk)+(r.risk==='REL'?' '+K.p(...K.relBind(r)):'')+(r.pdId?' '+K.pdPill(r.pdId):'')+K.dpill('lab',r)},
+    {k:'risk',t:'风险',s:r=>-ord(r),f:r=>K.risk(r.risk)+(r.risk==='REL'?' '+K.p(...K.relBind(r)):'')+(r.pdId?' '+K.pdPill(r.pdId):'')+K.dpill('lab',r)+(r.ctq?K.p('关键','solid-red',r.ctq):'')+K.sigPill('lab',r)},
     {k:'sid',t:'受试者',f:r=>K.sid(r.sid)+` <span class="xs faint">${r.site}</span>`},
     {k:'test',t:'指标',f:r=>{if(r.risk!=='REL')return `<b style="color:var(--ink)">${K.esc(r.test)}</b>`;const t=K.thrOf(r.mid||('lab:'+r.test));return `<b style="color:var(--ink)">${K.esc(r.test)}</b> ${K.p('偏离≥'+Math.round(t.dev*100)+'% 较基线≥'+Math.round(t.base*100)+'%','line sq','当前所选阈值'+(t.ov?'（该指标单独设定）':'')+(t.tight?'（本研究对该指标收紧）':''))}`}},
     {k:'base',t:'基线',ns:1,f:r=>r.base?`<span class="vchip ${r.base[3]===2?'cs':r.base[3]===1?'ncs':'n'}"><i>${r.base[0]}</i>${K.esc(r.base[1]??'—')}</span>`:'—'},
@@ -65,30 +71,26 @@ function tabLab(){
     {k:'q',t:'质疑',s:r=>r.q.length,f:r=>r.q.map(K.qPill).join('')}],onRow:showLab,sort:'risk',dir:-1});
   /* REL 候选：满足当前所选阈值才进默认风险列表（计入 KPI/box）；未满足候选不隐藏——box 显示 n/候选 m，
      逐点偏离%/Δ% 在满足行与检验检查趋势页明细可见（03 §5「显示」行） */
-  function draw(){const q=st.q.toLowerCase();tb.set(lab.filter(g=>(!st.risk||(g.risk===st.risk&&(st.risk!=='REL'||K.relRisk(g))))&&(!st.cat||g.cat===st.cat)&&(!st.grp||g.grp===st.grp)&&(!st.site||g.site===st.site)&&(!q||g.sid.includes(q)||g.test.toLowerCase().includes(q))&&cfL(g)))}
-  draw();
+  function draw(){const q=st.q.toLowerCase();tb.set(lab.filter(g=>(!st.risk||(g.risk===st.risk&&(st.risk!=='REL'||K.relRisk(g))))&&(!st.cat||g.cat===st.cat)&&(!st.grp||g.grp===st.grp)&&(!st.site||g.site===st.site)&&(!q||g.sid.includes(q)||g.test.toLowerCase().includes(q))&&cfL(g)&&sgL('lab',g)))}
+  draw();document.addEventListener('kz-sig',()=>{if(document.getElementById('rk'))tb.draw()});
 }
-async function showLab(g){
-  const b=K.drawer(`${g.sid} · ${K.esc(g.test)}`,`<div class="flex wrap mb">${K.risk(g.risk)}${K.grade(g.mg)}${K.p(g.grp,'line')}${K.p(g.cat,'line')}${K.ctxTags(g.ctx)}${(g.q||[]).map(K.qPill).join('')}</div>${(g.ctx||[]).length?`<div class="small muted mb" style="line-height:1.7">${g.ctx.map(c=>'· '+K.esc(c)).join('<br>')}</div>`:''}<div id="sp"></div>`);
-  K.seriesPanel(b.querySelector("#sp"),{sid:g.sid,tests:[g.test],hl:g.pts.map(p=>[p[7],p[8]])});
-}
+function showLab(g){K.showLabG(g)}   /* V5：抽屉统一到 kz5.js（含处置控件），总览行动项、中心画像共用；须为函数声明（页签在顶部即渲染，const 会落入暂时性死区） */
 /* ---------- others */
 function tabOth(){
   const cats=[...new Set(oth.map(o=>o.cat))];const st={cat:H.cat||null,dom:null,site:'',q:''};
   pane.innerHTML=`<div class="card"><div class="tbar"><div class="chips" id="dm"></div><span class="sp"></span>${sel('site',centerOpts,'')}<input class="s" id="q" placeholder="受试者 / 关键词"></div><div class="tbar"><div class="chips" id="ct"></div><span class="sp"></span><span id="chg-oth"></span></div><div id="tb"></div></div>`;
-  const cfO=K.chgBar(document.getElementById('chg-oth'),'oth',()=>draw(),'专项核查');
+  const cfO=K.chgBar(document.getElementById('chg-oth'),'oth',()=>draw(),'专项核查'),sgO=K.sigBar(document.getElementById('chg-oth'),()=>draw());
   K.chips(document.getElementById('dm'),K.DOM.map(d=>[d[0],d[0],oth.filter(o=>d[1].includes(o.cat)).length]).filter(x=>x[2]),v=>{st.dom=v;st.cat=null;cc();draw()},{all:'全部领域'});
   let ctc;function cc(){const list=cats.filter(c=>!st.dom||K.domOf(c)===st.dom);ctc=K.chips(document.getElementById('ct'),list.map(c=>[c,c,oth.filter(o=>o.cat===c).length]),v=>{st.cat=v;draw()},{all:'全部类别',value:st.cat})}cc();
   document.getElementById('site').onchange=e=>{st.site=e.target.value;draw()};document.getElementById('q').oninput=e=>{st.q=e.target.value.trim();draw()};
   const ord=c=>{const i=K.DOM.findIndex(d=>d[1].includes(c));return i*100+(K.DOM[i]?.[1].indexOf(c)||0)};
   const tb=K.table(document.getElementById('tb'),{rows:[],h:'680px',pageSize:200,group:r=>r.cat,groupHead:(g)=>{const n=oth.filter(o=>o.cat===g);const d=K.DOM.find(d=>d[1].includes(g));return `${K.p(d?d[0]:'其他',d?d[2]:'')} ${g} <span class="muted small">${n.length} 条 · 质疑 ${D.queries.filter(q=>q.cat===g).length}</span>`},
-    cols:[{k:'pr',t:'优先级',f:r=>K.pri(r.pr)+(r.pdId?' '+K.pdPill(r.pdId):'')+K.dpill('oth',r)},{k:'sid',t:'受试者',f:r=>K.sid(r.sid)},{k:'v',t:'访视',f:r=>`${K.p(r.v||'—','blu')} <span class="xs faint">${r.d||''}</span>`},
+    cols:[{k:'pr',t:'优先级',f:r=>K.pri(r.pr)+(r.pdId?' '+K.pdPill(r.pdId):'')+K.dpill('oth',r)+(r.ctq?K.p('关键','solid-red',r.ctq):'')+K.sigPill('oth',r)},{k:'sid',t:'受试者',f:r=>K.sid(r.sid)},{k:'v',t:'访视',f:r=>`${K.p(r.v||'—','blu')} <span class="xs faint">${r.d||''}</span>`},
       {k:'sum',t:'信号',ns:1,f:r=>`<span>${K.hlNum(r.sum)}</span>`},{k:'rel',t:'已关联',ns:1,f:r=>r.rel.slice(0,3).map(x=>K.p(x[0]+' '+K.esc(x[1]),x[0]==='AE'?'grn':'org')).join(' ')},
       {k:'ctx',t:'背景',ns:1,f:r=>K.ctxTags(r.ctx)+(r.cro?K.p(((K.cfg().query||{}).extShort||'外部')+'已覆盖','line'):'')},{k:'q',t:'质疑',f:r=>r.q.map(K.qPill).join('')||(r.cro?'':'<span class="faint xs">未发</span>')}],
-    onRow:r=>{if(r.q.length)return K.showQ(r.q[0]);const b=K.drawer(`${r.sid} · ${r.cat}`,`<div class="flex wrap mb">${K.pri(r.pr)}${r.v?K.p(r.v,'blu'):''}${K.p(K.loc(r.sh,r.row),'sq')}</div><div class="box">${K.hlNum(r.sum)}</div><div class="mt">${(r.ctx||[]).map(c=>`<div class="note">· ${K.esc(c)}</div>`).join('')}</div><div id="sp"></div>`);
-      K.seriesPanel(b.querySelector('#sp'),{sid:r.sid,tests:[r.test],hl:[[r.sh,r.row]]})}});
-  function draw(){const q=st.q;tb.set(oth.filter(o=>(!st.dom||K.domOf(o.cat)===st.dom)&&(!st.cat||o.cat===st.cat)&&(!st.site||o.site===st.site)&&(!q||o.sid.includes(q)||o.sum.includes(q))&&cfO(o)).sort((a,b)=>ord(a.cat)-ord(b.cat)||b.pr-a.pr||a.sid.localeCompare(b.sid)))}
-  draw();
+    onRow:r=>{if(r.q.length)return K.showQ(r.q[0]);K.showOth(r)}});
+  function draw(){const q=st.q;tb.set(oth.filter(o=>(!st.dom||K.domOf(o.cat)===st.dom)&&(!st.cat||o.cat===st.cat)&&(!st.site||o.site===st.site)&&(!q||o.sid.includes(q)||o.sum.includes(q))&&cfO(o)&&sgO('oth',o)).sort((a,b)=>ord(a.cat)-ord(b.cat)||b.pr-a.pr||a.sid.localeCompare(b.sid)))}
+  draw();document.addEventListener('kz-sig',()=>{if(document.getElementById('ct'))tb.draw()});
 }
 /* ---------- AE */
 function tabAE(){
