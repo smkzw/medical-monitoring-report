@@ -146,6 +146,25 @@ def load(cfg, study_dir=None):
     return Grader(t)
 
 
+_DIR_UP_RX = re.compile(r'升高|上升|增多|增高|增加| gaining|gain', re.I)
+_DIR_DN_RX = re.compile(r'降低|下降|减低|减少|减轻|losing|loss', re.I)
+
+
+def _entry_dirs_ok(G, code, label):
+    """F06（RUX 深审）：无对应 CTCAE 条目方向的指标不得标 CTCAE 等级。条目全为「较基线变化」型
+    （pct/chg/xbase 步骤，无参考范围/绝对锚点，如 Weight gain/loss）时，指标名须带与条目 dir 一致的方向词：
+    「体重增加」↔ dir H、「体重减轻」↔ dir L；原始测量（「体重」，无方向词）没有对应的条目方向 → 不映射。
+    参考范围/绝对值锚定型条目（HGB、QTc 等）不受影响。"""
+    dirs = {c.get('dir', 'H') for c in G.items.get(code) or []}
+    anchored = any(any(s.get('by') in ('val', 'xuln', 'xlln', 'duln') for s in c.get('steps') or []) for c in G.items.get(code) or [])
+    if anchored:
+        return True                                  # 参考范围/绝对值锚定型条目：行为不变（不要求方向词）
+    up, dn = bool(_DIR_UP_RX.search(label)), bool(_DIR_DN_RX.search(label))
+    if not up and not dn:
+        return False                                 # 无方向词：纯变化型条目无对应方向，不映射
+    return (up and 'H' in dirs) or (dn and 'L' in dirs)
+
+
 def automap(metrics, G, overrides=None):
     """metrics: {metric_id: {'label','domain','units':Counter}} → {metric_id: code}. overrides (cfg.ctcaeMap) win; '' disables."""
     an = json.loads((HERE / 'analytes.json').read_text(encoding='utf-8'))
@@ -162,7 +181,8 @@ def automap(metrics, G, overrides=None):
         for code, (d, inc, exc) in an.items():
             if d != dom or not G.has(code):
                 continue
-            if re.search(inc, label, re.I) and not (exc and re.search(exc, label, re.I)):
+            if re.search(inc, label, re.I) and not (exc and re.search(exc, label, re.I)) \
+                    and _entry_dirs_ok(G, code, label):
                 out[mid] = code
                 break
     return out

@@ -19,7 +19,7 @@ from pathlib import Path
 import ctcae
 import ext_rules
 import pd_rules
-from common import days, dshow, dump_json, fmt, is_full_date, load_json, quantile, study_day, zero_dose
+from common import days, dshow, dump_json, fmt, is_full_date, load_json, move_word, quantile, study_day, zero_dose
 
 AGG_EXCL = set()
 
@@ -296,7 +296,9 @@ def build_events(C):
         txt = ' '.join(str(a.get(k) or '') for k in ('term', 'pt', 'llt'))  # verbatim + MedDRA PT/LLT when mapped
         cat = a.get('cat')
         if not cat:
-            cat = next((b for p, b in catmap if p.search(txt)), None) or a.get('soc') or term
+            # F09（RUX 深审）：分桶单一来源——带 MedDRA SOC 列的记录以 SOC 列为准（实测 2 例 catmap 错桶）；
+            # 无 SOC 时仍走 catmap → 原文术语回退。
+            cat = a.get('soc') or next((b for p, b in catmap if p.search(txt)), None) or term
         gi = grade_int(gtxt(a.get('grade'))) or 0
         aesi_hit = [d.get('name') or d.get('id') for d in C.aesiDefs if (d['_t'] and d['_t'].search(txt)) or (d['_soc'] and d['_soc'].search(str(a.get('soc') or '')))
                     if gi >= d.get('minGrade', 0)]
@@ -308,11 +310,29 @@ def build_events(C):
                'cm': a.get('cm') or '', 'wd': a.get('withdraw') or '', 'row': a['row'], 'sh': a['sheet'], 'wb': a.get('wb') or '', 'sid': sid, 'site': s['site'], 'fd': s['fd'] or '',
                'pre': bool(s['fd'] and is_full_date(a.get('start')) and a['start'] < s['fd']), '_rel': related,
                '_aesi_term': bool(aesi_hit), '_aesi_def': aesi_hit, 'pt': a.get('pt') or '', 'soc': a.get('soc') or '',
-               'rpt': a.get('rpt') or '', 'aware': a.get('aware') or ''}
+               'rpt': a.get('rpt') or '', 'aware': a.get('aware') or '', 'sae_crit': a.get('sae_crit') or ''}
         rec['te'] = (not rec['pre']) and bool(s['fd']) and (not C.teEnd.get(sid) or not is_full_date(rec['s']) or rec['s'] <= C.teEnd[sid])
         rec['ib'] = ib_match(C, rec)
         C.ae_by[sid].append(rec)
         C.aes.append(rec)
+    # F08（RUX 深审）：重复 AE 记录指纹（同受试者＋同术语/PT＋同开始日期，EDC 修订版整行重复导出实测成对/三联）。
+    # 全组成员标 dup_n/dup_rows，第 2 份起标 dup（逐记录质疑只按组首发生，AE 谱按去重计数）；C.ae_dup 供标记 query。
+    C.ae_dup = []
+    by_fp = defaultdict(list)
+    for a in C.aes:
+        fp = (a['sid'], a.get('pt') or a['t'], a['s'])
+        if is_full_date(a['s']):
+            by_fp[fp].append(a)
+    for fp, grp in by_fp.items():
+        if len(grp) < 2:
+            continue
+        grp.sort(key=lambda x: x.get('row') or 0)
+        C.ae_dup.append({'sid': fp[0], 'term': grp[0]['t'], 'start': fp[2], 'rows': [x.get('row') for x in grp], 'recs': grp})
+        for x in grp:
+            x['dup_n'] = len(grp)
+            x['dup_rows'] = [y.get('row') for y in grp]
+        for x in grp[1:]:
+            x['dup'] = True
     C.mh_by = defaultdict(list)
     for m in C.mh:
         C.mh_by[m['sid']].append({'n': m.get('no') or len(C.mh_by[m['sid']]) + 1, 't': m.get('term') or '', 's': m.get('start') or '',
@@ -331,7 +351,7 @@ _AE_NO_SOC_NOTE = '（未按器官系统——MedDRA 不可用）'
 
 
 def ae_summary(C):
-    post = [a for a in C.aes if a['sid'] in C.pop and a['te']]
+    post = [a for a in C.aes if a['sid'] in C.pop and a['te'] and not a.get('dup')]   # F08：重复记录成员不计入谱
     # mm4 知识层降级兜底（试用实证：无字典时 AE 谱按原文术语分 123 组刷屏）：无 soc 且类别落在原文术语上的比例
     # >80%（含完全无字典）时，不按原文术语逐条分组，改按 IB 风险类别（rec['ib'] 首标签）分组＋超出前 20 归「其他」，
     # 组名注明降级；AE 记录类别同步改写（安全页类别 chips 与总览 AE 谱同一口径）。
@@ -603,12 +623,42 @@ def resolve_links(C, sid, links):
     for kind, term, _, no in links:
         pool = C.ae_by[sid] if kind == 'AE' else C.mh_by[sid]
         ev = next((x for x in pool if str(x['n']) == str(no)), None)
+        if ev is None and no is None and (term or '').strip():
+            # F02 词目型（说明列「与XX有关/XX既往史」）：按术语回溯到具体记录并回填编号；对不上保持未关联
+            t = re.sub(r'[（(].*$', '', term.strip())
+            ev = next((x for x in pool if t and (t in (x.get('t') or '') or (x.get('t') or '') in t)), None)
+            no = ev['n'] if ev is not None else None
         out.append([kind, term or (ev or {}).get('t', ''), (ev or {}).get('s', ''), no, bool(ev)])
     return out
 
 
 worse_vs_base = ext_rules.worse_vs_base
 disease_kw = ext_rules.disease_kw
+
+
+def _strip_disease_term_links(C):
+    """F02 边界（用户 2026-10-27 口径：归因研究疾病不算「未关联」）：说明列词目若命中方案研究疾病词
+    （analysis.diseaseTerms/适应症），不作 MH 关联——「与特应性皮炎相关」在特应性皮炎研究里是研究疾病
+    归因，词目链接会把 DIS/DISW 豁免误路由成 CSX（RUX 实测 405 行）。编号链接与具体病史词目不动。"""
+    try:
+        dz = ext_rules.disease_kw(C)
+    except Exception:
+        return
+    if not dz:
+        return
+    n = 0
+    for f in C.findings:
+        ls = f.get('links')
+        if not ls:
+            continue
+        keep = [l for l in ls if not (l[3] is None and l[1] and dz.search(l[1]))]
+        if len(keep) != len(ls):
+            f['links'] = keep
+            n += len(ls) - len(keep)
+    if n:
+        cfg = getattr(C, 'cfg', None)
+        if isinstance(cfg, dict):
+            cfg['diseaseTermLinksStripped'] = n
 
 
 def build_labrows(C):
@@ -765,9 +815,9 @@ def build_labrows(C):
         if risk in ('CSX', 'MH', 'MHU', 'NCS2', 'NA', 'NA2', 'G2NF', 'DISW'):   # IB/方案列明风险的检验表现只在需关注的层提示
             ctx += ib_lab_tags(C, mid, C.metric[mid]['label'], P)
         for l in links:
-            if not l[4]:
+            if not l[4] and l[3] is not None:
                 kind_ = 'AE' if l[0] == 'AE' else '病史'
-                ctx.append(f'关联的{kind_}编号 {l[3]} 在{kind_}记录中不存在')
+                ctx.append(f'关联的{kind_}编号 {l[3]} 在{kind_}记录中不存在')   # 词目型（l[3] None）不提示编号，行保持未关联口径
         f0 = P[0]
         C.labrows.append({
             'sid': sid, 'site': C.subj[sid]['site'], 'cat': cat, 'test': C.metric[mid]['label'], 'mid': mid, 'grp': f0.get('group') or '',
@@ -889,6 +939,19 @@ def add_other(C, sid, cat, pr, summ, v=None, d=None, sh='', row=None, test='', c
     return o
 
 
+def _thr_hit(C, r):
+    """F07（RUX 深审）：阈值/组合规则跨规则共享的同行命中登记——组合规则（ALT|AST）与单列规则命中同一
+    检验行只保留先配置的一条，同值不再重复成段。返回 True 表示此前已有规则命中该行。"""
+    seen = getattr(C, '_thr_seen', None)
+    if seen is None:
+        seen = C._thr_seen = set()
+    k = (r['sid'], r.get('wb') or '', r.get('sheet') or '', r.get('row'), r.get('mid'))
+    if k in seen:
+        return True
+    seen.add(k)
+    return False
+
+
 def threshold_rules(C):
     """analysis.thresholdRules: protocol-defined numeric triggers (AESI/AE/stopping/eligibility-like) evaluated per finding."""
     for R in C.A.get('thresholdRules', []):
@@ -914,6 +977,8 @@ def threshold_rules(C):
                 if R.get('once') and (sid, R['id']) in seen:
                     continue
                 seen.add((sid, R['id']))
+                if _thr_hit(C, r):
+                    continue
                 rel, ctx, pr, risk = [], [], R.get('pr', 3), ''
                 if are:
                     hit = [a for a in C.ae_by[sid] if are.search(a['t']) and (days(a['s'], r['date']) is None or abs(days(a['s'], r['date'])) <= R.get('window', 30))]
@@ -974,6 +1039,8 @@ def combo_rules(C):
                         else:
                             ctx.append('未见对应 AE 记录')
                     det = '；'.join(f"{C.metric[p['mid']]['label']} {p.get('raw')} {p.get('unit') or ''}".strip() + (f"（{p['value'] / p['hi']:.1f}×ULN）" if p.get('hi') and p.get('value') is not None else '') for p in parts)
+                    if _thr_hit(C, r0):
+                        break                     # F07：同一行已被单列/组合规则命中 → 不再重复成段
                     summ = fill(R.get('sum', '{name}：{detail}（{visit} {date}）'), name=R.get('name', R['id']), detail=det, visit=r0.get('visit'), date=r0['date'])
                     add_other(C, sid, R.get('cat', '阈值规则核对'), pr, summ, r0.get('visit'), r0['date'], r0['sheet'], r0['row'], C.metric[r0['mid']]['label'],
                               r0.get('clin'), rel, ctx, risk, R, R.get('lane'), R.get('level'),
@@ -992,7 +1059,7 @@ def ae_checks(C):
                     lab_by_ae[(sid, str(l[3]))].append(r)
     for a in C.aes:
         sid = a['sid']
-        if sid not in C.pop:
+        if sid not in C.pop or a.get('dup'):      # F08：重复记录成员（第 2 份起）不逐条发质疑，组首已覆盖同一事实
             continue
         if 'predose_related' in on and a['pre'] and a['_rel']:
             add_other(C, sid, 'AE给药前事件相关性核对', 3, f"AE「{a['t']}」开始于首剂（{a['fd']}）前 {a['s']}，相关性记为「{a['rel']}」", None, a['s'], a['sh'], a['row'], a['t'],
@@ -1039,6 +1106,14 @@ def ae_checks(C):
                 add_other(C, a['sid'], 'AE报告时限核对', RR.get('pr', 3), f"{RR.get('label', key)}：AE「{a['t']}」{'获知' if t0 == a.get('aware') else '发生'}于 {t0}，报告于 {a['rpt']}（{dd} 天，方案要求 ≤{RR.get('days', 1)} 天）",
                           None, a['s'], a['sh'], a['row'], a['t'], rel=[['AE', a['t'], a['s'], a['n']]], risk='AE', wb=a.get('wb') or '')
     if 'duplicate' in on:
+        for g in getattr(C, 'ae_dup', None) or []:      # F08：成对/三联记录标记——每组一条，证据指向全部重复行
+            if g['sid'] not in C.pop:
+                continue
+            rows = '、'.join(f"#{x['n']}（行 {r}）" if r else f"#{x['n']}" for x, r in zip(g['recs'], g['rows']))
+            add_other(C, g['sid'], 'AE重复记录核对', 2, f"同一受试者「{g['term']}」同一开始日期（{g['start']}）记录了 {len(g['recs'])} 条 AE（{rows}），请核实是否重复录入或修订未归并",
+                      None, g['start'], g['recs'][0]['sh'], g['recs'][0]['row'], g['term'],
+                      rel=[['AE', x['t'], x['s'], x['n']] for x in g['recs']], risk='AE',
+                      wb=g['recs'][0].get('wb') or '')
         for sid, L in C.ae_by.items():
             for i, x in enumerate(L):
                 for y in L[i + 1:]:
@@ -1167,6 +1242,9 @@ def _elig_bad(E, x):
     return cmp(E['op'], x, E['v'])
 
 
+_UNS_NAME_RX = re.compile(r'计划外|unsched|^USV$', re.I)
+
+
 def _elig_pool(C, sid, rows, E):
     """入组判定集合：入组（随机，无随机日期时首剂）前的测量；`visits` 限定访视，未写时取 SoA 中首剂访视之前的计划访视
     ＋计划外（筛选期复查常记为计划外）；`window` 天数限定距入组日的窗口。"""
@@ -1187,6 +1265,10 @@ def _elig_pool(C, sid, rows, E):
         if vis and v not in vis:
             continue
         if not vis and pre_vis is not None and v not in pre_vis and v not in C.UNS:
+            continue
+        # F01②（RUX 深审）：无日期的计划外访视行不入「入组前」池——EDC 页完成标志清单（0/1）无日期，
+        # 套用筛选期入选标准产生全量误报；有日期的计划外复查（筛选期复查常记计划外）照旧参与。
+        if d is None and _UNS_NAME_RX.search(str(v or '')):
             continue
         out.append(r)
     return out
@@ -1400,7 +1482,7 @@ def build_queries(C):
         b_ = g['base'] or []
         bv, cv = _num(b_[1] if b_ else None), _num(p[2])
         btxt = f"基线{b_[1]}{p[3]}{'（正常）' if len(b_) > 3 and b_[3] == 0 else ''}，" if b_ and b_[1] not in (None, '') else ''
-        move = '升高至' if bv is not None and cv is not None and cv > bv else '下降至' if bv is not None and cv is not None and cv < bv else '为'
+        move = move_word(bv, cv, f.get('lo'), f.get('hi'))   # F06：低于下限不写「升高至」（偏离方向与基线方向分离表述）
         wf = next((m.group(1) for c in g['ctx'] for m in [re.search(r'较基线(?:进一步)?加重[（：]([^）；]+)', c)] if m), '较基线明显加重')
         if p[6] is not None and re.search(r'较基线(升高|降低)', wf):   # 百分比按所写的这一次计算
             wf = f"较基线{'升高' if p[6] > 0 else '降低'} {abs(p[6]):.0f}%"
@@ -2111,6 +2193,7 @@ def analyze(C):
     build_events(C)
     ae_summary(C)
     build_findings(C)
+    _strip_disease_term_links(C)                         # F02 边界：研究疾病词目不作 MH 关联（先于一切关联消费方）
     build_labrows(C)
     rel_candidates(C)
     threshold_rules(C)

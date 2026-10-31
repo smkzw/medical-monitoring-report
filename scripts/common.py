@@ -101,6 +101,17 @@ def dshow(d):
     return s or '无日期'
 
 
+def move_word(bv, v, lo=None, hi=None):
+    """F06：基线→当前的方向措辞。相对基线的升/降照写（升高至/下降至/为），但偏离方向与基线方向相反时分离表述：
+    值仍低于下限不写「升高至」（检验语态里「升高」指超上限的高型异常）→「较基线回升至」；仍高于上限的回落
+    同理「较基线回降至」。参考范围本身由模板的（参考范围 …）呈现，两向各自成立。"""
+    if bv is None or v is None or v == bv:
+        return '为'
+    if v > bv:
+        return '较基线回升至' if lo is not None and v < lo else '升高至'
+    return '较基线回降至' if hi is not None and v > hi else '下降至'
+
+
 def quantile(a, q):
     a = sorted(a)
     if not a:
@@ -171,9 +182,70 @@ def parse_links(v, link_re=None):
         end = starts[i + 1].start() if i + 1 < len(starts) else len(s)
         tail = re.split(r'[;；,，、\n]', s[m.end():end])[0]
         tail = _LINK_DATE_TAIL.sub('', tail.rstrip()).strip(' +＋-－_:：')
-        tail = re.sub(r'^[)）\s]+', '', tail)   # 圆括号格式「AE (5) 术语」：编号后的右括号（只剥开头，术语自带括号不动）
+        tail = re.sub(r'^[)）\s#＃]+', '', tail)   # 圆括号格式「AE (5) 术语」剥开头右括号；「MH3#术语」剥井号（F02：术语不带 #，编号后的 # 是分隔符）
         out.append([LINK_TYPE.get(m.group(1).lower(), m.group(1).upper()), tail.strip(), None, int(m.group(2))])
     return out
+
+
+# 关联引用的词目型写法（RUX 深审 F02，检验「异常有临床意义请说明」列实测 1600+ 非空）：
+# 「脂肪肝病史」「贫血既往史」（词目＋名词后缀）、「病史高脂血症」（名词前缀）、「与脂肪肝相关/有关」、
+# 「与"胆红素升高"既往史有关」（名词可前置/后置夹注）、「与疖肿AE相关」（名词定类型为 AE）。
+# 只做词目抽取，编号为空；引用是否真实存在由 build 层 resolve_links/att_of 按编号或词目回溯。
+_LINK_TERM_CC = r'一-鿿A-Za-z0-9（）()／/·.\-'
+_LINK_QO = '[「『"“]'
+_LINK_QC = '[」』"”]'
+_LINK_NOUN = r'(?:既往史|病史|不良事件|AE|MH)'
+_LINK_RELATED = re.compile(
+    f'[与跟同和]\\s*({_LINK_NOUN})?\\s*{_LINK_QO}?([{_LINK_TERM_CC}]{{2,20}}){_LINK_QC}?\\s*(?:的)?\\s*({_LINK_NOUN})?\\s*(?:有关|相关|所致|引起)')
+_LINK_HIST_PRE = re.compile(
+    f'(?:既往史|病史)\\s*[:：]?\\s*{_LINK_QO}?([{_LINK_TERM_CC}]{{2,20}}){_LINK_QC}?\\s*(?:有关|相关|所致|[，。；;,;]|$)')
+_LINK_HIST_SUF = re.compile(
+    f'{_LINK_QO}?([{_LINK_TERM_CC}]{{2,20}}){_LINK_QC}?\\s*(?:的)?\\s*既往史|{_LINK_QO}?([{_LINK_TERM_CC}]{{2,20}}){_LINK_QC}?\\s*(?:的)?\\s*病史(?![一-鿿])')
+# 不作词目关联的引用：研究疾病指代（「与AD相关」等归 disease_attr 的研究疾病口径，不得造 MH 关联抢归因）
+# 疾病指代带限定词的形态（「本研究疾病」「基础疾病」…）一并拦下——SAR/RUX 实测「CS与本研究疾病相关」
+# 曾整体被抽成词目「本研究疾病」，抢走 disease_attr 的研究疾病归因（DIS/DISW 被误路由成 CSX）
+_LINK_NOT_TERM = re.compile(r'^(?:研究疾病|疾病本身|原发病|本病|疾病|AD|既往史|病史|相关|有关)$|(?:研究|本|原发|基础|该|同)[一-鿿]{0,4}疾病|疾病本身|^原发?病|^原疾病')
+_LINK_NO_CJK = re.compile(r'^[^一-鿿]+$')
+
+
+def parse_desc_links(v):
+    """「异常有临床意义请说明」等自由文本里的词目型关联 → [[类型, 术语, None, None]]（编号空，类型默认 MH，
+    名词为 不良事件/AE 时为 AE）。纯拉丁短词（AD/RA 等适应症缩写）不抽——研究疾病归因走 disease_attr。"""
+    if not v:
+        return []
+    s = str(v)
+    out = []
+    for m in _LINK_RELATED.finditer(s):
+        pre, term, noun = m.group(1), m.group(2), m.group(3)
+        nouns = [n for n in (pre, noun) if n]
+        typ = 'AE' if any(n == '不良事件' or n.upper() == 'AE' for n in nouns) else 'MH'
+        out.append((typ, term))
+    for m in _LINK_HIST_SUF.finditer(s):
+        out.append(('MH', m.group(1) or m.group(2)))
+    for m in _LINK_HIST_PRE.finditer(s):
+        out.append(('MH', m.group(1)))
+    seen, res = set(), []
+    for typ, term in out:
+        term = (term or '').strip(' 　\'"“”' + '「」『』')
+        # 尾部收口：剥闭括号与吞进来的尾关键字（「病史相关）」曾整段抽成词目「相关）」——RUX 实测 38 处）
+        term = re.sub(r'[）)」』””]+$', '', term)
+        term = re.sub(r'(?:相关|有关|所致)$', '', term).strip(' 　的，,；;')
+        term = re.sub(r'[）)」』””]+$', '', term)
+        # 术语把尾部类型名词一并吃掉时（「疖肿AE」「皮疹不良事件」）：剥名词、类型以名词为准
+        for noun, t2 in (('不良事件', 'AE'), ('既往史', 'MH'), ('病史', 'MH')):
+            if term.endswith(noun) and len(term) > len(noun):
+                term, typ = term[:-len(noun)].strip(' 　的'), t2
+                break
+        if term.upper().endswith('AE') and len(term) > 2 and re.search(r'[一-鿿]AE$', term):
+            term, typ = term[:-2], 'AE'
+        elif term.upper().endswith('MH') and len(term) > 2 and re.search(r'[一-鿿]MH$', term):
+            term, typ = term[:-2], 'MH'
+        if not term or _LINK_NOT_TERM.match(term) or (_LINK_NO_CJK.match(term) and len(term) <= 5):
+            continue
+        if (typ, term) not in seen:
+            seen.add((typ, term))
+            res.append([typ, term, None, None])
+    return res
 
 
 # ---------------------------------------------------------------- xlsx 容错读取（PLAN §21 P1）

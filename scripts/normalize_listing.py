@@ -29,12 +29,25 @@ from pathlib import Path
 
 import openpyxl
 
-from common import clin_code, dump_json, load_json, norm_date, open_workbook_lenient, parse_links, parse_typed_links, to_num, yes
+from common import clin_code, dump_json, load_json, norm_date, open_workbook_lenient, parse_desc_links, parse_links, parse_typed_links, to_num, yes
 
 DATE_FIELDS = {'date', 'start', 'end', 'icf', 'eot_d', 'eos_d', 'rand_d', 'fd', 'ld', 'aware', 'rpt'}
 NUM_FIELDS = {'age', 'bmi', 'ht', 'wt', 'lo', 'hi'}
 BOOL_FIELDS = {'serious', 'aesi', 'ongoing_b'}
 SHEETS = {}
+
+# F01①（RUX 深审）：完成标志类布尔列不作指标值——值域⊂{0,1,是,否} 勾选形态，且列名含 是否/完成/勾选、
+# 或同表多数测试列同为勾选形态（整表是页面完成情况清单，如「计划外访视询问」UNSIGA 类列）。
+_CHK_RX = re.compile(r'是否|完成|勾选')
+_CHK_VALS = {'0', '1', '0.0', '1.0', '是', '否', '无', '有', 'true', 'false', 'y', 'n', '√'}
+# F03（RUX 深审）：SAE 标准勾选列（取值 1/0 或 是/否）——标签口径；「请说明」列不算，已映射列不重复采集。
+_SAE_CRIT_RX = re.compile(r'致死|导致死亡|危及生命|住院|致残|残疾|先天异常|出生缺陷|重要医学事件')
+# F04（RUX 深审）：AE 发生标志列（列名各厂商不同：是否发生不良事件？/有无不良事件/是否发生AE——
+# 但不含 严重/SAE/AESI/持续/措施 等，那些是别的字段）；真实术语列＝名称/术语类标签。
+_AE_FLAG_RX = re.compile(r'是否|有无')
+_AE_FLAG_BAD = re.compile(r'严重|SAE|AESI|持续|治疗|采取|合并|关系|转归')
+_AE_TERM_RX = re.compile(r'不良事件名称|事件名称|AETERM|术语')
+_AE_NO_VALS = {'否', '无', '没有', '0', 'n', 'no', 'false', '未发生'}
 
 
 class Book:
@@ -185,10 +198,23 @@ def read_spec(spec, books, M):
     fidx = [(x, col_index(x['col'], labels, vars_)) for x in filts]
     # mm4 增量：差异导出模式下保留变更标记（新增/修改/删除）供工作台合并，不在此过滤（mapping 级 change_flag: [列名…]）
     cfi = next((i for i in (col_index(c, labels, vars_) for c in (M.get('change_flag') or [])) if i is not None), None)
+    # F04：AE 日志页的发生标志列＋真实术语列（按标签识别，与 mapping 是否映射无关）；F03：SAE 标准勾选列。
+    flag_i = next((i for i, lb in enumerate(labels)
+                   if _AE_FLAG_RX.search(lb) and re.search(r'不良事件|AE', lb, re.I) and not _AE_FLAG_BAD.search(lb)), None)
+    term_is = [i for i, lb in enumerate(labels) if _AE_TERM_RX.search(lb) and not re.search(r'编码|CODE|版本|语言', lb, re.I)]
+    crit_is = [i for i, lb in enumerate(labels) if _SAE_CRIT_RX.search(lb) and not re.search(r'请说明|描述', lb)
+               and i not in set(cols.values())]
     for rown, r in data:
         rec = {k: conv(k, r[i] if i is not None and i < len(r) else None, M) for k, i in cols.items()}
         if not rec.get('sid'):
             continue
+        if flag_i is not None and term_is and flag_i < len(r):
+            fv = '' if r[flag_i] is None else str(r[flag_i]).strip().lower()
+            if fv in _AE_NO_VALS and all(i >= len(r) or r[i] in (None, '') for i in term_is):
+                continue          # 发生标志=否 且无任何术语 → 空白日志行，不是事件记录（F04：RUX 标志列名不同此前漏跳）
+        if crit_is:               # F03：SAE 标准勾选（1/是/true/Y→勾选），勾选的条目名收集为 sae_crit
+            hit = [labels[i].strip() for i in crit_is if i < len(r) and yes(r[i])]
+            rec['sae_crit'] = '、'.join(hit)
         if cfi is not None:
             cv = r[cfi] if cfi < len(r) else None
             rec['_chg'] = '' if cv is None else str(cv).strip()
@@ -209,9 +235,57 @@ def read_spec(spec, books, M):
         yield rec, r, labels, vars_
 
 
+def _bool_flag_tests(spec, book, M, lay):
+    """F01①：完成标志类布尔测试集合。宽表逐测试列看全列值域；长表按测试名分组看值域。
+    判据（通用）：值域非空且⊂{0,1,是,否…}勾选形态，且（测试名/列名含 是否/完成/勾选，或同表多数测试列
+    同为勾选形态——整表是页面完成情况清单如「计划外访视询问」）→ 该测试不是数值指标。"""
+    alias = spec.get('wb', next(iter(book and M.get('workbooks') or {})))
+    tests = spec.get('tests') or {}
+    if lay == 'wide' and not tests:
+        return set()
+    lr = spec.get('label_row', M.get('label_row', 1))
+    vr = spec.get('var_row', M.get('var_row', 2))
+    ds = spec.get('data_start', M.get('data_start', 3))
+    try:
+        labels, vars_, data = book.sheet(spec['sheet'], lr, vr, ds)
+    except Exception:
+        return set()
+    vals = {}                                   # 测试键 → 全列/全组取值集合
+    if lay == 'wide':
+        cols = {}
+        for t, tc in tests.items():
+            c = tc.get('value') if isinstance(tc, dict) else None
+            i = col_index(c, labels, vars_) if isinstance(c, str) else None
+            if i is not None:
+                cols[t] = i
+        for _n, r in data:
+            for t, i in cols.items():
+                if i < len(r) and r[i] not in (None, ''):
+                    vals.setdefault(t, set()).add(str(r[i]).strip().lower())
+        named = {t for t in cols if _CHK_RX.search(str(t))}
+    else:
+        ti = col_index(spec.get('cols', {}).get('test'), labels, vars_) if isinstance(spec.get('cols', {}).get('test'), str) else None
+        vi = col_index(spec.get('cols', {}).get('value'), labels, vars_) if isinstance(spec.get('cols', {}).get('value'), str) else None
+        if ti is None or vi is None:
+            return set()
+        for _n, r in data:
+            if ti < len(r) and vi < len(r) and r[vi] not in (None, ''):
+                vals.setdefault(str(r[ti]).strip(), set()).add(str(r[vi]).strip().lower())
+        named = {t for t in vals if _CHK_RX.search(str(t))}
+    shaped = {t for t, vs in vals.items() if vs and vs <= _CHK_VALS}
+    if not shaped:
+        return set()
+    # 多数测试列同为勾选形态 → 整表是完成情况清单，全部勾选形态列都不作指标；仅个别列靠列名提示识别
+    if 2 * len(shaped) > len(vals):
+        return shaped
+    return {t for t in shaped if t in named or _CHK_RX.search(str(t))}
+
+
 def findings(spec, books, M):
     out = []
     lay = spec.get('layout', 'long')
+    alias = spec.get('wb', next(iter(books)))
+    flag_tests = _bool_flag_tests(spec, books[alias], M, lay)
     for rec, r, labels, vars_ in read_spec(spec, books, M):
         base = {k: rec.get(k) for k in ('sid', 'visit', 'date', 'time', 'tpt', 'sheet', 'row', 'done', 'wb', 'reason', 'reason_text', '_chg',
                                         'reason_disease', 'reason_link', 'reason_other', 'flag')}
@@ -220,10 +294,14 @@ def findings(spec, books, M):
         base['domain'] = spec.get('domain', 'lab')
         base['group'] = spec.get('group', spec['sheet'])
         if lay == 'long':
+            if str(rec.get('test') or '') in flag_tests:
+                continue                      # F01①：长表按测试名同样排除完成标志类
             items = [dict(rec)]
         else:
             items = []
             for test, tc in spec['tests'].items():
+                if test in flag_tests:
+                    continue                      # F01①：完成标志列不作指标值
                 it = {'test': test}
                 for k, c in tc.items():
                     if k in ('unit', 'lo', 'hi') and not isinstance(c, str):
@@ -245,6 +323,12 @@ def findings(spec, books, M):
                       'clin': it.get('clin'), 'desc': it.get('desc'),
                       'links': parse_links(it.get('link'), M.get('link_re')) + parse_typed_links(it.get('link_mh'), 'MH') +
                       parse_typed_links(it.get('link_ae'), 'AE')})
+            # F02（RUX 深审）：「异常有临床意义请说明」列的关联引用同样采集——编号型（MHn/MH#n/MHn#术语）
+            # 由 parse_links 识别，词目型（XX既往史/与XX有关）由 parse_desc_links 识别；与 link 列去重合并，
+            # 编号是否真实存在由 build 层 resolve_links 回溯（不存在 → l[4]=False，仍按未关联发 query）。
+            for dl in parse_links(f.get('desc')) + parse_desc_links(f.get('desc')):
+                if dl[:2] not in [x[:2] for x in f['links']]:
+                    f['links'].append(dl)
             if f.get('clin') == 'ND':
                 # K11：临床意义取值「未查/未做/未检/ND」＝条目未完成（clin_map 映射 'ND'）——置未完成标记，
                 # 不作为结果、不落「未评价」（避免误入「超出参考范围·未评价」；也不得被选作基线）。
@@ -266,6 +350,8 @@ def findings(spec, books, M):
                 f['reason'] = '+'.join(filter(None, [f['reason'], 'link']))
             if not f['test']:
                 continue
+            if isinstance(f['unit'], str) and f['unit']:
+                f['unit'] = f['unit'].replace('μ', 'µ')   # F10：μ 两种写法归一（U+03BC → U+00B5，与分级表键一致）
             if isinstance(f['unit'], str) and '10^' in f['unit']:
                 # 单位科学计数归一（一处分叉收口）：运算符统一为 ×——大小写 x/X、全半角乘号 ＊/×/✕/⨯ 及其与
                 # 数字间的空格都收（SAR 实测 *10^9/L、x10^9/L、×10^9/L 混存）；数字直接粘 10^（星号在复制/导出链

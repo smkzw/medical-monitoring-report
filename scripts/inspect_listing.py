@@ -90,7 +90,7 @@ LABEL_VAR = re.compile(r'(.+?)\s*[（(]([A-Z][A-Z0-9_]{1,19})[)）]')
 # 安全集（dosed）、首剂/给药日期可能取自背景治疗行。背景判定仅在无未编号研究药物列时收窄。
 _ABUSE_RX = re.compile(r'滥用史|[Aa]buse')
 _BKG_RX = re.compile(r'背景治疗|背景用药|EXYN\d')
-_STUDY_RX = re.compile(r'EXYN(?!\d)|EXDOSE(?!\d)|EXDAT(?!\d)|EXSTDAT|实际给药|首次给药')
+_STUDY_RX = re.compile(r'EXYN(?![A-Za-z0-9_])|EXDOSE(?![A-Za-z0-9_])|EXDAT(?![A-Za-z0-9_])|EXSTDAT|实际给药|首次给药')
 
 
 def refine_exposure(dom, sheet, hdr):

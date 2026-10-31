@@ -22,7 +22,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 
-from common import days, dshow, fmt, is_full_date
+from common import days, dshow, fmt, is_full_date, move_word
 
 BP_DEFAULT_HI = {'收缩压': 139, '舒张压': 89}      # M15：listing 未给范围时的默认上限（与 skill demo 一致）
 
@@ -294,7 +294,7 @@ def m19_ae_ex(C):
         stops += [prev[1] for prev, nxt in zip(iv, iv[1:]) if is_full_date(prev[1]) and (days(nxt[0], prev[1]) or 0) > 1]
         last = max((x[1] for x in iv if is_full_date(x[1])), default=None)
         for a in C.ae_by[sid]:                          # ② AE 措施=停药/暂停但给药记录无中断
-            if not act_re.search(str(a.get('act') or '')):
+            if a.get('dup') or not act_re.search(str(a.get('act') or '')):   # F08：重复记录成员不逐条发（组首覆盖）
                 continue
             if any(near(d, a.get('s')) for d in stops) or (re.search(r'永久|停药|停用', str(a.get('act'))) and near(last, a.get('s'))):
                 continue
@@ -308,7 +308,7 @@ def m19_ae_ex(C):
 def m20_ae_sae(C):
     for a in C.aes:
         sid = a['sid']
-        if sid not in C.pop:
+        if sid not in C.pop or a.get('dup'):      # F08：重复记录成员不逐条发（组首覆盖）
             continue
         crit = str(a.get('sae_crit') or '')
         if a['sae'] and not crit.strip():
@@ -323,7 +323,7 @@ def m20_ae_sae(C):
                     rule={'ask': '请核实 SAE 判定与标准勾选是否一致。'}, bkey=f"{a.get('n')}|{a['s']}", wb=a.get('wb') or '')
     deaths = {}
     for a in C.aes:
-        if a['sid'] in C.pop and re.search(r'死亡', str(a.get('out') or '')):
+        if a['sid'] in C.pop and not a.get('dup') and re.search(r'死亡', str(a.get('out') or '')):
             deaths.setdefault(a['sid'], []).append(a)
     for sid, lst in deaths.items():
         a = min(lst, key=lambda x: (x.get('e') or x.get('s') or '9999'))
@@ -812,6 +812,12 @@ def m23_csb(C):
             binding = {'link': None, 'matched_ae': [], 'matched_mh': []}
             emit = None                                  # ('LINK'|'CSX_AE'|'MH'|'CSW'|'CSX', rec, extra)
             link = next((l for l in (r.get('links') or [])), None)
+            if link is not None and link[3] is None:
+                # F02 词目型（说明列写法）：按术语回溯到记录才算关联；对不上 → 回到未关联流程（不判「关联不对应」）
+                pool = C.ae_by[sid] if link[0] == 'AE' else C.mh_by[sid]
+                t = re.sub(r'[（(].*$', '', (link[1] or '').strip())
+                ev = next((x for x in pool if t and (t in (x.get('t') or '') or (x.get('t') or '') in t)), None)
+                link = [link[0], link[1], None, ev['n']] if ev is not None else None
             if not link and disease_attr(C, r):
                 # 用户 2026-10-27：归因研究疾病不算「未关联」。只有较基线明显加重（D14/D19，判定波动不算）且同期未见
                 # 「研究疾病加重」类 AE 才作为风险；其余只作提示。方案进展条款已确认时交步骤 5 候选（D21）。
@@ -940,7 +946,8 @@ def _csb_query(C, r, kind, rec, extra, flags):
     head = f"{r.get('visit')}访视{_obs(C, r)}"
     if r.get('value') is not None and (r.get('base') or {}).get('value') is not None:
         bv, v = r['base']['value'], r['value']
-        head = f"{r.get('visit')}访视{C.metric[r['mid']]['label']}{'升高至' if v > bv else '下降至' if v < bv else '为'}{_val(_raw_or_val(r), r.get('unit'))}"
+        mv = move_word(bv, v, r.get('lo'), r.get('hi'))   # F06：低于下限不写「升高至」（偏离方向与基线方向分离表述）
+        head = f"{r.get('visit')}访视{C.metric[r['mid']]['label']}{mv}{_val(_raw_or_val(r), r.get('unit'))}"
     if kind == 'LINK':
         fact = f"{head}判定为CS{extra or ''}，"
     elif kind == 'CSX_AE':

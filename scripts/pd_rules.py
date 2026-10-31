@@ -510,7 +510,7 @@ class _PD:
                     self.add('IP-02', sid, f"{why}日期 {d}，给药记录至 {_last_dose(e)}（{e['start']} 起）", date=_last_dose(e),
                              src=[[_sh(e), e['row'], '给药']], why='终止治疗后继续暴露于研究药物，可能影响受试者安全（重要偏离）')
                     break
-            for d, o in sorted(stop_hit.get(sid, []))[:1]:
+            for d, o in sorted(stop_hit.get(sid, []), key=lambda x: x[0])[:1]:   # 按达标日期排序（元组含 dict，显式 key 防比较崩溃）
                 late = [e for e in ex if (_last_dose(e) or '') > d and not zero_dose(e)]
                 if late:
                     e = late[0]

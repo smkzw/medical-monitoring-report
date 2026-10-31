@@ -84,7 +84,7 @@ class DomainGuards(unittest.TestCase):
     def test_exposure_guards(self):
         from inspect_listing import refine_exposure
         self.assertEqual(refine_exposure('exposure', 'DAH', '是否有药物滥用史(DAHYN) 药物名称(DAHTERM) 开始日期(DAHSTDAT)'), 'cm')
-        self.assertEqual(refine_exposure('exposure', 'EX1', '给药时间点(EXTPT1) 是否进行背景治疗(EXYN1) 给药日期(EXDAT1) 给药剂量(EXDOSE1)'), 'cm')
+        self.assertEqual(refine_exposure('exposure', 'EX1', '给药时间点(EXTPT1) 是否进行背景治疗(EXYN1) 给药日期(EXDAT1) 给药剂量(EXDOSE1) 其他剂量，请说明(EXDOSEO1)'), 'cm')
         self.assertEqual(refine_exposure('exposure', 'EX', '是否给药(EXYN) 理论给药体积(EXPDOSE) 实际给药体积(EXDOSE) 给药日期(EXDAT)'), 'exposure')
         self.assertEqual(refine_exposure('exposure', 'EC', '研究药物名称(ECTRT) 给药开始日期(ECSTDAT)'), 'exposure')
         self.assertEqual(refine_exposure('cm', 'CM', '药物名称(CMTRT)'), 'cm')   # 非 exposure 域不动
@@ -1380,6 +1380,521 @@ class XlsxTaintTolerance(unittest.TestCase):
         self.assertEqual(vars_, ['SUBJID', 'AETERM', 'AESTDAT'])
         self.assertEqual(len(data), 3)
         self.assertIn('AE', '\n'.join(notes))
+
+
+
+class F02DescLinkForms(unittest.TestCase):
+    """RUX 深审 F02：检验「异常有临床意义请说明」列的关联引用写法——编号型 MHn#术语 / MH#n / AEn#术语 / AEn（无#）
+    此前 parse_links 已识别但术语带 #、且 desc 列从未参与解析；词目型「XX既往史」「与XX有关/相关」完全不识别
+    → ~230 条「CS未关联」误报。六类写法与既有圆括号格式（AE (5) 术语）共存。夹具全虚构。"""
+
+    def test_hash_term_stripped_in_numbered_forms(self):
+        self.assertEqual(parse_links('MH3#血脂升高'), [['MH', '血脂升高', None, 3]])
+        self.assertEqual(parse_links('AE2#恶心'), [['AE', '恶心', None, 2]])
+        self.assertEqual(parse_links('MH＃4 高脂血症'), [['MH', '高脂血症', None, 4]])   # 全角＃
+        self.assertEqual(parse_links('AE (5) 头痛'), [['AE', '头痛', None, 5]])          # 圆括号格式不破
+
+    def test_numbered_forms_directly(self):
+        self.assertEqual(parse_links('MH#3'), [['MH', '', None, 3]])
+        self.assertEqual(parse_links('AE#3'), [['AE', '', None, 3]])
+        self.assertEqual(parse_links('AE2'), [['AE', '', None, 2]])
+        self.assertEqual(parse_links('MH12'), [['MH', '', None, 12]])
+
+    def test_desc_term_links_history_noun(self):
+        from common import parse_desc_links
+        self.assertEqual(parse_desc_links('脂肪肝病史'), [['MH', '脂肪肝', None, None]])
+        self.assertEqual(parse_desc_links('病史高脂血症'), [['MH', '高脂血症', None, None]])
+        self.assertEqual(parse_desc_links('贫血既往史'), [['MH', '贫血', None, None]])
+
+    def test_desc_term_links_related(self):
+        from common import parse_desc_links
+        self.assertEqual(parse_desc_links('与脂肪肝相关'), [['MH', '脂肪肝', None, None]])
+        self.assertEqual(parse_desc_links('CS，与脂肪肝相关'), [['MH', '脂肪肝', None, None]])
+        self.assertEqual(parse_desc_links('与"胆红素升高"既往史有关'), [['MH', '胆红素升高', None, None]])
+        self.assertEqual(parse_desc_links('与既往史"胆红素升高"有关'), [['MH', '胆红素升高', None, None]])
+        self.assertEqual(parse_desc_links('敏感；与疖肿AE相关'), [['AE', '疖肿', None, None]])
+        self.assertEqual(parse_desc_links('与不良事件「皮疹」有关'), [['AE', '皮疹', None, None]])
+
+    def test_desc_non_links_rejected(self):
+        from common import parse_desc_links
+        self.assertEqual(parse_desc_links('与病史相关'), [])          # 无词目：留「未关联」待澄清
+        self.assertEqual(parse_desc_links('与AD相关'), [])            # 研究疾病缩写归 disease_attr，不造 MH 关联
+        self.assertEqual(parse_desc_links('AD相关'), [])
+        # 疾病指代带限定词（SAR/RUX 实测「CS与本研究疾病相关」曾整体被抽成词目，抢走研究疾病归因）
+        self.assertEqual(parse_desc_links('与本研究疾病相关'), [])
+        self.assertEqual(parse_desc_links('CS与本研究疾病相关'), [])
+        self.assertEqual(parse_desc_links('与基础疾病有关'), [])
+        self.assertEqual(parse_desc_links('与研究疾病加重有关'), [])
+        self.assertEqual(parse_desc_links('与慢性阻塞性肺疾病相关'), [['MH', '慢性阻塞性肺疾病', None, None]])  # 具体病史词不受限
+        # 尾部关键字吞并与原发病指代（RUX 实测「（AD病史相关）」「（CS，病史相关）」「与原发病AD相关」）
+        self.assertEqual(parse_desc_links('肘窝苔藓化（AD病史相关）'), [])
+        self.assertEqual(parse_desc_links('（CS，病史相关）'), [])
+        self.assertEqual(parse_desc_links('与原发病AD相关'), [])
+        self.assertEqual(parse_desc_links('既往史：剖腹产手术史'), [['MH', '剖腹产手术史', None, None]])  # 正常「…史」词目不受累
+        self.assertEqual(parse_desc_links('NCS'), [])
+        self.assertEqual(parse_desc_links('T-SPOT.TB试验'), [])
+        self.assertEqual(parse_desc_links(''), [])
+
+    def test_term_link_resolution_backfills_number(self):
+        """词目型关联在 AE/MH 记录里对上术语 → 回填编号、视作已关联；对不上 → 保持未关联（l[4]=False）。"""
+        from types import SimpleNamespace
+        from mm_build import resolve_links
+        C = SimpleNamespace(ae_by={'S1': [{'n': '3', 't': '皮疹', 's': '2026-01-01'}]},
+                            mh_by={'S1': [{'n': '2', 't': '缺铁性贫血', 's': '2020-01-01'}]})
+        out = resolve_links(C, 'S1', [['MH', '贫血', None, None], ['AE', '脂肪肝', None, None]])
+        self.assertEqual(out[0], ['MH', '贫血', '2020-01-01', '2', True])     # 「贫血」⊂「缺铁性贫血」→ 回填 #2
+        self.assertEqual(out[1][3], None) and self.assertFalse(out[1][4])     # 对不上：保持未关联
+
+    def test_m23_unmatched_term_link_not_link_mismatch(self):
+        """说明列词目型引用对不上记录：不发「关联的AE/病史不对应」，回到未关联口径（不出现编号 None）。"""
+        from types import SimpleNamespace
+        import ext_rules
+        row = {'sid': 'S1', 'value': 90, 'clin': 2, 'hi': 60, 'lo': None, 'post': True, 'visit': 'V2',
+               'date': '2026-05-01', 'raw': '90', 'unit': 'U/L', 'sheet': 'LAB', 'row': 3,
+               'links': [['MH', '脂肪肝', None, None]], 'reason': None, 'mid': 'lab:ALT', 'base': None,
+               'grade': 0, 'oor': True}
+        C = SimpleNamespace(A={}, F={('S1', 'lab:ALT'): [row]}, metric={'lab:ALT': {'label': 'ALT'}},
+                            subj={'S1': {'site': '01'}}, pop={'S1'}, others=[], src={'sheets': {},
+                                                                                       'sheets_by_name': {}},
+                            ae_by={'S1': []}, mh_by={'S1': []}, mhMatch=[], cfg={'thresholds': {'base': 0.3}},
+                            S={'study': {}}, queries=[], isAgg=lambda v: True, extq=[], labrows=[],
+                            indBg=[], aeEnd={}, ibtag={})
+        ext_rules.m23_csb(C)
+        self.assertEqual([o['sum'] for o in C.others if '不对应' in o['cat']], [])
+        self.assertTrue(all('None' not in o['sum'] for o in C.others))
+
+    def test_findings_desc_parsed_into_links(self):
+        import tempfile
+        import openpyxl
+        from normalize_listing import Book, findings
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / 'lb.xlsx'
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = 'LB'
+            ws.append(['受试者编号', '访视', '检查日期', '检查项', '检查结果', '临床意义', '异常有临床意义，请说明'])
+            ws.append(['S1', '筛选期', '2026-05-01', '总胆红素', '27.9', '异常有临床意义', 'MH2'])
+            ws.append(['S1', '筛选期', '2026-05-01', '直接胆红素', '8.5', '异常有临床意义', '与"胆红素升高"既往史有关'])
+            ws.append(['S1', '筛选期', '2026-05-01', '白蛋白', '43', '异常无临床意义', ''])
+            wb.save(p)
+            M = {'workbooks': {'edc': str(p)},
+                 'clin_map': [['异常无临床意义', 1], ['异常有临床意义', 2], ['正常', 0]],
+                 'domains': {}}
+            spec = {'wb': 'edc', 'sheet': 'LB', 'domain': 'lab', 'group': '血生化', 'label_row': 1, 'var_row': 0,
+                    'data_start': 2,
+                    'cols': {'sid': '受试者编号', 'visit': '访视', 'date': '检查日期', 'test': '检查项',
+                             'value': '检查结果', 'clin': '临床意义', 'desc': '异常有临床意义，请说明'}}
+            rows = findings(spec, {'edc': Book(str(p))}, M)
+            by = {r['test']: r for r in rows}
+            self.assertEqual(by['总胆红素']['links'], [['MH', '', None, 2]])            # 编号型来自 desc
+            self.assertIn('link', by['总胆红素']['reason'] or '')                        # 原因码联动
+            self.assertEqual(by['直接胆红素']['links'], [['MH', '胆红素升高', None, None]])  # 词目型来自 desc
+            self.assertEqual(by['白蛋白']['links'], [])
+
+
+class F01BoolFlagColumns(unittest.TestCase):
+    """RUX 深审 F01①：UNS「计划外访视询问」整表是页面完成标志清单（0/1 勾选形态），「研究者整体评分」等
+    列被指标正则采集为 IGA 评分。采集层通用判据：值域⊂{0,1,是,否} 且（列名含 是否/完成/勾选 或 同表多数
+    测试列同为勾选形态）→ 非数值指标，不采集。夹具全虚构。"""
+
+    @staticmethod
+    def _run(tests, data, layout='wide'):
+        import tempfile
+        import openpyxl
+        from normalize_listing import Book, findings
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / 'uns.xlsx'
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = 'UNS'
+            ws.append(list(tests))
+            for r in data:
+                ws.append(r)
+            wb.save(p)
+            M = {'workbooks': {'edc': str(p)}, 'domains': {}}
+            spec = {'wb': 'edc', 'sheet': 'UNS', 'domain': 'vs', 'group': 'UNS', 'label_row': 1, 'var_row': 0,
+                    'data_start': 2, 'layout': layout}
+            if layout == 'wide':
+                spec['cols'] = {'sid': '受试者编号', 'visit': '访视名称'}
+                spec['tests'] = tests_extra = {k: {'value': k} for k in tests[2:]}
+            else:
+                spec['cols'] = {'sid': '受试者编号', 'visit': '访视名称', 'test': '检查项', 'value': '检查结果'}
+            return findings(spec, {'edc': Book(str(p))}, M)
+
+    def test_uns_page_checklist_not_metrics(self):
+        tests = ['受试者编号', '访视名称', '研究者整体评分', '受累体表面积', '湿疹评分', '身高采集', '拍照']
+        rows = self._run(tests, [['S1', '计划外访视(2026-05-01)', 1, 0, 1, 0, 1]])
+        self.assertEqual(rows, [])                                   # 整表完成标志：一列都不作指标
+
+    def test_real_metric_among_flags_kept(self):
+        tests = ['受试者编号', '访视名称', '体重', '拍照', '心电图采集']
+        rows = self._run(tests, [['S1', 'V1', 62.5, 0, 1], ['S1', 'V2', 63.0, 0, 0]])
+        self.assertEqual([r['test'] for r in rows], ['体重', '体重'])
+        self.assertEqual(rows[0]['value'], 62.5)
+
+    def test_label_hint_boolean_dropped_even_alone(self):
+        tests = ['受试者编号', '访视名称', '体重', '是否完成IGA评估']
+        rows = self._run(tests, [['S1', 'V1', 62.5, 1]])
+        self.assertEqual([r['test'] for r in rows], ['体重'])        # 列名含「是否…」＋0/1 → 勾选列
+
+    def test_long_layout_named_flag_dropped(self):
+        tests = ['受试者编号', '访视名称', '检查项', '检查结果']
+        rows = self._run(tests, [['S1', 'V1', '是否完成随访', 1], ['S1', 'V1', '尿酸', '424']],
+                         layout='long')
+        self.assertEqual([r['test'] for r in rows], ['尿酸'])
+
+    def test_elig_pool_excludes_undated_unscheduled(self):
+        """F01②：无日期的计划外访视行不入「入组前」池（入排评估池仅含筛选/基线与有日期的计划外复查）。"""
+        from types import SimpleNamespace
+        from mm_build import _elig_pool
+        C = SimpleNamespace(subj={'S1': {'rand_d': '2026-06-01', 'fd': '2026-06-01'}}, cfg={}, VIS=[], UNS=set())
+
+        def row(visit, date, val):
+            return {'sid': 'S1', 'visit': visit, 'date': date, 'value': val, 'post': False}
+        rows = [row('筛选期', '2026-05-20', 3), row('计划外访视(2024-08-20)', None, 0), row('计划外访视(2026-05-21)', '2026-05-21', 2)]
+        pool = _elig_pool(C, 'S1', rows, {})
+        self.assertEqual([r['value'] for r in pool], [3, 2])         # 无日期的计划外行不入池；有日期的复查保留
+
+
+class F03SaeCheckbox(unittest.TestCase):
+    """RUX 深审 F03：SAE 标准勾选列取 1/0 编码（0=未勾、1=勾选），按「是/否」字面校验时空判「均未勾选」。
+    normalize 自动采集 SAE 标准勾选（致死/危及生命/住院/致残/先天异常/其他重要事件；「请说明」列不算），
+    勾选域取值归一 1/是/true/Y→勾选；build 透传 sae_crit，M20 不再空判。夹具全虚构。"""
+
+    def test_normalize_collects_sae_crit(self):
+        import tempfile
+        import openpyxl
+        from normalize_listing import Book, read_spec
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / 'ae.xlsx'
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = 'AE'
+            ws.append(['受试者编号', '访视名称', '不良事件名称', '是否为严重不良事件（SAE）？',
+                       '导致死亡', '危及生命', '需要住院治疗或者延长住院时间', '先天性异常或者出生缺陷', '其他重要医学事件，请说明'])
+            ws.append(['S1', '共同页', '肺炎', '是', 0, 0, 1, 0, ''])
+            ws.append(['S1', '共同页', '骨折', '是', 0, 0, 0, 0, ''])
+            wb.save(p)
+            spec = {'wb': 'edc', 'sheet': 'AE', 'label_row': 1, 'var_row': 0, 'data_start': 2,
+                    'cols': {'sid': '受试者编号', 'term': '访视名称', 'serious': '是否为严重不良事件（SAE）？'}}
+            recs = [rec for rec, *_ in read_spec(spec, {'edc': Book(str(p))}, {'workbooks': {'edc': str(p)}, 'domains': {}})]
+            self.assertEqual(recs[0].get('sae_crit'), '需要住院治疗或者延长住院时间')
+            self.assertEqual(recs[1].get('sae_crit', ''), '')
+
+    def test_m20_no_query_when_crit_checked(self):
+        from types import SimpleNamespace
+        from ext_rules import m20_ae_sae
+        C = SimpleNamespace(pop={'S1'}, subj={'S1': {'site': '01', 'eos_d': ''}}, others=[], src={'sheets': {}}, F={},
+                            exposure=[], visits=[],
+                            aes=[{'sid': 'S1', 't': '肺炎', 's': '2026-05-01', 'e': '', 'sae': True, 'sae_crit': '住院',
+                                  'sh': 'AE', 'row': 2, 'n': 1, 'wb': '', 'out': '好转'}])
+        m20_ae_sae(C)
+        self.assertEqual([o for o in C.others if 'SAE' in o['cat']], [])     # 勾选了住院标准：不再空判「均未勾选」
+
+    def test_build_events_passes_sae_crit(self):
+        from types import SimpleNamespace
+        from mm_build import build_events
+        C = SimpleNamespace(A={}, subj={'S1': {'site': '01', 'fd': '2026-05-01'}}, teEnd={},
+                            ae=[{'sid': 'S1', 'term': '肺炎', 'pt': '肺炎', 'start': '2026-05-01', 'row': 2,
+                                 'sheet': 'AE', 'serious': '是', 'sae_crit': '住院', 'rel': ''}], mh=[], cm=[])
+        build_events(C)
+        self.assertEqual(C.aes[0]['sae_crit'], '住院')
+        self.assertTrue(C.aes[0]['sae'])
+
+
+class F04AeBlankLogRows(unittest.TestCase):
+    """RUX 深审 F04：AE 发生标志=否 的空白日志行（无术语/日期/等级；标志列名≠D001 的「是否发生不良事件」，
+    如「有无不良事件」「是否发生不良事件？」）此前被计为 AE 并进 AE 谱伪桶。normalize 对 AE 域行：
+    发生标志=否 且 真实术语列为空 → 跳过；标志=否但术语有值、或标志=是 → 保留。夹具全虚构。"""
+
+    @staticmethod
+    def _run(flag_label='是否发生不良事件？', rows=None):
+        import tempfile
+        import openpyxl
+        from normalize_listing import Book, read_spec
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / 'ae.xlsx'
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = 'AE'
+            ws.append(['受试者编号', '访视名称', flag_label, '不良事件名称', '最早开始日期'])
+            for r in (rows if rows is not None else
+                      [['S1', '共同页', '否', '', ''], ['S2', '共同页', '是', '头痛', '2026-05-01'],
+                       ['S3', '共同页', '否', '皮疹', '2026-05-02']]):
+                ws.append(r)
+            wb.save(p)
+            spec = {'wb': 'edc', 'sheet': 'AE', 'label_row': 1, 'var_row': 0, 'data_start': 2,
+                    'cols': {'sid': '受试者编号', 'term': '访视名称'}}
+            M = {'workbooks': {'edc': str(p)}, 'domains': {}}
+            return [rec for rec, *_ in read_spec(spec, {'edc': Book(str(p))}, M)]
+
+    def test_flag_no_blank_row_skipped(self):
+        recs = self._run()
+        self.assertEqual([r['sid'] for r in recs], ['S2', 'S3'])     # S1 空白日志行被跳过；S3 标志=否但有术语 → 保留
+
+    def test_flag_label_variants(self):
+        for lb in ('有无不良事件', '是否发生AE？', '是否发生不良事件'):
+            recs = self._run(flag_label=lb, rows=[['S1', '共同页', '否', '', '']])
+            self.assertEqual(recs, [], lb)                           # 列名变体同样识别
+
+
+class F02bDiseaseTermLinks(unittest.TestCase):
+    """F02 边界（用户 2026-10-27 口径：归因研究疾病不算「未关联」）：说明列词目若命中方案研究疾病词
+    （analysis.diseaseTerms/适应症），不作 MH 关联——DIS/DISW 豁免不被词目链接抢走；具体病史词目保留。"""
+
+    def test_disease_term_links_stripped(self):
+        from types import SimpleNamespace
+        from mm_build import _strip_disease_term_links
+        C = SimpleNamespace(A={'diseaseTerms': ['特应性皮炎']}, S={'study': {'design': {'facts': [['适应症', '中重度特应性皮炎']]}}},
+                            cfg={},
+                            findings=[
+                                {'links': [['MH', '特应性皮炎', None, None]]},      # 研究疾病词目 → 剥离
+                                {'links': [['MH', '脂肪肝', None, None], ['MH', '特应性皮炎', None, None]]},  # 只剥疾病词目
+                                {'links': [['AE', '头痛', None, 2]]},                # 编号链接不动
+                                {'links': []},
+                            ])
+        _strip_disease_term_links(C)
+        self.assertEqual(C.findings[0]['links'], [])
+        self.assertEqual(C.findings[1]['links'], [['MH', '脂肪肝', None, None]])
+        self.assertEqual(C.findings[2]['links'], [['AE', '头痛', None, 2]])
+        self.assertEqual(C.cfg['diseaseTermLinksStripped'], 2)
+
+    def test_no_disease_terms_noop(self):
+        from types import SimpleNamespace
+        from mm_build import _strip_disease_term_links
+        C = SimpleNamespace(A={}, S={'study': {}}, findings=[{'links': [['MH', '脂肪肝', None, None]]}])
+        _strip_disease_term_links(C)
+        self.assertEqual(C.findings[0]['links'], [['MH', '脂肪肝', None, None]])   # 未配置研究疾病词：不动（可见不猜）
+
+
+class F05AttributionDimension(unittest.TestCase):
+    """RUX 深审 F05：判定一致性「归因维度」比对前核对 CS 侧行说明列关联引用——desc 解析出的关联
+    （F02）参与 att_of；两条均 CS 且归因不同才成对（无方向不排序），正文呈现两侧归因。夹具全虚构。"""
+
+    def test_att_of_uses_desc_links(self):
+        from ext_rules import att_of
+        self.assertEqual(att_of({'links': [['MH', '脂肪肝', None, None]]}), 'MH')
+        self.assertEqual(att_of({'links': [['AE', '疖肿', None, None]]}), 'AE')
+        self.assertEqual(att_of({'links': [], 'reason': 'disease'}), '研究疾病')
+        self.assertEqual(att_of({'links': [], 'reason': None}), '未关联')
+
+    def test_attribution_pairing(self):
+        from ext_rules import cons_attribution
+        cs = [_cons_row('S1', 90, 2, lo=115, links=[['MH', '贫血', None, 1]], row=1),
+              _cons_row('S1', 92, 2, lo=115, links=[], row=2),
+              _cons_row('S1', 94, 2, lo=115, links=[['MH', '贫血', None, 1]], row=3)]
+        pairs = cons_attribution(cs, cross_subject=False)
+        self.assertEqual(len(pairs), 1)
+        a, b = pairs[0]
+        self.assertEqual((a['row'], b['row']), (1, 2))               # 归因 MH vs 未关联；行 3 同归因不成对
+
+    def test_clin_consistency_presents_both_attributions(self):
+        from types import SimpleNamespace
+        import ext_rules
+        rows = [_cons_row('S1', 90, 2, lo=115, links=[['MH', '贫血', None, 1]], visit='V2', date='2026-05-01', row=1),
+                _cons_row('S1', 95, 2, lo=115, links=[], visit='V3', date='2026-06-01', row=2)]
+        F = {}
+        for r in rows:
+            F.setdefault((r['sid'], 'lab:HGB'), []).append(r)
+        C = SimpleNamespace(A={}, F=F, metric={'lab:HGB': {'label': '血红蛋白'}},
+                            subj={'S1': {'site': '01'}}, pop={'S1'}, others=[], src={'sheets': {}})
+        ext_rules.clin_consistency(C)
+        q = [o for o in C.others if o['cat'] == '临床意义判定不一致']
+        self.assertEqual(len(q), 1)
+        self.assertIn('归因MH', q[0]['sum'])
+        self.assertIn('归因未关联', q[0]['sum'])
+
+
+class F06CtcaeDirectionAndWording(unittest.TestCase):
+    """RUX 深审 F06：①无对应 CTCAE 条目方向（原始体重测量无方向词）不得标 CTCAE 等级——
+    automap 只在指标名带方向词（体重增加/减轻）时映射「纯较基线变化」型条目，且方向须相符；
+    ②低于下限的值不再写「升高至」（相对基线方向≠偏离参考范围方向，分离表述）。夹具全虚构。"""
+
+    def test_raw_weight_not_mapped(self):
+        import ctcae
+        G = ctcae.load({'grading': {'version': '5.0'}})
+        m = {'vs:体重': {'domain': 'vs', 'label': '体重', 'units': {'kg': 9}},
+             'vs:体重增加': {'domain': 'vs', 'label': '体重增加', 'units': {}},
+             'vs:体重减轻': {'domain': 'vs', 'label': '体重减轻', 'units': {}}}
+        out = ctcae.automap(m, G, {})
+        self.assertNotIn('vs:体重', out)                              # 原始体重：无方向词 → 无对应条目方向，不映射
+        self.assertEqual(out.get('vs:体重增加'), 'WEIGHT')
+        self.assertEqual(out.get('vs:体重减轻'), 'WEIGHT')
+
+    def test_range_anchored_mapping_unchanged(self):
+        import ctcae
+        G = ctcae.load({'grading': {'version': '5.0'}})
+        out = ctcae.automap({'lab:血红蛋白': {'domain': 'lab', 'label': '血红蛋白', 'units': {'g/L': 9}}}, G, {})
+        self.assertEqual(out.get('lab:血红蛋白'), 'HGB')              # 参考范围锚定型条目行为不变
+
+    def test_move_word_separates_deviation_direction(self):
+        from common import move_word
+        self.assertEqual(move_word(80, 90, lo=115), '较基线回升至')   # 较基线上升但仍低于下限：禁「升高至」
+        self.assertEqual(move_word(80, 90, lo=None), '升高至')
+        self.assertEqual(move_word(80, 160, hi=150), '升高至')        # 超上限的正常「升高」措辞不动
+        self.assertEqual(move_word(90, 80), '下降至')
+        self.assertEqual(move_word(175, 165, hi=150), '较基线回降至') # 镜像：高于上限中回落仍超上限
+        self.assertEqual(move_word(90, 90), '为')
+
+    def test_csb_query_head_uses_move_word(self):
+        from ext_rules import _csb_query
+        from types import SimpleNamespace
+        C = SimpleNamespace(pop={'S1'}, subj={'S1': {'site': '01'}}, metric={'lab:HGB': {'label': '血红蛋白'}},
+                            others=[], src={'sheets': {}, 'sheets_by_name': {}}, A={}, extq=[], queries_manual=[])
+        r = {'sid': 'S1', 'visit': 'V2', 'date': '2026-05-01', 'value': 90, 'raw': '90', 'unit': 'g/L',
+             'base': {'value': 80}, 'lo': 115, 'hi': None, 'mid': 'lab:HGB', 'sheet': 'LAB', 'row': 3,
+             'clin': 2, 'links': []}
+        _csb_query(C, r, 'LINK', None, '', [])
+        self.assertIn('较基线回升至', C.others[0]['sum'])
+        self.assertNotIn('升高至', C.others[0]['sum'])
+
+
+class F07ThresholdSameRowMerge(unittest.TestCase):
+    """RUX 深审 F07：组合规则（ALT|AST）与单列规则命中同一检验行 → 合并为单段，不再逐规则重复
+    「达到方案阈值」。跨 thresholdRules/comboRules 共享同行命中登记。夹具全虚构。"""
+
+    @staticmethod
+    def _row():
+        return {'sid': 'S1', 'mid': 'lab:ALT', 'post': True, 'clin': None, 'value': 313, 'raw': '313', 'unit': 'U/L',
+                'lo': 9, 'hi': 50, 'grade': 0, 'pct': None, 'visit': 'V2', 'date': '2026-05-01',
+                'sheet': 'LBCHEM', 'row': 11, 'wb': 'edc', 'links': [], 'base': None}
+
+    def test_two_threshold_rules_same_row_one_signal(self):
+        from mm_build import threshold_rules
+        from types import SimpleNamespace
+        R1 = {'id': 'T-A3', 'metric': 'ALT', 'cat': '阈值规则核对', 'op': '>', 'v': 50, 'label': 'ALT > 3 ×ULN',
+              'sum': '{test} {value}（{visit} {date}）达到方案阈值 {thr}'}
+        R2 = {'id': 'T-A5', 'metric': 'ALT', 'cat': '阈值规则核对', 'op': '>', 'v': 250, 'label': 'ALT > 5 ×ULN',
+              'sum': '{test} {value}（{visit} {date}）达到方案阈值 {thr}'}
+        C = SimpleNamespace(A={'thresholdRules': [R1, R2]}, cfg={}, pop={'S1'}, subj={'S1': {'site': '01'}},
+                            F={('S1', 'lab:ALT'): [self._row()]}, metric={'lab:ALT': {'label': 'ALT'}},
+                            others=[], src={'sheets': {}})
+        threshold_rules(C)
+        self.assertEqual(len(C.others), 1)
+
+    def test_combo_and_threshold_same_row_one_signal(self):
+        from mm_build import threshold_rules, combo_rules
+        from types import SimpleNamespace
+        R = {'id': 'T-A5', 'metric': 'ALT', 'cat': '阈值规则核对', 'op': '>', 'v': 250, 'label': 'ALT > 5 ×ULN',
+             'sum': '{test} {value}（{visit} {date}）达到方案阈值 {thr}'}
+        CB = {'id': 'CB-1', 'name': 'ALT 重度升高', 'cat': '阈值规则核对', 'pr': 3,
+              'all': [{'metric': 'ALT', 'on': 'val', 'op': '>', 'v': 250}]}
+        C = SimpleNamespace(A={'thresholdRules': [R], 'comboRules': [CB]}, cfg={}, pop={'S1'},
+                            subj={'S1': {'site': '01'}}, F={('S1', 'lab:ALT'): [self._row()]},
+                            metric={'lab:ALT': {'label': 'ALT'}}, others=[], src={'sheets': {}})
+        threshold_rules(C)
+        combo_rules(C)
+        self.assertEqual(len(C.others), 1)
+
+
+class F08DuplicateAeRecords(unittest.TestCase):
+    """RUX 深审 F08：同受试者同术语同开始日期成对/三联记录（EDC 修订版整行重复导出）——
+    build_events 打指纹标记（dup_n/dup_rows/dup），AE 谱按去重计数，逐记录质疑只按组首发生，
+    并对每组发一条「AE重复记录核对」标记。夹具全虚构。"""
+
+    @staticmethod
+    def _ae(row, no='4'):
+        return {'sid': 'S1', 'term': '中性粒细胞计数降低', 'pt': '中性粒细胞计数降低', 'start': '2026-06-01',
+                'end': '2026-06-10', 'grade': '2级', 'no': no, 'row': row, 'sheet': 'AE', 'serious': '否', 'rel': ''}
+
+    def _C(self, aes):
+        from types import SimpleNamespace
+        return SimpleNamespace(A={}, subj={'S1': {'site': '01', 'fd': '2026-05-01'}}, teEnd={}, ae=aes, mh=[], cm=[])
+
+    def test_build_events_marks_duplicates(self):
+        from mm_build import build_events
+        C = self._C([self._ae(15), self._ae(16), self._ae(17), dict(self._ae(18), term='头痛', pt='头痛', no='5', start='2026-07-01')])
+        build_events(C)
+        self.assertEqual(len(C.ae_dup), 1)
+        grp = C.ae_dup[0]
+        self.assertEqual(grp['rows'], [15, 16, 17])
+        self.assertEqual(grp['recs'][0]['dup_n'], 3)
+        self.assertFalse(grp['recs'][0].get('dup'))
+        self.assertTrue(all(r.get('dup') for r in grp['recs'][1:]))
+        self.assertEqual(len(C.ae_by['S1']), 4)                        # 记录池不删行（数据面保留全部行号可溯）
+        self.assertEqual([g['term'] for g in C.ae_dup], ['中性粒细胞计数降低'])  # 头痛不入组
+
+    def test_identical_but_different_start_not_duplicate(self):
+        from mm_build import build_events
+        C = self._C([self._ae(15), dict(self._ae(16), start='2026-07-01')])
+        build_events(C)
+        self.assertEqual(getattr(C, 'ae_dup', []), [])
+
+    def test_duplicate_marker_query_and_single_member_query(self):
+        from mm_build import build_events, ae_checks
+        C = self._C([self._ae(15), self._ae(16), self._ae(17)])
+        C.A = {'aeChecks': ['duplicate']}
+        build_events(C)
+        C.pop, C.others, C.src, C.F, C.aesiDefs, C.cm_by = {'S1'}, [], {'sheets': {}}, {}, [], {'S1': []}
+        ae_checks(C)
+        dup = [o for o in C.others if o['cat'] == 'AE重复记录核对']
+        self.assertEqual(len(dup), 1)
+        self.assertIn('3 条', dup[0]['sum'])
+        self.assertEqual(len(C.others), 1)                           # 同 PT 重复不发 PT 级质疑，仅此一条标记
+
+    def test_m19_fires_once_per_group(self):
+        from mm_build import build_events
+        from ext_rules import m19_ae_ex
+        from types import SimpleNamespace
+        aes = [dict(self._ae(15), action='停药'), dict(self._ae(16), action='停药')]
+        C = self._C(aes)
+        build_events(C)
+        C = SimpleNamespace(**{**C.__dict__, 'A': {}, 'pop': {'S1'}, 'others': [], 'src': {'sheets': {}}, 'F': {},
+                               'exposure': []})
+        m19_ae_ex(C)
+        hit = [o for o in C.others if o['cat'] == 'AE与给药记录一致性核对']
+        self.assertEqual(len(hit), 1)                                # 两份重复记录只按组首发生一次
+
+
+class F09SocBucketPriority(unittest.TestCase):
+    """RUX 深审 F09：AE 分桶单一来源——aeCatMap 命中类别与 MedDRA SOC 列不一致的行以 SOC 列为准
+    （实测 2 例错桶）；无 SOC 的记录仍走 catmap→原文术语回退。夹具全虚构。"""
+
+    def test_soc_column_wins_over_catmap(self):
+        from types import SimpleNamespace
+        from mm_build import build_events
+        C = SimpleNamespace(A={'aeCatMap': [['肺炎', '皮肤及皮下组织类疾病'], ['头痛', '皮肤及皮下组织类疾病']]},
+                            subj={'S1': {'site': '01', 'fd': '2026-05-01'}}, teEnd={},
+                            ae=[{'sid': 'S1', 'term': '肺炎', 'pt': '肺炎', 'soc': '感染及侵染类疾病', 'start': '2026-05-01',
+                                 'row': 2, 'sheet': 'AE', 'serious': '否', 'rel': ''},
+                                {'sid': 'S1', 'term': '头痛', 'pt': '头痛', 'soc': '', 'start': '2026-05-02',
+                                 'row': 3, 'sheet': 'AE', 'serious': '否', 'rel': ''}], mh=[], cm=[])
+        build_events(C)
+        self.assertEqual(C.aes[0]['c'], '感染及侵染类疾病')           # SOC 列为准
+        self.assertEqual(C.aes[1]['c'], '皮肤及皮下组织类疾病')        # 无 SOC：catmap 回退不变
+
+
+class F10MicroUnitCanonical(unittest.TestCase):
+    """RUX 深审 F10：μ 两种写法归一（U+03BC 希腊 μ / U+00B5 微 µ）——normalize 单位一处收口，
+    与 ×10^ 归一同点。夹具全虚构。"""
+
+    @staticmethod
+    def _row(units):
+        import openpyxl
+        import tempfile
+        from normalize_listing import Book, findings
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = 'UA'
+        ws.append(['受试者编号', '访视', '检查日期', '检查项', '检查结果', '单位'])
+        for i, u in enumerate(units, 1):
+            ws.append(['S1', f'V{i}', '2026-05-01', '尿酸', '424', u])
+        M = {'workbooks': {'edc': 'x'}, 'domains': {}}
+        spec = {'wb': 'edc', 'sheet': 'UA', 'domain': 'lab', 'group': '血生化', 'label_row': 1, 'var_row': 0,
+                'data_start': 2,
+                'cols': {'sid': '受试者编号', 'visit': '访视', 'date': '检查日期', 'test': '检查项',
+                         'value': '检查结果', 'unit': '单位'}}
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / 'edc.xlsx'
+            wb.save(p)
+            return [r.get('unit') for r in findings(spec, {'edc': Book(str(p))}, M)]
+
+    def test_mu_variants_unified(self):
+        greek, micro = 'μmol/L', 'µmol/L'
+        self.assertNotEqual(greek, micro)
+        self.assertEqual(self._row([greek]), [micro])                # U+03BC → U+00B5
+        self.assertEqual(self._row([micro]), [micro])                # 幂等
+        self.assertEqual(self._row(['mg/dL', greek]), ['mg/dL', micro])   # 无 μ 迹象的单位不碰
 
 
 if __name__ == '__main__':
