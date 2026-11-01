@@ -1485,6 +1485,20 @@ class XlsxTaintTolerance(unittest.TestCase):
         self.assertEqual(len(list(wb['AE'].iter_rows(values_only=True))), 1)
         wb.close()
 
+    def test_non_xlsx_zip_not_crashing_taint(self):
+        """zip 但非 xlsx（如 docx 误入工作簿位，判例 D002 CLI inspect 把方案 docx 一并喂入）：
+        xlsx_taint 返回 []（交 openpyxl 报它自己的错），不得 KeyError 崩溃。"""
+        import zipfile
+        from common import xlsx_taint, open_workbook_lenient
+        p = self.dir / 'notxlsx.zip'
+        with zipfile.ZipFile(p, 'w') as z:
+            z.writestr('[Content_Types].xml', '<?xml version="1.0"?><Types/>')
+            z.writestr('word/document.xml', '<?xml version="1.0"?><document/>')
+        self.assertEqual(xlsx_taint(p), [])                     # 修前 KeyError（红）
+        with self.assertRaises(Exception) as cm:                # openpyxl 自己的报错（非 KeyError）
+            open_workbook_lenient(p, read_only=True, data_only=True)
+        self.assertNotIsInstance(cm.exception, KeyError)
+
     def test_tainted_reads_all_rows_with_fallback_log(self):
         from common import open_workbook_lenient
         notes = []

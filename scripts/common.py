@@ -273,8 +273,12 @@ def _xml_attrs(tag):
 
 
 def _xlsx_sheet_names(z):
-    """sheet XML 部件名 → 表名（workbook.xml + 其 rels 解析，属性顺序无关）。"""
+    """sheet XML 部件名 → 表名（workbook.xml + 其 rels 解析，属性顺序无关）。
+    非 xlsx 的 zip（如 docx）无 xl/workbook.xml → 返回 {}：taint 无从扫起返回 []，
+    文件类型错误交由 openpyxl 报它自己的错（判例 D002 CLI inspect 误把方案 docx 喂入）。"""
     import html
+    if 'xl/workbook.xml' not in z.namelist():
+        return {}
     rels = {}
     if 'xl/_rels/workbook.xml.rels' in z.namelist():
         for m in re.finditer(r'<Relationship\b[^>]*>', z.read('xl/_rels/workbook.xml.rels').decode('utf-8', 'ignore')):
