@@ -436,41 +436,42 @@ def lab_shift(C, add_other):
 
 
 # ----------------------------------------------------------------------------- 数据可信度
-_BPHR = re.compile(r'收缩压|舒张压|SBP|DBP|血压|心率|脉搏|Pulse|\bHR\b', re.I)
-_FLAT = re.compile(r'收缩压|舒张压|SBP|DBP|心率|脉搏|Pulse|\bHR\b|体重|Weight', re.I)
+_META_RX = re.compile(r'页面号|访视号|访视OID|表单OID|页码|行号|记录号|序号|数据页|Instance|_UNIT$', re.I)
 
 
 def cred(C):
-    """中心层面数据可信度信号（建议核对，不作结论）。→ {sites:{site:{dig,flat,shift,dup}}, flat:[…], dup:[…], shiftTop:{site:[…]}}"""
+    """中心层面数据可信度信号（建议核对，不作结论）。→ {sites:{site:{dig,flat,shift,dup}}, flat:[…], dup:[…], shiftTop:{site:[…]}}
+    用户 2026-11-01 裁定：按域动态选，不预设指标名单——vs＋pe 域（语义＝人工/设备直接测量）的全部数值型指标；
+    研究没有的指标自然跳过，只显示该研究有的内容。同日相同泛化为「≥3 项测量全部相同」。"""
     S = C.subj
     sites = sorted({s['site'] for s in S.values()})
     dig = defaultdict(lambda: [0, 0])
     flat_e, flat_n, flat_items = Counter(), Counter(), []
-    trip = defaultdict(dict)                                   # (site, date) → {sid: {kind: value}}
+    trip = defaultdict(dict)                                   # (site, date) → {sid: {mid: value}}
     base = defaultdict(dict)                                   # mid → {sid: 基线值}
     for (sid, mid), rows in C.F.items():
         if sid not in S:
             continue
         site, label, dom = S[sid]['site'], C.metric[mid]['label'], mid.split(':')[0]
+        if dom not in ('vs', 'pe') or _META_RX.search(label):
+            continue                                           # 检验多为各中心本地实验室，方法/单位差异天然存在；EDC 元数据列（页面号等）不是测量指标
         num = [r for r in rows if isinstance(r.get('value'), (int, float))]
-        if dom == 'vs' and _BPHR.search(label):
-            for r in num:
-                raw = str(r.get('raw') if r.get('raw') is not None else '').strip()
-                if re.fullmatch(r'\d{2,3}', raw):
-                    dig[site][0] += 1
-                    dig[site][1] += raw[-1] in '05'
-                kind = 'S' if re.search(r'收缩|SBP', label, re.I) else 'D' if re.search(r'舒张|DBP', label, re.I) else 'H' if re.search(r'心率|脉搏|Pulse|HR', label, re.I) else ''
-                if kind and is_full_date(r.get('date')):
-                    trip[(site, r['date'])].setdefault(sid, {})[kind] = r['value']
-        if dom == 'vs' and _FLAT.search(label) and len(num) >= 4:
+        for r in num:
+            raw = str(r.get('raw') if r.get('raw') is not None else '').strip()
+            if re.fullmatch(r'\d{2,3}', raw):
+                dig[site][0] += 1
+                dig[site][1] += raw[-1] in '05'
+            if is_full_date(r.get('date')):
+                trip[(site, r['date'])].setdefault(sid, {})[mid] = r['value']
+        if len(num) >= 4:
             flat_e[site] += 1
             if len({r['value'] for r in num}) == 1:
                 flat_n[site] += 1
                 flat_items.append([sid, site, label, str(num[0].get('raw')), len(num)])
         b = next((r.get('base') for r in rows if r.get('base')), None)
         mu_ = (C.metric[mid]['units'].most_common(1) or [('', 0)])[0][0]
-        if dom == 'vs' and b and isinstance(b.get('value'), (int, float)) and (b.get('unit') or '') == mu_:
-            base[mid][sid] = b['value']                        # 只用生命体征：检验多为各中心本地实验室，方法/单位差异天然存在
+        if b and isinstance(b.get('value'), (int, float)) and (b.get('unit') or '') == mu_:
+            base[mid][sid] = b['value']
     out = {s: {} for s in sites}
     n_all, k_all = sum(v[0] for v in dig.values()), sum(v[1] for v in dig.values())
     ps = [(s, binom_upper(dig[s][1], dig[s][0], 0.2) if dig[s][0] >= 30 else None) for s in sites]
@@ -501,13 +502,13 @@ def cred(C):
         out[s]['shift'] = [len(mine), len(atyp), [[C.metric[t[1]]['label'], round(t[2], 1), t[3], fmt(t[4]), fmt(t[5])] for t, _ in atyp[:5]]]
     dup_items = []
     for (site, date), m in trip.items():
-        full = {sid: (x['S'], x['D'], x['H']) for sid, x in m.items() if all(k in x for k in 'SDH')}
+        full = {sid: tuple(sorted(x.items())) for sid, x in m.items() if len(x) >= 3}   # ≥3 项测量成向量，全同才比
         grp = defaultdict(list)
         for sid, t in full.items():
             grp[t].append(sid)
         for t, sids in grp.items():
             if len(sids) >= 2:
-                dup_items.append([site, date, sorted(sids), '/'.join(fmt(v) for v in t)])
+                dup_items.append([site, date, sorted(sids), '/'.join(fmt(v) for _, v in t)])
     dc = Counter(d[0] for d in dup_items)
     for s in sites:
         out[s]['dup'] = [dc.get(s, 0)]

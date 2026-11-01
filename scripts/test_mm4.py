@@ -691,6 +691,120 @@ class MissingDateRenderingK95(unittest.TestCase):
         self._assert_nodate(self, rules['IP-04'])
 
 
+class EligPremiseAndCompound(unittest.TestCase):
+    """用户 2026-11-01 三裁定（运行侧）：①「经治疗」前提超标改发「请核实」，不直接判排除；
+    ②总胆红素超标但直接胆红素占比<35% → 降为「按方案可接受」提示；≥35% 或不可得 → 照旧排除；
+    ③HBsAg 阳性须同时 HBV-DNA≥1×10³ 才排除；DNA 低于阈值不发；DNA 不可得降为「请核实」。全部虚构夹具。"""
+
+    @staticmethod
+    def _ns(**kw):
+        from types import SimpleNamespace
+        return SimpleNamespace(**kw)
+
+    @staticmethod
+    def _row(mid, raw, value, visit='SCR', date='2026-06-01', **kw):
+        return {'sid': 'S1', 'mid': mid, 'post': False, 'value': value, 'raw': raw, 'unit': '', 'lo': None, 'hi': None,
+                'grade': 0, 'pct': None, 'visit': visit, 'date': date, 'sheet': '检验', 'row': 7, 'wb': 'edc',
+                'clin': None, 'links': [], 'base': None, 'desc': '', **kw}
+
+    def _C(self, E, rows_by_mid):
+        return self._ns(A={'eligibility': [E]}, cfg={}, pop={'S1'}, VIS=[], UNS=set(), others=[], src={'sheets': {}},
+                        subj={'S1': {'site': '01', 'fd': '2026-07-01', 'rand_d': '2026-07-01'}},
+                        F={('S1', mid): rows for mid, rows in rows_by_mid.items()},
+                        metric={mid: {'label': mid.split(':', 1)[1]} for mid in rows_by_mid})
+
+    def test_treated_premise_issues_verify_not_exclusion(self):
+        from mm_build import eligibility_checks
+        E = {'id': 'IE-E9', 'metric': r'^vs:(?:收缩压|SBP)', 'op': '>', 'v': 150, 'on': 'val', 'kind': 'exclusion',
+             'text': '虚构：未控制的高血压（定义为经治疗收缩压>150）', 'premise': 'treated'}
+        C = self._C(E, {'vs:收缩压': [self._row('vs:收缩压', '160', 160.0, unit='mmHg', visit='基线')]})
+        eligibility_checks(C)
+        hit = [o for o in C.others if o['cat'] == '入排标准核对']
+        self.assertEqual(len(hit), 1)                                        # 仍有信号（不静默）
+        self.assertIn('方案要求经治疗后仍超标方构成排除', hit[0]['sum'])   # 修前判排除（红）
+        self.assertNotIn('降压', hit[0]['sum'])                            # 泛化守卫：文案不得写死病种（本条=高血压、他研究可为任何病种）
+        self.assertNotIn('不符，但已随机/给药', hit[0]['sum'])
+
+    def test_dbil_ratio_below_35_downgrades(self):
+        from mm_build import eligibility_checks
+        E = {'id': 'IE-E24', 'metric': r'^lab:(?!.*(?:直接|间接|结合|DBIL|IBIL|尿))(?:(总胆红素|TBIL))', 'op': '>', 'v': 1.5,
+             'on': 'uln', 'kind': 'exclusion', 'text': '虚构：总胆红素>1.5×ULN',
+             'bili': {'metric': r'^lab:.*(?:直接胆红素|DBIL)', 'pct': 35.0}}
+        tb = self._row('lab:总胆红素（TBIL）', '40', 40.0, unit='umol/L', hi=17.1)
+        db = self._row('lab:直接胆红素（DBIL）', '8', 8.0, unit='umol/L')       # 占比 20%＜35%
+        C = self._C(E, {'lab:总胆红素（TBIL）': [tb], 'lab:直接胆红素（DBIL）': [db]})
+        eligibility_checks(C)
+        hit = [o for o in C.others if o['cat'] == '入排标准核对']
+        self.assertEqual(len(hit), 1)
+        self.assertIn('按方案可接受', hit[0]['sum'])                          # 修前判排除（红）
+        self.assertIn('孤立性胆红素', hit[0]['sum'])
+        self.assertNotIn('不符，但已随机/给药', hit[0]['sum'])
+        self.assertLess(hit[0]['pr'], 4)                                     # 降为提示级
+
+    def test_dbil_ratio_at_or_above_keeps_exclusion(self):
+        from mm_build import eligibility_checks
+        E = {'id': 'IE-E24', 'metric': r'^lab:(?!.*(?:直接|间接|结合|DBIL|IBIL|尿))(?:(总胆红素|TBIL))', 'op': '>', 'v': 1.5,
+             'on': 'uln', 'kind': 'exclusion', 'text': '虚构：总胆红素>1.5×ULN',
+             'bili': {'metric': r'^lab:.*(?:直接胆红素|DBIL)', 'pct': 35.0}}
+        tb = self._row('lab:总胆红素（TBIL）', '40', 40.0, unit='umol/L', hi=17.1)
+        db = self._row('lab:直接胆红素（DBIL）', '20', 20.0, unit='umol/L')    # 占比 50%≥35%
+        C = self._C(E, {'lab:总胆红素（TBIL）': [tb], 'lab:直接胆红素（DBIL）': [db]})
+        eligibility_checks(C)
+        hit = [o for o in C.others if o['cat'] == '入排标准核对']
+        self.assertEqual(len(hit), 1)
+        self.assertIn('不符，但已随机/给药', hit[0]['sum'])
+
+    def test_dbil_missing_keeps_exclusion(self):
+        from mm_build import eligibility_checks
+        E = {'id': 'IE-E24', 'metric': r'^lab:(?!.*(?:直接|间接|结合|DBIL|IBIL|尿))(?:(总胆红素|TBIL))', 'op': '>', 'v': 1.5,
+             'on': 'uln', 'kind': 'exclusion', 'text': '虚构：总胆红素>1.5×ULN',
+             'bili': {'metric': r'^lab:.*(?:直接胆红素|DBIL)', 'pct': 35.0}}
+        tb = self._row('lab:总胆红素（TBIL）', '40', 40.0, unit='umol/L', hi=17.1)
+        C = self._C(E, {'lab:总胆红素（TBIL）': [tb]})
+        eligibility_checks(C)
+        hit = [o for o in C.others if o['cat'] == '入排标准核对']
+        self.assertEqual(len(hit), 1)
+        self.assertIn('不符，但已随机/给药', hit[0]['sum'])
+
+    def test_hbsag_positive_with_dna_below_threshold_not_flagged(self):
+        from mm_build import eligibility_checks
+        E = {'id': 'IE-E14', 'metric': r'^lab:(?:乙肝表面抗原|乙型肝炎病毒表面抗原|HBsAg)', 're': r'阳性|\+|positive|检出',
+             'op': 're', 'v': None, 'kind': 'exclusion', 'text': '虚构：HBsAg阳性且HBV-DNA≥1×10³',
+             'gate': {'metric': r'^lab:.*(?:HBV.?DNA)', 'op': '>=', 'v': 1000.0, 'unit': '拷贝数/mL', 'label': 'HBV-DNA'}}
+        hbsag = self._row('lab:乙肝表面抗原（HBsAg）', '阳性', None)
+        dna = self._row('lab:乙肝病毒载量（HBV-DNA）', '5.0×10²', 500.0, unit='拷贝数/mL')
+        C = self._C(E, {'lab:乙肝表面抗原（HBsAg）': [hbsag], 'lab:乙肝病毒载量（HBV-DNA）': [dna]})
+        eligibility_checks(C)
+        self.assertEqual([o for o in C.others if o['cat'] == '入排标准核对'], [])   # 修前判排除（红）
+
+    def test_hbsag_positive_with_dna_above_threshold_keeps_exclusion(self):
+        from mm_build import eligibility_checks
+        E = {'id': 'IE-E14', 'metric': r'^lab:(?:乙肝表面抗原|乙型肝炎病毒表面抗原|HBsAg)', 're': r'阳性|\+|positive|检出',
+             'op': 're', 'v': None, 'kind': 'exclusion', 'text': '虚构：HBsAg阳性且HBV-DNA≥1×10³',
+             'gate': {'metric': r'^lab:.*(?:HBV.?DNA)', 'op': '>=', 'v': 1000.0, 'unit': '拷贝数/mL', 'label': 'HBV-DNA'}}
+        hbsag = self._row('lab:乙肝表面抗原（HBsAg）', '阳性', None)
+        dna = self._row('lab:乙肝病毒载量（HBV-DNA）', '2.0×10³', 2000.0, unit='拷贝数/mL')
+        C = self._C(E, {'lab:乙肝表面抗原（HBsAg）': [hbsag], 'lab:乙肝病毒载量（HBV-DNA）': [dna]})
+        eligibility_checks(C)
+        hit = [o for o in C.others if o['cat'] == '入排标准核对']
+        self.assertEqual(len(hit), 1)
+        self.assertIn('不符，但已随机/给药', hit[0]['sum'])
+
+    def test_hbsag_positive_without_dna_issues_verify(self):
+        from mm_build import eligibility_checks
+        E = {'id': 'IE-E14', 'metric': r'^lab:(?:乙肝表面抗原|乙型肝炎病毒表面抗原|HBsAg)', 're': r'阳性|\+|positive|检出',
+             'op': 're', 'v': None, 'kind': 'exclusion', 'text': '虚构：HBsAg阳性且HBV-DNA≥1×10³',
+             'gate': {'metric': r'^lab:.*(?:HBV.?DNA)', 'op': '>=', 'v': 1000.0, 'unit': '拷贝数/mL', 'label': 'HBV-DNA'}}
+        hbsag = self._row('lab:乙肝表面抗原（HBsAg）', '阳性', None)
+        C = self._C(E, {'lab:乙肝表面抗原（HBsAg）': [hbsag]})
+        eligibility_checks(C)
+        hit = [o for o in C.others if o['cat'] == '入排标准核对']
+        self.assertEqual(len(hit), 1)
+        self.assertIn('请核实', hit[0]['sum'])
+        self.assertIn('HBV-DNA', hit[0]['sum'])
+        self.assertNotIn('不符，但已随机/给药', hit[0]['sum'])
+
+
 class IbSocCodeSuffix(unittest.TestCase):
     """IB 风险条目 SOC/PT 名称带 MedDRA 编码尾缀（「心脏器官疾病（10007541）」「心脏器官疾病/10007541」）时
     与 EDC 侧纯名称比对应命中：编码尾缀剥离后再比较。"""
@@ -2246,6 +2360,69 @@ class V5Monitor(unittest.TestCase):
         self.assertGreater(out['sites']['02']['dig'][2], 0.05)
         self.assertEqual(out['sites']['01']['flat'][1], 1)
         self.assertEqual(out['flat'][0][:3], ['010', '01', '心率'])
+
+
+class CredDynamicDomain(unittest.TestCase):
+    """用户 2026-11-01：数据可信度按域动态选——vs＋pe 域全部数值型指标（这些域语义＝人工/设备直接测量），
+    不再预设血压/心率/体重名单：呼吸/体温纳入末位数字统计；pe 域体重纳入 ≥4 次完全相同；
+    同日相同泛化为「≥3 项测量全部相同」；研究没有的数据自然不显示。全部虚构夹具。"""
+
+    @staticmethod
+    def _cred(F, metric):
+        from collections import Counter
+        from types import SimpleNamespace
+        import monitor_v5
+        C = SimpleNamespace(subj={'S1': {'site': '01'}, 'S2': {'site': '01'}}, metric=metric, F=F)
+        return monitor_v5.cred(C)
+
+    @staticmethod
+    def _row(raw, value, date='2026-06-01', visit='V1'):
+        return {'sid': '', 'value': value, 'raw': raw, 'unit': '', 'date': date, 'visit': visit, 'post': False}
+
+    @staticmethod
+    def _metric(mid, unit, n):
+        from collections import Counter
+        return {m: {'label': m.split(':', 1)[1], 'units': Counter({unit: n})} for m in mid}
+
+    def test_vs_breathing_temperature_enter_dig(self):
+        rows = [self._row('16', 16.0), self._row('17', 17.0), self._row('18', 18.0), self._row('25', 25.0)]
+        temp = [self._row('36', 36.0), self._row('37', 37.0)]
+        F = {('S1', 'vs:呼吸频率'): rows, ('S1', 'vs:体温'): temp}
+        out = self._cred(F, self._metric(['vs:呼吸频率', 'vs:体温'], '次/分', 4))
+        self.assertEqual(out['sites']['01']['dig'][0], 6)                    # 修前只认血压/心率正则（红）
+
+    def test_pe_weight_enter_flat(self):
+        rows = [self._row('62', 62.0, date=f'2026-06-0{i}', visit=f'V{i}') for i in range(1, 5)]
+        out = self._cred({('S1', 'pe:体重'): rows}, self._metric(['pe:体重'], 'kg', 4))
+        self.assertEqual(out['sites']['01']['flat'][:2], [1, 1])             # 修前 dom=='vs' 限定不纳入（红）
+        self.assertEqual(len(out['flat']), 1)
+
+    def test_same_day_identical_vector_generalized(self):
+        mids = ['vs:心率', 'vs:呼吸频率', 'vs:体温']
+        F = {}
+        for sid in ('S1', 'S2'):
+            for mid, raw, v in zip(mids, ['70', '16', '36.5'], [70.0, 16.0, 36.5]):
+                F[(sid, mid)] = [self._row(raw, v)]
+        out = self._cred(F, self._metric(mids, '次/分', 1))
+        self.assertEqual(len(out['dup']), 1)                                 # 修前只认收缩压/舒张压/心率三件套（红）
+        self.assertEqual(out['dup'][0][2], ['S1', 'S2'])
+
+    def test_no_vs_data_all_empty(self):
+        out = self._cred({('S1', 'lab:肌酐'): [self._row('3.0', 3.0)]}, self._metric(['lab:肌酐'], 'umol/L', 1))
+        s = out['sites']['01']
+        self.assertEqual(s['dig'][0], 0)
+        self.assertEqual(s['flat'][:2], [0, 0])
+        self.assertEqual(s['shift'][:2], [0, 0])
+        self.assertEqual(s['dup'], [0])
+
+    def test_edc_metadata_columns_excluded(self):
+        """EDC 元数据列（页面号/访视号/表单 OID 等）不是测量指标：不入末位数字/完全相同统计
+        （2026-11-01 RUX 实测：页面号≈7 千条整数把末位数字占比顶到 19%）。"""
+        rows = [self._row(str(i), float(i), date=f'2026-06-{i:02d}', visit=f'V{i}') for i in range(1, 11)]
+        for mid in ('vs:页面号', 'vs:访视号', 'vs:表单OID'):
+            out = self._cred({('S1', mid): rows}, self._metric([mid], '', 10))
+            self.assertEqual(out['sites']['01']['dig'][0], 0, mid)
+            self.assertEqual(out['sites']['01']['flat'][:2], [0, 0], mid)
 
 
 class V5FixPemDenominator(unittest.TestCase):

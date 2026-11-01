@@ -1451,6 +1451,31 @@ def _elig_label(eid):
     return f"{'入选' if m.group(1) == 'I' else '排除'}标准 {m.group(2)}" if m else str(eid or '')
 
 
+def _near_val(C, sid, mre, r):
+    """同受试者、指标匹配 mre、距判定记录最近日期（同表单优先）的数值结果行；无 → None。
+    用户 2026-11-01 裁定：复合条件/例外的伴随值按「同 sheet/同受试者/最近日期」取。"""
+    d0 = r.get('date')
+    if not is_full_date(d0):
+        return None
+    cand = [x for (s2, mid), rows in C.F.items() if s2 == sid and mre.search(mid) for x in rows
+            if isinstance(x.get('value'), (int, float)) and is_full_date(x.get('date'))]
+    if not cand:
+        return None
+    same = [x for x in cand if x.get('sheet') == r.get('sheet')]
+    return min(same or cand, key=lambda x: (abs(days(x['date'], d0) or 0), x['date']))
+
+
+def _gate_ok(C, sid, G, r):
+    """复合排除的伴随条件（E14 型 gate）：None=伴随指标不可得；True/False=是否满足。"""
+    x = _near_val(C, sid, re.compile(G['metric']), r)
+    if x is None:
+        return None
+    if G.get('re'):
+        t = str(x.get('raw') or '')
+        return bool(re.search(G['re'], t, re.I)) and not re.search(r'阴性|negative|未检出', t, re.I)
+    return cmp(G.get('op', '>='), x.get('value'), G.get('v'))
+
+
 def eligibility_checks(C):
     """入排数值核对（受试者×标准一条）。判定值按 `pick`：last（默认，入组前末次有效测量——方案允许复查时以复查值为准）/
     first（首次筛选值）/ any（任一测量不符即提示，方案明确不允许复查时用）。其余不符测量写入上下文，不另成信号。"""
@@ -1479,10 +1504,39 @@ def eligibility_checks(C):
                 ctx.append('例外条款：' + str(E['exc']))
             if len(pool) > 1:
                 ctx.append(f"判定值＝{'入组前末次测量' if pick == 'last' else '首次筛选测量' if pick == 'first' else '任一测量'}（共 {len(pool)} 次）")
+            det = f"入组前 {lab} {r.get('raw')} {r.get('unit') or ''}（{r.get('visit')} {dshow(r.get('date'))}）对照{kind}「{E['text']}」"
+            bkey = f"{lab}|{r.get('visit') or ''}|{r.get('date') or ''}"   # qkey 沿用旧口径（类别＋判定记录），存量 MMQ 身份不漂移
+            # ---- 用户 2026-11-01 三裁定：复合前提/例外不机械判排除 ----
+            if E.get('gate') and E.get('re'):                        # ③「X 阳性且 Y…」：Y 未满足不发；不可得降为请核实
+                g = _gate_ok(C, sid, E['gate'], r)
+                if g is False:
+                    continue
+                if g is None:
+                    gl = E['gate'].get('label') or '伴随条件'
+                    gv = f"{gl} {E['gate'].get('op', '')}{fmt(E['gate']['v'])}{E['gate'].get('unit') or ''}" if E['gate'].get('v') is not None else gl
+                    add_other(C, sid, E.get('cat', '入排标准核对'), E.get('pr', 4),
+                              f"{det}阳性，方案要求同时 {gv} 才排除，未见同期 {gl} 结果，请核实",
+                              r.get('visit'), r.get('date'), r['sheet'], r['row'], lab, r.get('clin'), ctx=ctx, bkey=bkey, wb=r.get('wb') or '')
+                    continue
+            if E.get('bili'):                                        # ②「直接胆红素<35% 可接受」：占比达标降为提示
+                dv = _near_val(C, sid, re.compile(E['bili']['metric']), r)
+                tv = r.get('value')
+                if dv is not None and tv:
+                    pct = dv['value'] / tv * 100
+                    lim = E['bili'].get('pct', 35)
+                    if pct < lim:
+                        add_other(C, sid, E.get('cat', '入排标准核对'), 2,
+                                  f"{det}超标，但直接胆红素占比 {pct:.0f}%＜{lim:.0f}%，孤立性胆红素升高按方案可接受",
+                                  r.get('visit'), r.get('date'), r['sheet'], r['row'], lab, r.get('clin'), ctx=ctx, bkey=bkey, wb=r.get('wb') or '')
+                        continue
+            if E.get('premise') == 'treated':                        # ①「经治疗仍超标才排除」：数据无用药面 → 请核实
+                add_other(C, sid, E.get('cat', '入排标准核对'), E.get('pr', 4),
+                          f"{det}超标，方案要求经治疗后仍超标方构成排除，请提供该受试者的相关治疗情况",
+                          r.get('visit'), r.get('date'), r['sheet'], r['row'], lab, r.get('clin'), ctx=ctx, bkey=bkey, wb=r.get('wb') or '')
+                continue
             add_other(C, sid, E.get('cat', '入排标准核对'), E.get('pr', 4),
-                      f"入组前 {lab} {r.get('raw')} {r.get('unit') or ''}（{r.get('visit')} {dshow(r.get('date'))}）对照{kind}「{E['text']}」不符，但已随机/给药",
-                      r.get('visit'), r.get('date'), r['sheet'], r['row'], lab, r.get('clin'), ctx=ctx,
-                      bkey=f"{lab}|{r.get('visit') or ''}|{r.get('date') or ''}", wb=r.get('wb') or '')   # qkey 沿用旧口径（类别＋判定记录），存量 MMQ 身份不漂移
+                      f"{det}不符，但已随机/给药",
+                      r.get('visit'), r.get('date'), r['sheet'], r['row'], lab, r.get('clin'), ctx=ctx, bkey=bkey, wb=r.get('wb') or '')
     for E in C.A.get('eligibilitySubject', []):  # {"field":"age","op","v","text"}
         for sid in C.pop:
             v = C.subj[sid].get(E['field'])
