@@ -241,6 +241,8 @@ K.oe=(obs,n,rate)=>{const e=rate*n;return {o:obs,e,ratio:e>0?obs/e:null,z:e>0?(o
 K.qlt=(v,a)=>v!=null&&v<a;   /* q 值可为 null（不适用）：null<0.1 在 JS 中为真，必须先判非空 */
 K.qStyle=(qu,ql)=>qu!=null&&qu<.05?'background:rgba(230,126,0,.62)':qu!=null&&qu<.10?'background:rgba(230,126,0,.30)':ql!=null&&ql<.10?'background:rgba(64,122,170,.18)':'';
 K.qTip=x=>x?`观察 ${x.o} / 期望 ${x.e.toFixed(1)}${x.qu!=null?` · 校正后 q=${x.qu<.001?'<0.001':x.qu.toFixed(3)}`:''}${x.ql!=null&&x.ql<.10?` · 偏低 q=${x.ql.toFixed(3)}`:''}`:'';
+/* V5 修复波：小中心偏高格的「个案驱动」标注（K.centerRisk().small）——只改呈现不改判定 */
+K.caseNote=(x,small)=>x&&small&&K.qlt(x.qu,.10)?' · 个案驱动（分母极小，偏高可能由个别受试者驱动）':'';
 /* 一列（各中心）比率：rows=[[分子,分母]…]，期望＝整体率×分母，逐行泊松上尾、按列 BH → [{o,e,qu,style}|null] */
 K.colFlags=(rows,all)=>{const r=rows.map(([n,d])=>d?K.oe(n,d,all):null),q=K.bh(r.map(x=>x?x.pu:null));return r.map((x,i)=>x?{...x,qu:q[i],style:K.qStyle(q[i])}:null)};
 /* 中心风险类别（风险页「中心总览」热力图、总览「需关注中心」、中心画像、行动项共用）。
@@ -277,7 +279,11 @@ K.centerRisk=()=>{if(K._cr)return K._cr;const D=window.KZ,lab=K.lab,oth=D.others
   const qu=K.bh(flat.map(f=>f[1].pu)),ql=K.bh(flat.map(f=>lowK.has(f[0])?f[1].pl:null));flat.forEach((f,i)=>{f[1].qu=qu[i];f[1].ql=ql[i]});
   const hot=site=>C.filter(([k])=>K.qlt(((cell[k]||{})[site]||{}).qu,.10)).map(x=>x[2]);
   const low=site=>C.filter(([k])=>K.qlt(((cell[k]||{})[site]||{}).ql,.10)).map(x=>x[2]);
-  return K._cr={cats:C,items,rate,centers:CS,hot,low,cell,den,unit:fu?'随访人日':'给药人数'}};
+  /* 小中心（分母极小：随访人日 <200，或给药人数 ≤3；旧构建无 fu 时按给药人数）的偏高格统计上成立但中心层面误导
+   * （V5 修复波：1 例给药/204 随访人日产出 8 条 CS＋8 条潜在 PD 也被标「偏高」）→ 只补「个案驱动」标注，不改显著性判定。 */
+  const small=new Set(CS.filter(c=>(fu?(den[c.site]||0)<200:(den[c.site]||0)<=3)||(c.dosed||0)<=3).map(c=>c.site));
+  const cased=(k,s)=>K.qlt(((cell[k]||{})[s]||{}).qu,.10)&&small.has(s);
+  return K._cr={cats:C,items,rate,centers:CS,hot,low,cell,den,small,cased,unit:fu?'随访人日':'给药人数'}};
 K.showQ=id=>{const q=K.qById(id);if(!q)return;const cro=D().cro.filter(c=>c[2]===q.sid);
   K.drawer(`${q.id} · ${q.cat}`,`<div class="flex wrap mb">${K.sid(q.sid)}${K.p(K.center(q.site),'line')}${K.p(K.loc(q.sh,q.row),'sq')}${K.p(q.v,'blu')}${q.test?K.p(q.test,''):''}${K.p(q.cro,q.cro==='冲突澄清'?'red':q.cro==='未见同问'?'grn':'yel')}</div>
   <div class="box org" style="font-size:13px;line-height:1.7">${K.hlNum(q.text)}</div>

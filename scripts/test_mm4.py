@@ -2248,5 +2248,218 @@ class V5Monitor(unittest.TestCase):
         self.assertEqual(out['flat'][0][:3], ['010', '01', '心率'])
 
 
+class V5FixPemDenominator(unittest.TestCase):
+    """V5 修复波：关键评估匹配失败（ci_hit 为空）时 pem 分母必须归零——修前 crit_rows 只看 criticalVisits/正则，
+    页面「—」与「76/76」同显造成「主要终点全缺」误读（RUX002E2E 实测）。na 提示已存在，本修复只斩断误读来源。"""
+
+    @staticmethod
+    def _C(efficacy=()):
+        from types import SimpleNamespace
+        subj = {'S1': {'site': '01', 'fd': '2026-01-01', 'status': '已入组'}}
+        due = [['S1', '01', 'W8', '2026-02-23', '2026-03-01', '2026-02-25', 'ok', 56, 57, 3, 3]]
+        return SimpleNamespace(
+            A={'pd': {'criticalVisits': ['W8'], 'criticalItems': 'EASI评分'}, 'visitWindows': {'W8': [57, 3, 3]}},
+            subj=subj, S=subj, pop={'S1'}, visits=[], efficacy=list(efficacy), findings=[],
+            aes=[], queries=[], labrows=[], entry=[], pdd={'potential': [], 'rules': []},
+            cfg={'study': {'planned': 10}, 'thresholds': {}},
+            ops={'cutoff': '2026-03-05', 'ex': {}, 'due': due, 'fu': {'S1': 60}, 'fresh': {'01': ['2026-03-01', 4, 1]}})
+
+    def test_ci_hit_empty_denominator_zero(self):
+        """关键评估正则在数据中一个指标名都匹配不到：pem 分母归零（不再出现「n/n 全缺」误读）。"""
+        from monitor_v5 import kri
+        self.assertEqual(kri(self._C())['study']['pem'], [0, 0])
+
+    def test_ci_hit_present_counts_normally(self):
+        """对照组：数据中确有关键评估指标（名称差一个后缀的容错命中）→ pem 照常按关键访视计数。"""
+        from monitor_v5 import kri
+        C = self._C(efficacy=[{'sid': 'S1', 'metric': 'EASI得分', 'visit': 'W8', 'value': 8}])
+        self.assertEqual(kri(C)['study']['pem'], [0, 1])
+
+    def test_na_note_still_explains(self):
+        """分母归零的同时保留「找不到对应指标」的 na 提示（口径不变：告诉用户为什么是「—」）。"""
+        from monitor_v5 import kri
+        self.assertIn('找不到对应指标', kri(self._C())['na']['pem'])
+
+
+class V5FixUnitSlashEquiv(unittest.TestCase):
+    """V5 修复波：单位等价写法归一缺「前导/尾随装饰斜杠」剥离——「/fL」与「fL」是同一单位，
+    录入错误检测误报「单位不一致」（RUX002E2E 实测）。ucanon（mm_build.entry_errors 内）补 strip('/')。"""
+
+    @staticmethod
+    def _run(label, units, vals=(100, 110, 105, 98, 102)):
+        from types import SimpleNamespace
+        from mm_build import entry_errors
+        rows = [{'sid': 'S1', 'value': v, 'raw': str(v), 'unit': units[i], 'visit': f'V{i + 1}',
+                 'date': f'2026-01-{10 + i:02d}', 'sheet': 'LB', 'row': i + 2, 'wb': ''} for i, v in enumerate(vals)]
+        C = SimpleNamespace(A={}, F={('S1', 'lab:' + label): rows}, metric={'lab:' + label: {'label': label}},
+                            subj={'S1': {'site': '01'}}, src={'sheets': {}}, labrows=[])
+        entry_errors(C)
+        return C
+
+    def test_leading_slash_is_same_unit(self):
+        """多数「×10^9/L」、少数「/×10^9/L」（前导斜杠装饰写法）→ 不再误报单位不一致。"""
+        C = self._run('血小板', ['×10^9/L', '/×10^9/L', '×10^9/L', '/×10^9/L', '×10^9/L'])
+        self.assertEqual(C.entry, [])
+
+    def test_trailing_slash_is_same_unit(self):
+        """尾随斜杠同理：'U/L/' 与 'U/L' 等价。"""
+        C = self._run('肌酸激酶', ['U/L', 'U/L/', 'U/L', 'U/L', 'U/L'])
+        self.assertEqual(C.entry, [])
+
+    def test_real_minority_unit_still_flagged(self):
+        """守卫：真正不同的单位（多数 fL、一条 L）仍要报——装饰斜杠归一不得吞掉真单位差异。"""
+        C = self._run('平均血小板体积', ['fL', 'fL', 'fL', 'fL', 'L'])
+        self.assertEqual(len(C.entry), 1)
+        self.assertIn('单位', C.entry[0]['why'])
+
+
+class V5FixEfficacyWideTests(unittest.TestCase):
+    """V5 修复波：efficacy 域宽表 tests 不被展开（normalize main() 只对 findings 走 findings() 展开，
+    efficacy 走通用 read_spec）→ D001INC 量表列值全空、eff.metrics 空、KPI 缺失。修后与 findings 同构展开；
+    窄表（const metric）照旧保留 metric 语义。夹具全合成（_SynthXlsx），不进仓库。"""
+
+    ROWS = [['受试者', '访视名称', '靶皮损面积', '面积单位', '合计评分（系统生成）'],
+            ['SUBJID', 'VISIT', 'TRTAREA', 'TRTAREA_UNIT', 'DLQI'],
+            ['S001', 'W8', 12.5, 'cm2', ''],
+            ['S001', 'W12', 9.0, 'cm2', ''],
+            ['S002', 'W8', 20.0, 'cm2', '18']]
+
+    @classmethod
+    def setUpClass(cls):
+        import json
+        import shutil
+        import subprocess
+        import tempfile
+        cls.dir = Path(tempfile.mkdtemp(prefix='mm_fix_eff_'))
+        _SynthXlsx.build(cls.dir / 't.xlsx', [('TRT', 'A1:E5', None, cls.ROWS)])
+        mapping = {'workbooks': {'edc': 't.xlsx'}, 'label_row': 1, 'var_row': 2, 'data_start': 3,
+                   'domains': {'efficacy': [
+                       {'wb': 'edc', 'sheet': 'TRT', 'cols': {'sid': 'SUBJID', 'visit': 'VISIT'},
+                        'tests': {'靶皮损面积': {'value': 'TRTAREA', 'unit': 'TRTAREA_UNIT'}}},
+                       {'wb': 'edc', 'sheet': 'TRT', 'cols': {'sid': '受试者', 'visit': '访视名称', 'value': '合计评分（系统生成）'},
+                        'const': {'metric': '合计评分（系统生成）'}}]}}
+        (cls.dir / 'mapping.json').write_text(json.dumps(mapping, ensure_ascii=False, indent=1), encoding='utf-8')
+        r = subprocess.run([sys.executable, str(ROOT / 'scripts/normalize_listing.py'), str(cls.dir / 'mapping.json'),
+                            '--out', str(cls.dir / 'norm')], capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr[-2000:]
+        cls.eff = json.loads((cls.dir / 'norm/efficacy.json').read_text(encoding='utf-8'))
+
+    @classmethod
+    def tearDownClass(cls):
+        import shutil
+        shutil.rmtree(cls.dir, ignore_errors=True)
+
+    def test_wide_tests_expanded_values_present(self):
+        """宽表逐测试列展开：值列非空（修前 efficacy 走 read_spec，tests 列全空、无 metric）。"""
+        area = [r for r in self.eff if r.get('metric') == '靶皮损面积']
+        self.assertEqual(len(area), 3)
+        self.assertEqual(sorted(r['value'] for r in area), [9.0, 12.5, 20.0])
+        self.assertTrue(all(r.get('unit') == 'cm2' for r in area))
+
+    def test_metric_field_on_every_record(self):
+        """每条 efficacy 记录带 metric（mm_build.build_eff 按 eff:<metric> 归组）：宽表取测试名，窄表取 const。"""
+        self.assertEqual({r.get('metric') for r in self.eff}, {'靶皮损面积', '合计评分（系统生成）'})
+        narrow = [r for r in self.eff if r.get('metric') == '合计评分（系统生成）']
+        self.assertEqual(len(narrow), 1)
+        self.assertEqual(narrow[0]['value'], 18.0)
+        self.assertEqual(narrow[0]['sid'], 'S002')
+
+    def test_domain_and_trace_intact(self):
+        """域标记与源行追溯不丢：domain=efficacy、sheet/row 保留（下游 ev_sh / drill 定位用）。"""
+        self.assertTrue(self.eff)
+        self.assertTrue(all(r.get('domain') == 'efficacy' for r in self.eff))
+        self.assertTrue(all(r.get('sheet') == 'TRT' and isinstance(r.get('row'), int) for r in self.eff))
+
+
+class V5FixSmallBaseNoise(unittest.TestCase):
+    """V5 修复波：EO/EO%/嗜碱/MO#/TBIL 等基线接近检测下限的指标，30% 百分比门槛噪音大（RUX 趋势信号约
+    1/3 为噪音）。基线绝对值低于单位档小基数上限（×10^9/L、×10^12/L <0.5；µmol/L <10）时，趋势/幅度判据
+    须同时满足绝对变化下限（≥0.3；≥3）；大基数指标的百分比判据不变。口径不变：仍是提示不发质疑。"""
+
+    def test_abs_floor_by_unit(self):
+        from monitor_v5 import abs_floor
+        self.assertEqual(abs_floor(0.2, '×10^9/L'), 0.3)          # 小基数：要求同向变化 ≥0.3
+        self.assertEqual(abs_floor(0.2, '/×10^9/L'), 0.3)         # 装饰斜杠写法同档
+        self.assertIsNone(abs_floor(2.4, '×10^9/L'))              # 大基数：沿用百分比判据
+        self.assertEqual(abs_floor(0.04, '×10^12/L'), 0.3)
+        self.assertEqual(abs_floor(3.0, 'µmol/L'), 3.0)
+        self.assertIsNone(abs_floor(58, 'µmol/L'))
+        self.assertIsNone(abs_floor(150, 'g/L'))                  # 无档位单位不设限
+        self.assertIsNone(abs_floor(None, '×10^9/L'))             # 基线缺失不设限
+
+    @staticmethod
+    def _lab(label, vals, base, unit, lo=None, hi=None):
+        """趋势预警桩（与 V5Monitor._lab 同构，独立复制避免耦合）。"""
+        from types import SimpleNamespace
+        b = {'value': base, 'raw': str(base)}
+        rows = [{'sid': 'S1', 'value': v, 'raw': str(v), 'unit': unit, 'lo': lo, 'hi': hi, 'visit': f'V{i + 1}',
+                 'post': True, 'base': b, 'date': f'2026-0{2 + i}-10', 'time': None, 'sheet': 'LB', 'row': i + 2, 'wb': '',
+                 'oor': (hi is not None and v > hi) or (lo is not None and v < lo), 'grade': 0} for i, v in enumerate(vals)]
+        mid = 'lab:' + label
+        C = SimpleNamespace(A={}, F={('S1', mid): rows}, metric={mid: {'label': label}}, cmap={}, pop={'S1'},
+                            subj={'S1': {'site': '01'}}, labrows=[], others=[], cfg={'thresholds': {'base': 0.3}})
+        out = []
+        return C, out, (lambda C_, sid, cat, pr, summ, *a, **k: out.append((cat, pr, summ)))
+
+    def test_trend_small_base_noise_filtered(self):
+        """EO 0.05→0.12（+140%）：修前发「持续变化趋势」，修后绝对变化 0.07<0.3 不再发。"""
+        import ext_rules
+        import monitor_v5
+        ext_rules.set_metric_dir({})
+        C, out, add = self._lab('嗜酸性粒细胞', [0.06, 0.08, 0.10, 0.12], 0.05, '×10^9/L', hi=0.5)
+        monitor_v5.lab_shift(C, add)
+        self.assertEqual(out, [])
+
+    def test_trend_small_base_real_change_kept(self):
+        """同单位大变化（0.05→0.70，绝对 +0.65≥0.3）：趋势提示照常（判据只加噪音过滤，不砍真信号）。"""
+        import ext_rules
+        import monitor_v5
+        ext_rules.set_metric_dir({})
+        C, out, add = self._lab('嗜酸性粒细胞', [0.2, 0.3, 0.45, 0.7], 0.05, '×10^9/L', hi=1.0)
+        monitor_v5.lab_shift(C, add)
+        self.assertEqual([o[0] for o in out], ['持续变化趋势'])
+
+    def test_trend_large_base_percent_judgement_unchanged(self):
+        """大基数指标（基线 11 U/L）百分比判据零扰动（V5Monitor 既有行为回归）。"""
+        import ext_rules
+        import monitor_v5
+        ext_rules.set_metric_dir({})
+        C, out, add = self._lab('丙氨酸氨基转移酶', [12, 15, 19, 26], 11, 'U/L', hi=40)
+        monitor_v5.lab_shift(C, add)
+        self.assertEqual([o[0] for o in out], ['持续变化趋势'])
+
+    @staticmethod
+    def _rel_C(label, bv, post, lo, hi, unit):
+        """REL 候选桩：行携带构建期已算好的 dev/pct（build_findings 口径），基线行 post=False。"""
+        from types import SimpleNamespace
+        b = {'value': bv, 'raw': str(bv), 'visit': 'D1', 'unit': unit}
+        rows = [{'sid': 'S1', 'value': bv, 'raw': str(bv), 'unit': unit, 'lo': lo, 'hi': hi, 'visit': 'D1',
+                 'post': False, 'base': b, 'date': '2026-01-10', 'sheet': 'LB', 'row': 2, 'wb': '',
+                 'oor': False, 'grade': 0, 'clin': 0, 'dev': 0, 'pct': None, 'desc': '', 'links': []}]
+        for i, v in enumerate(post):
+            rows.append({'sid': 'S1', 'value': v, 'raw': str(v), 'unit': unit, 'lo': lo, 'hi': hi, 'visit': f'W{i + 2}',
+                         'post': True, 'base': b, 'date': f'2026-02-{10 + i:02d}', 'sheet': 'LB', 'row': i + 3, 'wb': '',
+                         'oor': v < lo or v > hi, 'grade': 0, 'clin': 0,
+                         'dev': (lo - v) / lo if v < lo else ((v - hi) / hi if v > hi else 0),
+                         'pct': (v - bv) / abs(bv) * 100, 'desc': '', 'links': []})
+        mid = 'lab:' + label
+        return SimpleNamespace(A={'labDomains': ['lab']}, cfg={'thresholds': {'dev': 0.3, 'base': 0.3}}, mthr=[],
+                               F={(('S1', mid)): rows}, pop={'S1'}, subj={'S1': {'site': '01'}}, labrows=[],
+                               src={'sheets': {}}, metric={mid: {'label': label}})
+
+    def test_rel_small_base_filtered_and_large_kept(self):
+        """幅度判据（较基线显著变化）：小基数（淋巴细胞绝对值 0.3→0.1，绝对变化 0.2<0.3）修后不成候选；
+        大基数（1.5→0.6，绝对 0.9≥0.3）照常成候选——百分比门槛对大基数不变。"""
+        from mm_build import rel_candidates
+        import ext_rules
+        ext_rules.set_metric_dir({})
+        small = self._rel_C('淋巴细胞绝对值', 0.3, [0.1], lo=0.8, hi=4.0, unit='×10^9/L')
+        rel_candidates(small)
+        self.assertEqual([g for g in small.labrows if g['risk'] == 'REL'], [])
+        large = self._rel_C('淋巴细胞绝对值', 1.5, [0.6], lo=0.8, hi=4.0, unit='×10^9/L')
+        rel_candidates(large)
+        self.assertEqual([g['risk'] for g in large.labrows], ['REL'])
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)

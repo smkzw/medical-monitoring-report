@@ -223,7 +223,7 @@ def kri(C):
         for r in list(C.efficacy) + list(C.findings):
             if ci.search(str(r.get('metric') or r.get('test') or '')) and (r.get('value') not in (None, '') or r.get('raw') not in (None, '')):
                 have[r['sid']].add(r.get('visit'))
-    crit_rows = [d for d in due if d[2] in cv and d[5]] if cv and ci else []
+    crit_rows = [d for d in due if d[2] in cv and d[5]] if cv and ci and ci_hit else []   # ci_hit 空＝正则匹配失败，pem 分母必须归零（否则全为「无评估」→「n/n 全缺」误读；na 已提示原因）
     fu = C.ops.get('fu') or {}
     te = [a for a in C.aes if a['sid'] in C.pop and a.get('te')]
     nnum = Counter(S[f['sid']]['site'] for f in C.findings if f['sid'] in S and isinstance(f.get('value'), (int, float))
@@ -324,6 +324,27 @@ def ctq(C):
 
 
 # ----------------------------------------------------------------------------- 范围内明显变化 / 趋势预警
+# 小基数指标的绝对变化下限（单位档：正则, 小基数基线上限, 绝对变化下限）。EO/嗜碱/MO#/TBIL 等基线接近
+# 检测下限的指标，30% 百分比门槛噪音大（RUX 趋势信号约 1/3 为噪音）：基线绝对值低于该档上限时，
+# 趋势/幅度判据要求同向变化同时达到绝对下限；大基数指标（基线 ≥上限）百分比判据不变。只收噪音，不改口径（提示不发质疑）。
+_ABS_FLOOR = [
+    (re.compile(r'10\s*[\^*×x]?9\s*/\s*l', re.I), 0.5, 0.3),    # ×10^9/L（含 /×10^9/L 装饰斜杠）：基线 <0.5 → 变化 ≥0.3
+    (re.compile(r'10\s*[\^*×x]?12\s*/\s*l', re.I), 0.5, 0.3),   # ×10^12/L：基线 <0.5 → 变化 ≥0.3
+    (re.compile(r'[uµ]mol\s*/\s*l', re.I), 10.0, 3.0),          # µmol/L（TBIL 等）：基线 <10 → 变化 ≥3
+]
+
+
+def abs_floor(bv, unit):
+    """小基数指标的绝对变化下限（None＝沿用百分比判据）。bv／unit 任一缺失或 bv≤0 时不设限。"""
+    if not isinstance(bv, (int, float)) or bv <= 0:
+        return None
+    u = str(unit or '').replace('µ', 'u').replace('μ', 'u').lower()
+    for rx_, bmax, amin in _ABS_FLOOR:
+        if rx_.search(u):
+            return amin if bv < bmax else None
+    return None
+
+
 def _cr_abs(unit):
     u = re.sub(r'\s', '', str(unit or '')).lower().replace('µ', 'u').replace('μ', 'u')
     return 0.3 if 'mg/dl' in u else 26.5 if 'umol/l' in u else None
@@ -404,7 +425,8 @@ def lab_shift(C, add_other):
         last, first = post[-1], post[-run]
         pct = (last['value'] - bv) / abs(bv) * 100
         p0 = (last['value'] - first['value']) / abs(first['value']) * 100 if first['value'] else 0
-        if run >= 4 and pct * sg >= tb * 100 and p0 * sg >= tb * 100:
+        af = abs_floor(bv, last.get('unit') or b.get('unit'))
+        if run >= 4 and pct * sg >= tb * 100 and p0 * sg >= tb * 100 and (af is None or (last['value'] - bv) * sg >= af):
             seq = ' → '.join(str(x.get('raw')) for x in post[-run:])
             add_other(C, sid, '持续变化趋势', 2,
                       f"{label} 连续 {run - 1} 次{'升高' if d == 'up' else '下降'}（{seq} {last.get('unit') or ''}），末次较基线（{b.get('raw')}）{pct:+.0f}%，仍在参考范围内",

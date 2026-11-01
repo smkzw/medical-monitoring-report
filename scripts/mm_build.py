@@ -918,6 +918,8 @@ def rel_candidates(C):
         dev_f, base_f = thr_eff(C, mid)
         dev_f, base_f = min(0.20, dev_f), min(0.20, base_f)      # 最低档候选地板：项目收紧低于 20% 时取收紧值
         mdir = ext_rules.metric_dir(mid)
+        b = rows[0]['base']
+        bv = b.get('value') if isinstance(b, dict) else None          # 小基数绝对变化下限的基线（monitor_v5.abs_floor）
         cand = []
         for r in rows:
             if not r['post'] or r.get('value') is None or not r.get('dev') or r.get('pct') is None:
@@ -931,11 +933,16 @@ def rel_candidates(C):
                 continue
             if mdir == 'down' and not below:
                 continue
-            if (above and r['pct'] >= base_f * 100) or (below and -r['pct'] >= base_f * 100):
-                cand.append(r)
+            if not ((above and r['pct'] >= base_f * 100) or (below and -r['pct'] >= base_f * 100)):
+                continue
+            af = monitor_v5.abs_floor(bv, r.get('unit') or (b or {}).get('unit') if isinstance(b, dict) else r.get('unit'))
+            if af is not None:                                         # af 非 None ⇒ bv 必为数值
+                dlt = (r['value'] - bv) if above else (bv - r['value'])  # 同向变化量（绝对值）
+                if dlt < af:
+                    continue                                           # 小基数（基线接近检测下限）：百分比 30% 门槛噪音，须同时满足绝对下限
+            cand.append(r)
         if not cand:
             continue
-        b = rows[0]['base']
         exist = by_key.get((sid, mid))
         if exist is not None and (exist.get('pr') or 0) >= 3:
             for r in cand:                                       # 同一源行已有 pr≥3：只作上下文
@@ -1218,9 +1225,9 @@ def entry_errors(C):
     C.entry = []
     skip = re.compile(C.A.get('entryCheckExclude') or r'尿.*(白细胞|红细胞|隐血|潜血|管型|上皮|细菌|结晶|酵母)|隐血|潜血')   # 尿沉渣计数天然大幅波动
 
-    def ucanon(u):                                       # 等价单位写法视为相同（U/L＝IU/L，×10^9/L＝10^9/L，µ＝μ＝u）
-        u = re.sub(r'\s|×|\*', '', str(u or '')).lower().replace('µ', 'u').replace('μ', 'u').replace('秒', 's')
-        return '' if u in ('na', 'n/a', '/', '-', '—', '无') else re.sub(r'^iu', 'u', u).replace('/iu', '/u')
+    def ucanon(u):                                       # 等价单位写法视为相同（U/L＝IU/L，×10^9/L＝10^9/L，µ＝μ＝u，前导/尾随装饰斜杠：/fL＝fL/＝fL）
+        u = re.sub(r'\s|×|\*', '', str(u or '')).lower().replace('µ', 'u').replace('μ', 'u').replace('秒', 's').strip('/')
+        return '' if u in ('na', 'n/a', '/', '-', '—', '无', '') else re.sub(r'^iu', 'u', u).replace('/iu', '/u')
     for (sid, mid), rows in C.F.items():
         if mid.split(':')[0] not in ('lab', 'vs', 'ecg') or skip.search(C.metric[mid]['label']):
             continue

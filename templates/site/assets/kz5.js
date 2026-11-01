@@ -10,14 +10,17 @@ const LS={get:(k,d)=>{try{const v=localStorage.getItem(k);return v==null?d:JSON.
 K.SIGST={open:['待处理',''],doing:['处理中','blu'],done:['已处理','grn'],fp:['核实无问题','line'],hold:['暂缓','yel']};
 K.SIGR={done:['已发质疑','数据已更正','已录入方案偏离','已与中心沟通','其他'],fp:['医学上合理','规则误报','数据无误','重复','其他'],hold:['等待数据更新','等待中心回复','其他']};
 const LR={CSX:6,DISW:5,MH:5,NCS2:4,NA2:4,G2NF:4,NA:3,MHU:3,CSI:2,'MHX-T':2,REL:1};
-K.sigKey={lab:g=>'lab|'+g.sid+'|'+g.test,oth:o=>'oth|'+o.qkey,pd:p=>'pd|'+p.rule+'|'+p.sid+'|'+(p.visit||p.date||''),
+K.sigKey={lab:g=>'lab|'+g.sid+'|'+g.test,oth:o=>{const q=String(o.qkey||'');return /^oth\|/.test(q)?q:'oth|'+q},pd:p=>'pd|'+p.rule+'|'+p.sid+'|'+(p.visit||p.date||''),
   ent:e=>'ent|'+e.sid+'|'+e.test+'|'+(e.visit||'')+'|'+(e.date||''),vis:v=>'vis|'+v.sid+'|'+v.v,ctr:x=>'ctr|'+x.site+'|'+x.k,
   kri:x=>'kri|'+x.site+'|'+x.k,qtl:x=>'qtl|'+x.k,cred:x=>'cred|'+x.site+'|'+x.k,fresh:x=>'fresh|'+x.site};
 K.sigRank={lab:g=>(LR[g.risk]||0)*10+(g.mg||0),pd:p=>({'重要':3,'待判定':2,'一般':1}[p.grade]||0),oth:o=>o.pr||0};
 const rankOf=(kind,x)=>(K.sigRank[kind]||(()=>0))(x);
 K._sigLS='kz.sig:'+study();
 K.sigAll=()=>{if(K._sigM)return K._sigM;const a=Z().sigstate||{},b=LS.get(K._sigLS,{}),m={...a};
-  Object.entries(b).forEach(([k,v])=>{if(!m[k]||String(v.at||'')>=String(m[k].at||''))m[k]=v});return K._sigM=m};
+  Object.entries(b).forEach(([k,v])=>{if(!m[k]||String(v.at||'')>=String(m[k].at||''))m[k]=v});
+  /* V5 修复波：oth 处置键曾双前缀（oth|oth|…），归一后按单前缀读旧状态（剥第一个 oth| 即得单前缀别名，处置记录不丢） */
+  Object.keys(m).forEach(k=>{if(k.startsWith('oth|oth|')){const nk=k.slice(4);if(!m[nk]||String(m[k].at||'')>=String(m[nk].at||''))m[nk]=m[k]}});
+  return K._sigM=m};
 K.sigGet=(kind,x)=>{const k=K.sigKey[kind](x),r=K.sigAll()[k];if(!r||r.s==='open')return {s:'open',k};
   if((r.s==='done'||r.s==='fp')&&r.rk!=null&&rankOf(kind,x)>r.rk)return {...r,s:'open',s0:r.s,k,re:true};return {...r,k}};
 K.sigSet=(kind,x,s,r='',n='')=>{const k=K.sigKey[kind](x),rec={s,r,n,at:new Date().toISOString().slice(0,16).replace('T',' '),rk:rankOf(kind,x),by:Z().user||''};

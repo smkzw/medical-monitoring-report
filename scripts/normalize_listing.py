@@ -298,6 +298,8 @@ def findings(spec, books, M):
             if str(rec.get('test') or '') in flag_tests:
                 continue                      # F01①：长表按测试名同样排除完成标志类
             items = [dict(rec)]
+            if not str(items[0].get('test') or '') and items[0].get('metric'):
+                items[0]['test'] = items[0]['metric']   # efficacy 窄表（const metric）：测试名回落到 metric，记录不丢
         else:
             items = []
             for test, tc in spec['tests'].items():
@@ -378,8 +380,21 @@ def main():
     out = Path(a.out)
     D = M['domains']
     for dom, specs in D.items():
-        if dom == 'findings':
-            recs = [f for s in specs for f in findings(s, books, M)]
+        if dom in ('findings', 'efficacy'):
+            # efficacy 与 findings 同构处理（V5 修复波：D001INC 实测 efficacy 宽表 tests 不展开 → 量表列值
+            # 全空、eff.metrics 空、KPI 缺失）。展开后每条记录补 metric＝test（build_eff 按 eff:<metric> 归组）；
+            # 窄表（const metric）在 findings() 内回落 test＝metric，metric 语义不变。
+            recs = []
+            for s in specs:
+                sp = dict(s)
+                if dom == 'efficacy':
+                    if not sp.get('domain'):
+                        sp['domain'] = 'efficacy'
+                    if sp.get('tests') and not sp.get('layout'):
+                        sp['layout'] = 'wide'          # 实测（D001INC/RUX）：efficacy 宽表只带 tests 不写 layout → 按宽表展开
+                for f in findings(sp, books, M):
+                    f.setdefault('metric', f.get('test'))
+                    recs.append(f)
         else:
             recs = []
             for s in specs:

@@ -114,5 +114,38 @@ const qs = K.qtlState('wd', [16, 100]);
 ok(qs.st === 'exceed' && Math.abs(qs.v - 16) < 1e-9 && qs.lim === 15, '容忍限度：标准档 16% > 15% → 超出');
 ok(K.qtlState('wd', [13, 100]).st === 'warn', '超过限度的 80% → 接近限度');
 
+/* ---- V5 修复波⑤：oth 处置键双前缀去重（others.qkey 已带 oth|，sigKey 再拼一次得 oth|oth|…）----
+ * 归一后与工作台 stable_id 同写法（oth|<sid>|…）；旧键（localStorage/工作台 sigstate）读取时迁移别名，处置状态不丢。 */
+ok(K.sigKey.oth({ qkey: 'oth|S1|PR-2|wb:LB|k' }) === 'oth|S1|PR-2|wb:LB|k', 'oth qkey 已带前缀不再重复拼接');
+ok(K.sigKey.oth({ qkey: 'lab|S1|MHX-T|w:s|v' }) === 'oth|lab|S1|MHX-T|w:s|v', '不带前缀的 qkey（MHX-T 通道）补 oth| 类别前缀');
+window.KZS = { sigstate: { 'oth|oth|S1|PR-2|wb:LB|k': { s: 'done', r: '已发质疑', at: '2026-11-01 10:00', rk: 0 } } };
+K._sigM = null;
+const mig = K.sigAll();
+ok(mig['oth|S1|PR-2|wb:LB|k'] && mig['oth|S1|PR-2|wb:LB|k'].s === 'done', '旧双前缀键应迁移出单前缀别名');
+const gotMig = K.sigGet('oth', { qkey: 'oth|S1|PR-2|wb:LB|k' });
+ok(gotMig.s === 'done', 'sigGet 用归一后的键应命中迁移来的处置状态');
+
+/* ---- V5 修复波④：热力图小中心「个案驱动」标注（不改判定，只改呈现）----
+ * 分母极小（随访人日 <200；无 fu 时给药人数 ≤3）且校正后偏高（q<0.10）的格子 → cased 判定＋标注文案。 */
+window.KZ = { cfg: {}, meta: {},
+  centers: [{ site: '01', name: '大中心', n: 120, dosed: 120 }, { site: '02', name: '小中心', n: 2, dosed: 2 }, { site: '03', name: '少给药中心', n: 3, dosed: 2 }],
+  subs: [], others: [], aes: [], queries: [], cro: [], labrows: [],
+  pd: { potential: [{ sid: 'S9', site: '02', grade: '一般', rule: 'PD-1', id: 1, title: 'x', fact: '' }] },
+  ops: { fu: { S1: 90000, S9: 50, S10: 50, S11: 9000 }, nnum: { '01': 500, '02': 20, '03': 10 }, entry: [] } };
+K._subs = [{ id: 'S1', site: '01', fd: '2026-01-01' }, { id: 'S9', site: '02', fd: '2026-01-01' }, { id: 'S10', site: '02', fd: '2026-01-01' }, { id: 'S11', site: '03', fd: '2026-01-01' }];
+K._subsBy = Object.fromEntries(K._subs.map(s => [s.id, s]));
+K.lab = [];
+K._cr = null;
+const CR = K.centerRisk();
+ok(CR.small && CR.small.has('02') && !CR.small.has('01'), '分母极小中心集合：随访人日 100<200 → small；90000 → 非 small');
+ok(CR.small.has('03'), '给药 ≤3（随访人日 9000 大）也进 small（「或」口径）');
+ok(typeof CR.cased === 'function' && CR.cased('pd', '02'), '小中心偏高格（q<0.10）→ 个案驱动判定为真');
+ok(!CR.cased('pd', '01'), '大中心同格（不偏高）不标');
+ok(!CR.cased('pd', 'zz'), '未知中心安全返回假');
+ok(K.caseNote({ qu: 0.01 }, true).includes('个案驱动'), '标注文案含「个案驱动」');
+ok(K.caseNote({ qu: 0.9 }, true) === '', '不偏高（q≥0.10）无标注');
+ok(K.caseNote({ qu: 0.01 }, false) === '', '非小中心无标注');
+ok(K.caseNote(null, true) === '', '无格数据无标注');
+
 if (fails) { console.error(`${fails} 处断言失败`); process.exit(1); }
-console.log('render logic ok: knCard/knBar/knHint/ptCons/judgeCell/bh/poisUp/qlt/sig/qtl');
+console.log('render logic ok: knCard/knBar/knHint/ptCons/judgeCell/bh/poisUp/qlt/sig/qtl/sigKey/heatCase');
