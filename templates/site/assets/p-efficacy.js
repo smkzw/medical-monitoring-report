@@ -5,7 +5,8 @@ const D=KZ,app=document.getElementById('app'),H=K.hash();
    data:[{sid,site,v:{metricId:{visit:value}}}]  anomalies:[{sid,site,k,c,v,t,st,rec:[[label,cls]]}]  rulesText */
 const EF=D.eff||{metrics:[],data:[],anomalies:[]},CF=K.cfg(),BLD=CF.blind||{};
 const E=EF.data||[];
-const M=(EF.metrics||[]).map(m=>[m.id,m.label,m.unit||'',m.kind||'continuous',m,m.note||'']);
+const MIS=new Set((EF.missing||[]).map(x=>x.id));   /* F-J：无数据的终点不进指标选择（红条说明＋总览行动项） */
+const M=(EF.metrics||[]).filter(m=>!MIS.has(m.id)).map(m=>[m.id,m.label,m.unit||'',m.kind||'continuous',m,m.note||'']);
 const val=(e,m,v)=>{const x=((e.v||{})[m[0]]||{})[v];return x==null?null:x};
 const visits=m=>m[4].visits||[];
 const AN=(EF.anomalies||[]).slice();
@@ -18,7 +19,7 @@ const funnelOf=(m,v)=>{const cl=clipOf(m);return K.funnel(D.centers.filter(c=>c.
 const kp=(M.filter(m=>m[4].kpi).length?M.filter(m=>m[4].kpi):M).slice(0,6);
 const fmtM=(m,x)=>x==null?'—':m[4].signed?(x>0?'+':'')+K.fmt(x):m[2]==='%'?K.pct(x):K.fmt(x);
 app.innerHTML=`<div class="flex mb"><h1 style="font-size:18px">有效性概览</h1><span class="muted small">${M.map(m=>K.esc(m[1])).join(' · ')}</span><span class="sp"></span>${BLD.on?K.p('盲态汇总 · 不分组','blu'):''}${(BLD.hidden||[]).length?K.p(BLD.hidden.map(K.esc).join(' / ')+' 按约定不展示','line'):''}</div>
-${(EF.notes||[]).length&&M.length?`<div class="small muted mb">${(EF.notes||[]).map(K.esc).join('；')}</div>`:''}<div class="kpis mb" id="kp"></div>
+${(EF.notes||[]).length&&M.length?`<div class="small muted mb">${(EF.notes||[]).map(K.esc).join('；')}</div>`:''}${(EF.missing||[]).length?`<div class="box red small mb">终点指标无数据 ${EF.missing.length} 项：${EF.missing.map(x=>K.esc(x.label)).join('、')}——配置了该指标但 listing 中无对应记录，请核查量表映射/指标名（行动项见总览）</div>`:''}<div class="kpis mb" id="kp"></div>
 <div class="card mb"><div class="tbar"><div class="chips" id="mc"></div><span class="sp"></span><span class="small muted">选择中心</span><select class="s" id="cs"><option value="">全部中心（整体）</option>${D.centers.filter(c=>c.dosed).map(c=>`<option value="${c.site}">${c.site} ${K.esc(c.name)}</option>`).join('')}</select></div>
  <div class="dev" id="dv"></div>
  <div class="grid g12"><div><div class="xs muted" id="t1"></div><div class="chart" id="c1" style="height:310px"></div></div><div><div class="xs muted" id="t2"></div><div class="chart" id="c2" style="height:310px"></div></div></div>

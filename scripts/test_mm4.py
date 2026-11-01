@@ -2652,5 +2652,349 @@ class V5FixSmallBaseNoise(unittest.TestCase):
         self.assertEqual([g['risk'] for g in large.labrows], ['REL'])
 
 
+class HIFixTermMetaGuard(unittest.TestCase):
+    """F-A（双视角 IMP-01）：事件域 term 列不得被结构性元数据列（访视名称/页面名称）抢走。
+
+    RUX 实证：AE/CM/MH 表 term 落到 VISIT（标签「访视名称」，日志页取值「共同页」）——报告事件名全表
+    「共同页」。修后：具体变量名/事件名称列优先，通用「名称$」不吃 访视/页面/表单/中心 名称。夹具全虚构。"""
+
+    def test_guess_term_skips_visit_and_page_name(self):
+        from inspect_listing import guess
+        names = [('访视名称', 'VISIT'), ('页面名称', 'FORMNM'), ('不良事件名称', 'AETERM')]
+        self.assertEqual(guess(names, 'term'), 'AETERM')
+
+    def test_guess_term_label_only_headers(self):
+        from inspect_listing import guess
+        names = [('访视名称', ''), ('合并用药名称', ''), ('页面名称', '')]
+        self.assertEqual(guess(names, 'term'), '合并用药名称')
+
+    def test_guess_visit_still_maps_visit_name(self):
+        from inspect_listing import guess
+        names = [('访视名称', 'VISIT'), ('不良事件名称', 'AETERM')]
+        self.assertEqual(guess(names, 'visit'), 'VISIT')
+
+    def test_sys_meta_page_columns_blocked(self):
+        from inspect_listing import SYS_META, guess
+        for lab in ('页面名称', '记录号', 'Flag', 'MM comment'):
+            self.assertIn(lab, SYS_META, lab)
+        self.assertIsNone(guess([('页面名称', 'FORMNM')], 'term'))
+
+
+class HIFixEfficacySheetDomain(unittest.TestCase):
+    """F-B（IMP-06/CRUX-02/EFF-RES-MAP）：量表/评分/指数类 sheet 与「总分」表头须判 efficacy 域。
+
+    RUX 实证：IGA/EASI/SCORAD 表（表名带「评分/指数」但无锚定前缀）未识别、主要终点 IGA 无数据；
+    SAR 实证：RES1/2/4/5 rTNSS/rTOSS 日记表（表名纯代码、表头带「总分」）未识别、有效性页整页空。"""
+
+    def test_domain_re_matches_score_sheets(self):
+        import inspect_listing as IL
+        import re as _re
+        for sh in ('IGA--研究者整体评分（IGA）', 'EASI--湿疹面积及严重程度指数评分（EASI）',
+                   'SRA--特应性皮炎评分（SCORAD）-A-皮损面积', 'QLQ-C30生活质量问卷'):
+            hit = next((d for d, rx in IL.DOMAIN_RE if _re.search(rx, sh)), None)
+            self.assertEqual(hit, 'efficacy', sh)
+
+    def test_domain_findings_not_hijacked(self):
+        import inspect_listing as IL
+        import re as _re
+        for sh, want in (('LBHEMA--实验室检查-血常规', 'findings:lab'), ('VS--生命体征', 'findings:vs'),
+                         ('PE--体格检查', 'findings:pe')):
+            hit = next((d for d, rx in IL.DOMAIN_RE if _re.search(rx, sh)), None)
+            self.assertEqual(hit, want, sh)
+
+    def test_total_score_header_sign(self):
+        """表名纯代码（RES1）但表头带「总分」→ efficacy（skill 草稿侧表头签名兜底）。"""
+        import inspect_listing as IL
+        dom = IL.sheet_domain_by_header('RES1', ['项目编号', '受试者编号', '评估日期(RESDAT)', 'rTNSS总分(RTNSSNUM)', 'rTOSS总分(RTOSSNUM)'])
+        self.assertEqual(dom, 'efficacy')
+
+    def test_total_score_header_negative(self):
+        """检验/生命体征表头（无总分列）不被误判 efficacy。"""
+        import inspect_listing as IL
+        self.assertIsNone(IL.sheet_domain_by_header('LBX', ['受试者编号', '检验项目(LBTEST)', '结果(LBORRES)', '单位(LBORRESU)']))
+
+    def test_pd_summary_sheet_header_sign(self):
+        """F-H（SAR IMP-02）：CRO PD 记录表（sheet 名「总表」）表头带 方案违背详述/主分类 → pd 域，
+        不再整表「未识别」而漏掉 317 条已记录 PD。"""
+        import inspect_listing as IL
+        dom = IL.sheet_domain_by_header('总表', ['中心号', '中心名称', '筛选号', '随机号', '访视号', '事件发生时间',
+                                                'CRA发现时间', '方案违背详述', '方案违背\n主分类', '方案违背\n子分类'])
+        self.assertEqual(dom, 'pd')
+
+    def test_pd_term_prefers_detail_column(self):
+        """PD 表 desc 取「方案违背详述」（详述$），不吃结构性列。"""
+        from inspect_listing import guess
+        names = [('中心名称', ''), ('事件发生时间', ''), ('方案违背详述', ''), ('方案违背\n主分类', '')]
+        self.assertEqual(guess(names, 'term'), '方案违背详述')
+
+
+class HIFixMicroPanelSplit(unittest.TestCase):
+    """F-C（IMP-02）：微生物培养＋药敏 MIC 面板剥离检验异常核查。
+
+    RUX 实证：一份「一般细菌培养」（CS）＋十余项药敏 MIC（<=0.25 等，高值列写 R>=4 断点文本）逐项判
+    「CS 未关联异常」批量发质疑、标潜在 PD。修后：药敏行不入 labrows（不发质疑/不计 PD/不进风险），
+    培养行保留并在上下文汇总药敏。夹具全虚构。"""
+
+    def _mk(self, rows):
+        import ext_rules
+        ext_rules.set_metric_dir({})
+        from types import SimpleNamespace
+        from collections import defaultdict
+        F = defaultdict(list)
+        metric = {}
+        findings = []
+        for i, (test, raw, hi, desc) in enumerate(rows):
+            mid = f'lab:{test}'
+            try:
+                val = float(raw)
+            except (TypeError, ValueError):
+                val = None
+            try:
+                hiv = float(hi)
+            except (TypeError, ValueError):
+                hiv = None
+            r = {'sid': 'S1', 'mid': mid, 'post': True, 'clin': 2, 'value': val, 'raw': raw,
+                 'lo': None, 'hi': hiv, 'unit': '', 'grade': 0, 'pct': None, 'visit': 'USV', 'date': '2026-05-01',
+                 'sheet': 'LBO', 'row': 100 + i, 'wb': 'w', 'links': [], 'desc': desc, 'base': None,
+                 'test': test, 'domain': 'lab', 'group': 'LBO'}
+            F[('S1', mid)].append(r)
+            findings.append(r)
+            metric[mid] = {'id': mid, 'label': test, 'domain': 'lab', 'group': 'LBO', 'units': defaultdict(int),
+                           'n': 1 if val is not None else 0, 'nq': 0 if val is not None else 1, 'hasClin': True}
+        return SimpleNamespace(A={'labDomains': ['lab']}, cfg={'thresholds': {'dev': 0.3, 'base': 0.3}}, mthr=[],
+                               F=dict(F), pop={'S1'}, subj={'S1': {'site': '01'}}, labrows=[],
+                               src={'sheets': {}}, metric=metric, aeEnd={}, UNS={'USV'}, findings=findings, S={},
+                               G=SimpleNamespace(has=lambda code: False), cmap={}, GL='CTCAE v5.0')
+
+    def test_susceptibility_rows_excluded_culture_kept(self):
+        from mm_build import build_labrows, micro_panel_mark
+        rows = [('细菌培养', '金黄色葡萄球菌', None, 'CS'),
+                ('药物A', '<=0.25', 'R>=4', '耐药；与感染AE相关'),
+                ('药物B', '0.25', 'R>=4', '敏感；与感染AE相关'),
+                ('药物C', '2', 'R>=8', '中介')]
+        C = self._mk(rows)
+        micro_panel_mark(C)
+        build_labrows(C)
+        # 药敏行全部剥离（不发 CS 质疑/不计潜在 PD）；培养行按既有定性口径走（数值门），不因药敏剥离而多发
+        self.assertEqual([g['test'] for g in C.labrows], [])
+        sus = [f for f in C.findings if f.get('_micro') == 'S']
+        cul = [f for f in C.findings if f.get('_micro') == 'C']
+        self.assertEqual(len(sus), 3)
+        self.assertEqual(len(cul), 1)
+        self.assertEqual(len(cul[0].get('_micro_sus') or []), 3)
+
+    def test_plain_numeric_labs_unaffected(self):
+        from mm_build import build_labrows, micro_panel_mark
+        rows = [('尿酸', '516.00', '416.50', ''), ('白细胞', '8.91', '11.3', '')]
+        C = self._mk(rows)
+        micro_panel_mark(C)
+        build_labrows(C)
+        self.assertEqual(sorted(g['test'] for g in C.labrows), ['尿酸', '白细胞'])
+        self.assertEqual([f for f in C.findings if f.get('_micro')], [])
+
+
+class HIFixAeDuplicateCounts(unittest.TestCase):
+    """F-D（IMP-03）：完全重复 AE（同受试者同术语同起止）——指纹机制已有（F08），但例次/等级/SAE
+    计数仍在虚增：subs 聚合、KRI ae/sae、todo AESI 例次须按去重口径；AE 明细重复行标 dup。夹具全虚构。"""
+
+    def _C(self):
+        from types import SimpleNamespace
+        aes = [
+            {'sid': 'S1', 't': '肺炎', 's': '2026-05-01', 'e': '2026-05-10', 'g': '3级', 'sae': True, 'aesi': True,
+             'pre': False, 'te': True, '_rel': False, 'sh': 'AE', 'row': 2, 'n': 1, 'wb': '', 'c': '感染', 'soc': '',
+             'pt': '肺炎', 'ib': []},
+            {'sid': 'S1', 't': '肺炎', 's': '2026-05-01', 'e': '2026-05-10', 'g': '3级', 'sae': True, 'aesi': True,
+             'pre': False, 'te': True, '_rel': False, 'sh': 'AE', 'row': 3, 'n': 1, 'wb': '', 'c': '感染', 'soc': '',
+             'pt': '肺炎', 'ib': []},
+            {'sid': 'S1', 't': '头痛', 's': '2026-05-02', 'e': '', 'g': '1级', 'sae': False, 'aesi': False,
+             'pre': False, 'te': True, '_rel': False, 'sh': 'AE', 'row': 4, 'n': 2, 'wb': '', 'c': '神经系统', 'soc': '',
+             'pt': '头痛', 'ib': []},
+        ]
+        return SimpleNamespace(A={}, cfg={'thresholds': {'dev': 0.3, 'base': 0.3}}, aes=aes, ae_by={'S1': aes},
+                               pop={'S1'}, subj={'S1': {'site': '01', 'fd': '2026-05-01', 'status': '完成试验'}}, ae_dup=[],
+                               labrows=[], queries=[], others=[], entry=[], pdd={'potential': [], 'rules': []},
+                               ops={}, KZeff={'metrics': [], 'anomalies': []}, S={}, groups=[], exposure=[],
+                               visits=[], efficacy=[], findings=[], centers=[], F={}), aes
+
+    def test_fingerprint_marks_dup(self):
+        from mm_build import build_events_dup
+        C, aes = self._C()
+        build_events_dup(C)
+        self.assertTrue(aes[1].get('dup'))
+        self.assertFalse(aes[0].get('dup'))
+        self.assertEqual(aes[0].get('dup_n'), 2)
+
+    def test_kri_teae_sae_dedup(self):
+        import monitor_v5
+        from mm_build import build_events_dup
+        C, aes = self._C()
+        build_events_dup(C)
+        C.ops = {'cutoff': '2026-06-01', 'due': [], 'fu': {'S1': 30}, 'fresh': {}}
+        k = monitor_v5.kri(C)
+        self.assertEqual(k['study']['ae'], [2, 30])      # 肺炎（去重 1）＋头痛 1
+        self.assertEqual(k['study']['sae'], [1, 30])
+
+
+class HIFixSeverityLogic(unittest.TestCase):
+    """F-E（IMP-04）：严重性逻辑核对——≥3 级 AE 未按 SAE 且 SAE 标准全未勾选须提示核实；
+    gradeFloor（配置驱动，如分级标准某术语最低 N 级）低于下限疑编码/分级错误。夹具全虚构。"""
+
+    def _C(self, A=None):
+        from types import SimpleNamespace
+        aes = [{'sid': 'S1', 't': '呼吸衰竭', 's': '2026-05-01', 'e': '', 'g': '3级', 'sae': False, 'sae_crit': '',
+                'act': '暂停用药', 'pre': False, 'te': True, 'sh': 'AE', 'row': 2, 'n': 1, 'wb': '', 'cm': '',
+                'out': '', 'rel': '', '_rel': False, '_aesi_term': False, '_aesi_def': [], 'fd': '2026-05-01',
+                'pt': '呼吸衰竭', 'aesi': False}]
+        return SimpleNamespace(A=A or {}, cfg={'thresholds': {'dev': 0.3, 'base': 0.3}}, aes=aes, ae_by={'S1': aes},
+                               pop={'S1'}, subj={'S1': {'site': '01'}}, others=[], src={'sheets': {}}, aesiDefs=[], F={}), aes
+
+    def test_grade3_not_sae_flagged(self):
+        from mm_build import ae_checks
+        C, _ = self._C()
+        ae_checks(C)
+        hit = [o for o in C.others if o['cat'] == 'AE严重性逻辑核对']
+        self.assertEqual(len(hit), 1)
+        self.assertIn('呼吸衰竭', hit[0]['sum'])
+
+    def test_sae_or_low_grade_not_flagged(self):
+        from mm_build import ae_checks
+        C, aes = self._C()
+        aes[0].update(sae=True, g='1级', act='')
+        ae_checks(C)
+        self.assertEqual([o for o in C.others if o['cat'] == 'AE严重性逻辑核对'], [])
+        C2, aes2 = self._C()
+        aes2[0].update(g='2级')
+        ae_checks(C2)
+        self.assertEqual([o for o in C2.others if o['cat'] == 'AE严重性逻辑核对'], [])
+
+    def test_grade_floor_config(self):
+        from mm_build import ae_checks
+        C, aes = self._C({'aeChecks': ['grade_floor'], 'gradeFloor': [{'re': '衰竭', 'min': 2}]})
+        aes[0].update(g='1级', sae=False, act='')
+        ae_checks(C)
+        hit = [o for o in C.others if o['cat'] == 'AE分级下限核对']
+        self.assertEqual(len(hit), 1)
+        self.assertIn('至少 2 级', hit[0]['sum'])
+
+
+class HIFixSoaPopulationAlt(unittest.TestCase):
+    """F-F（CRUX-01）：SoA 替代量表（alt）机制——成人版/儿童版互为替代时按「量表家族」人群要求，
+    不再对从未做该量表的人群批量判缺失（RUX CDLQI 1290 条误报）。夹具全虚构。"""
+
+    def _C(self):
+        from types import SimpleNamespace
+        from collections import defaultdict
+        sub = lambda sid: {'sid': sid, 'site': '01', 'visit': 'D1', 'sheet': '成表', 'row': 1, 'group': '成表'}
+        # 成人 A 只做成表量表；儿童 B 只做儿表量表；C 两者都没做过（不在家族人群）
+        findings = []
+        for sid in ('A', 'B', 'B'):
+            findings.append({'sid': sid, 'site': '01', 'visit': 'D1', 'sheet': '成表' if sid == 'A' else '儿表',
+                             'row': len(findings) + 2, 'group': '成表' if sid == 'A' else '儿表', 'done': ''})
+        visits = [{'sid': s, 'visit': 'D1', 'date': '2026-05-01'} for s in ('A', 'B', 'C')]
+        return SimpleNamespace(
+            A={'soa': [{'name': '生活质量-成人', 'sheet': '成表', 'visits': ['D1'], 'cond': False, 'alt': ['儿表']}]},
+            pop={'A', 'B', 'C'}, subj={s: {'site': '01'} for s in 'ABC'},
+            visits=visits, findings=findings, efficacy=[], VIS=['D1'], UNS=set(),
+            isAgg=lambda v: True, S={})
+
+    def test_alt_satisfies_and_population_limited(self):
+        from mm_build import build_soa
+        C = self._C()
+        build_soa(C)
+        row = next(r for r in C.soa if r['name'] == '生活质量-成人')
+        cell = row['cells']['D1']
+        self.assertEqual(cell[0], 2)                    # 人群＝做过家族任一量表的 A、B（C 不在）
+        self.assertEqual(cell[3], 0)                    # B 由儿表替代满足 → 无缺失
+        self.assertEqual(cell[4], [])
+
+    def test_missing_when_family_member_lacks_visit(self):
+        from mm_build import build_soa
+        C = self._C()
+        C.visits.append({'sid': 'B', 'visit': 'W2', 'date': '2026-05-15'})
+        C.findings.append({'sid': 'A', 'site': '01', 'visit': 'W2', 'sheet': '成表', 'row': 9, 'group': '成表', 'done': ''})
+        C.VIS = ['D1', 'W2']
+        C.A['soa'][0]['visits'].append('W2')
+        build_soa(C)
+        row = next(r for r in C.soa if r['name'] == '生活质量-成人')
+        cell = row['cells']['W2']
+        self.assertEqual(cell[3], 1)
+        self.assertEqual(cell[4], ['B'])                # B W2 既无成表也无儿表 → 缺失
+
+
+class HIFixVisitIdentBeforeFold(unittest.TestCase):
+    """F-G（SAR IMP-01）：带明确访视号（V6/V7/W28）的标签不得被「随访期→FU」融合——
+    V6/V7 并成 FU 后 342/345 条访视窗全部失配成虚假逾期。夹具全虚构。"""
+
+    def test_visit_code_numbered_fu_kept(self):
+        from inspect_listing import visit_code
+        self.assertEqual(visit_code('安全性随访期V6（D57±3d）', ['V6', 'V7']), 'V6')
+        self.assertEqual(visit_code('安全性随访期V7（D85±3d）', ['V6', 'V7']), 'V7')
+        self.assertEqual(visit_code('安全性随访-28W（D197+7天）', []), 'W28')
+        self.assertEqual(visit_code('双盲治疗期-2W（D15±3天）', []), 'W2')
+
+    def test_visit_code_keywords_unchanged(self):
+        from inspect_listing import visit_code
+        self.assertEqual(visit_code('安全性随访', []), 'FU')
+        self.assertEqual(visit_code('治疗结束', []), 'EOT')
+        self.assertEqual(visit_code('筛选期（D-28至D-1）', []), 'SCR')
+        self.assertEqual(visit_code('计划外访视(2025-11-28)', []), 'USV')
+        self.assertEqual(visit_code('双盲治疗期V2（D1）', ['D1']), 'D1')
+
+
+class HIFixPregnancyEscalation(unittest.TestCase):
+    """F-I（PREG-ESCALATION）：妊娠暴露升级——妊娠试验阳性之外，影像/描述性「宫内早孕」也须识别；
+    按受试者合并为一条 pr4 妊娠暴露核查（结局随访、避孕依从），不再只按单条检验发常规质疑。夹具全虚构。"""
+
+    def _C(self, rows):
+        from types import SimpleNamespace
+        from collections import defaultdict
+        import ext_rules
+        ext_rules.set_metric_dir({})
+        F = defaultdict(list)
+        metric = {}
+        for i, (mid, test, raw, desc) in enumerate(rows):
+            r = {'sid': 'S1', 'mid': mid, 'post': True, 'clin': 2, 'value': None, 'raw': raw, 'lo': None,
+                 'hi': None, 'unit': '', 'grade': 0, 'pct': None, 'visit': 'USV', 'date': '2026-05-01',
+                 'sheet': 'LB', 'row': 10 + i, 'wb': 'w', 'links': [], 'desc': desc, 'base': None,
+                 'test': test, 'domain': 'lab', 'group': 'LB'}
+            F[('S1', mid)].append(r)
+            metric[mid] = {'id': mid, 'label': test, 'domain': 'lab', 'group': 'LB', 'units': defaultdict(int),
+                           'n': 0, 'nq': 1}
+        return SimpleNamespace(A={}, cfg={}, F=dict(F), pop={'S1'}, subj={'S1': {'site': '01'}}, others=[],
+                               src={'sheets': {}}, metric=metric), None
+
+    def test_positive_hcg_and_scan_consolidated(self):
+        from ext_rules import m18_preg
+        C, _ = self._C([('lab:血HCG', '血HCG', '阳性', ''),
+                        ('exam:妇科彩超', '妇科彩超', '宫内早孕（孕约6+周）', '早孕CS')])
+        m18_preg(C)
+        hit = [o for o in C.others if o['cat'] == '妊娠暴露核查']
+        self.assertEqual(len(hit), 1)
+        self.assertIn('结局随访', hit[0]['sum'] + str(hit[0].get('why') or ''))
+
+    def test_negative_preg_test_not_flagged(self):
+        from ext_rules import m18_preg
+        C, _ = self._C([('lab:血HCG', '血HCG', '阴性', '')])
+        C.F[('S1', 'lab:血HCG')][0]['clin'] = None
+        m18_preg(C)
+        self.assertEqual([o for o in C.others if '妊娠' in o['cat']], [])
+
+
+class HIFixEffMissingAction(unittest.TestCase):
+    """F-J（IMP-06）：配置了的有效性终点指标在数据中完全无记录 → 升级为可见行动项（不是静默空页）。"""
+
+    def test_missing_endpoint_becomes_action(self):
+        from types import SimpleNamespace
+        from collections import defaultdict
+        from mm_build import build_eff
+        M = [{'id': 'iga', 'label': 'IGA', 'src': 'eff:IGA得分', 'visits': ['D1', 'W8'], 'keyVisit': 'W8'}]
+        C = SimpleNamespace(A={'efficacy': M}, cfg={}, pop={'S1'}, subj={'S1': {'site': '01'}},
+                            efficacy=[], F={}, visits=[{'sid': 'S1', 'visit': 'W8'}],
+                            effsub=defaultdict(dict), effmag=[], effRules=[], vi=lambda v: 0)
+        build_eff(C)
+        self.assertEqual([x['id'] for x in C.KZeff.get('missing', [])], ['iga'])
+        self.assertTrue(any('IGA' in t[2] for t in getattr(C, 'todo', [])) or C.KZeff.get('missing'))
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)

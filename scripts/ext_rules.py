@@ -247,23 +247,33 @@ def m17_cm_ind(C):
 
 # --------------------------------------------------------------------------- M18 PREG
 def m18_preg(C):
+    """F-I（PREG-ESCALATION）：妊娠暴露升级为专项核查。证据源两路：
+    ① 妊娠类定性指标（检查名含 妊娠/怀孕/HCG/pregn）阳性（CS／「阳」／超上限）；
+    ② 影像/描述性发现（妇科超声等）原文或描述含 宫内(早)孕/早孕/妊娠囊/宫内妊娠/怀孕。
+    同一受试者合并为一条 pr4「妊娠暴露核查」——妊娠暴露属必须优先追踪的安全性事项（结局随访、避孕依从核查），
+    不逐条发常规 CS 质疑；阴性/未孕结果不触发。"""
     pre = re.compile(r'妊娠|怀孕|hcg|pregn', re.I)
+    desc_pre = re.compile(r'宫内(?:早)?孕|早孕|妊娠囊|宫内妊娠|怀孕|pregnan', re.I)
+    by_sub = {}
     for (sid, mid), rows in sorted(C.F.items()):
-        if sid not in C.pop or not pre.search(mid):
+        if sid not in C.pop:
             continue
-        test = C.metric[mid]['label']
+        test = (C.metric.get(mid) or {}).get('label') or mid
         for r in rows:
-            pos = (r.get('clin') == 2) or bool(r.get('raw') and re.search(r'阳', str(r.get('raw')))) or \
-                   (r.get('value') is not None and r.get('hi') is not None and r['value'] > r['hi'])
-            if not pos:
-                continue
-            vtxt = _raw_or_val(r)
-            vshow = f"「{vtxt}」" if not isinstance(vtxt, (int, float)) else f"{_val(vtxt, r.get('unit'))}（超参考范围）"
-            add_ext(C, sid, '妊娠检测核对', 'M18', 4,
-                    f"{r.get('visit')}（{dshow(r.get('date'))}）{test}{vshow}",
-                    r.get('visit'), r.get('date'), r['sheet'], r['row'], test,
-                    rule={'ask': '请确认是否为妊娠事件，并按方案要求完成妊娠报告与随访；如为误录，请更正。'},
-                    bkey=f"{mid}|{r.get('visit')}|{r.get('date')}", wb=r.get('wb') or '')
+            pos = pre.search(mid) and ((r.get('clin') == 2) or bool(r.get('raw') and re.search(r'阳', str(r.get('raw')))) or
+                                       (r.get('value') is not None and r.get('hi') is not None and r['value'] > r['hi']))
+            scan = bool(desc_pre.search(' '.join(str(r.get(k) or '') for k in ('raw', 'desc'))))
+            if pos or scan:
+                by_sub.setdefault(sid, []).append((test, r))
+    for sid, ev in sorted(by_sub.items()):
+        r0 = min((r for _, r in ev), key=lambda r: str(r.get('date') or '9999'))
+        evs = '；'.join(f"{t}「{str(r.get('raw') or r.get('value') or '')[:24]}」（{dshow(r.get('date'))}）"
+                        for t, r in ev[:4])
+        add_ext(C, sid, '妊娠暴露核查', 'M18', 4,
+                f"研究期间发现妊娠证据：{evs}{'…' if len(ev) > 4 else ''}。妊娠暴露须优先追踪（结局随访、避孕依从核查）",
+                r0.get('visit'), r0.get('date'), r0['sheet'], r0['row'], '妊娠',
+                rule={'ask': '请确认是否为妊娠事件，并按方案要求完成妊娠报告、结局随访与避孕依从核查；如为误录，请更正。'},
+                bkey=f"preg|{sid}", wb=r0.get('wb') or '')
 
 
 # --------------------------------------------------------------------------- M19 AE-EX

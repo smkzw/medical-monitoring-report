@@ -225,7 +225,7 @@ def kri(C):
                 have[r['sid']].add(r.get('visit'))
     crit_rows = [d for d in due if d[2] in cv and d[5]] if cv and ci and ci_hit else []   # ci_hit 空＝正则匹配失败，pem 分母必须归零（否则全为「无评估」→「n/n 全缺」误读；na 已提示原因）
     fu = C.ops.get('fu') or {}
-    te = [a for a in C.aes if a['sid'] in C.pop and a.get('te')]
+    te = [a for a in C.aes if a['sid'] in C.pop and a.get('te') and not a.get('dup')]   # F-D：完全重复记录（第 2 份起）不计数
     nnum = Counter(S[f['sid']]['site'] for f in C.findings if f['sid'] in S and isinstance(f.get('value'), (int, float))
                    and str(f.get('mid') or '').split(':')[0] in ('lab', 'vs', 'ecg'))
     fresh = C.ops.get('fresh') or {}

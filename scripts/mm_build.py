@@ -318,8 +318,25 @@ def build_events(C):
         rec['ib'] = ib_match(C, rec)
         C.ae_by[sid].append(rec)
         C.aes.append(rec)
-    # F08（RUX 深审）：重复 AE 记录指纹（同受试者＋同术语/PT＋同开始日期，EDC 修订版整行重复导出实测成对/三联）。
-    # 全组成员标 dup_n/dup_rows，第 2 份起标 dup（逐记录质疑只按组首发生，AE 谱按去重计数）；C.ae_dup 供标记 query。
+    C.mh_by = defaultdict(list)
+    for m in C.mh:
+        C.mh_by[m['sid']].append({'n': m.get('no') or len(C.mh_by[m['sid']]) + 1, 't': m.get('term') or '', 's': m.get('start') or '',
+                                  'e': m.get('end') or '', 'ong': '是' if m.get('ongoing') else '否', 'row': m['row'], 'sh': m['sheet'], 'wb': m.get('wb') or ''})
+    C.cm_by = defaultdict(list)
+    for c in C.cm:
+        ind = c.get('indication') or ''
+        wk = c.get('ind_kind') or ('AE' if re.search(r'^AE|不良事件', ind) else 'MH' if re.search(r'^MH|病史', ind) else '')
+        C.cm_by[c['sid']].append({'n': c.get('no') or len(C.cm_by[c['sid']]) + 1, 't': c.get('term') or '', 's': c.get('start') or '',
+                                  'e': c.get('end') or '', 'ong': bool(c.get('ongoing')), 'dose': c.get('dose') or '', 'fq': c.get('freq') or '',
+                                  'rt': c.get('route') or '', 'why': ind, 'wk': wk, 'row': c['row'], 'sh': c['sheet'], 'wb': c.get('wb') or '', 'f': '',
+                                  'aeno': str(c.get('aeno') or '')})
+    build_events_dup(C)
+
+
+def build_events_dup(C):
+    """F08（RUX 深审）：重复 AE 记录指纹（同受试者＋同术语/PT＋同开始日期，EDC 修订版整行重复导出实测成对/三联）。
+    全组成员标 dup_n/dup_rows，第 2 份起标 dup（逐记录质疑只按组首发生，AE 谱按去重计数）；C.ae_dup 供标记 query。
+    F-D（IMP-03）：抽成独立函数——例次/等级/SAE 等一切计数口径统一按「第 2 份起不计」去重（subs 聚合、KRI、todo）。"""
     C.ae_dup = []
     by_fp = defaultdict(list)
     for a in C.aes:
@@ -337,18 +354,6 @@ def build_events(C):
             x['dup_rows'] = [y.get('row') for y in grp]
         for x in grp[1:]:
             x['dup'] = True
-    C.mh_by = defaultdict(list)
-    for m in C.mh:
-        C.mh_by[m['sid']].append({'n': m.get('no') or len(C.mh_by[m['sid']]) + 1, 't': m.get('term') or '', 's': m.get('start') or '',
-                                  'e': m.get('end') or '', 'ong': '是' if m.get('ongoing') else '否', 'row': m['row'], 'sh': m['sheet'], 'wb': m.get('wb') or ''})
-    C.cm_by = defaultdict(list)
-    for c in C.cm:
-        ind = c.get('indication') or ''
-        wk = c.get('ind_kind') or ('AE' if re.search(r'^AE|不良事件', ind) else 'MH' if re.search(r'^MH|病史', ind) else '')
-        C.cm_by[c['sid']].append({'n': c.get('no') or len(C.cm_by[c['sid']]) + 1, 't': c.get('term') or '', 's': c.get('start') or '',
-                                  'e': c.get('end') or '', 'ong': bool(c.get('ongoing')), 'dose': c.get('dose') or '', 'fq': c.get('freq') or '',
-                                  'rt': c.get('route') or '', 'why': ind, 'wk': wk, 'row': c['row'], 'sh': c['sheet'], 'wb': c.get('wb') or '', 'f': '',
-                                  'aeno': str(c.get('aeno') or '')})
 
 
 _AE_NO_SOC_NOTE = '（未按器官系统——MedDRA 不可用）'
@@ -716,6 +721,42 @@ def _strip_disease_term_links(C):
             cfg['diseaseTermLinksStripped'] = n
 
 
+# ----------------------------------------------------------------------------- 微生物培养/药敏面板（IMP-02）
+_MICRO_TEST_RX = re.compile(r'培养|涂片|镜检|染色|鉴定')
+_MICRO_INTERP_RX = re.compile(r'敏感|耐药|中介|抑菌圈', re.I)
+_MICRO_MIC_RX = re.compile(r'^\s*[<>=≤≥]\s*\d+(?:\.\d+)?(?:\s*/\s*\d+(?:\.\d+)?)?\s*$')   # <=0.25 / >=8 / <=0.5/9.5
+_MICRO_BREAK_RX = re.compile(r'^\s*[SIR]\s*[<>=≤≥]\s*\d', re.I)                          # 高/低值列写断点文本 R>=4
+
+
+def micro_panel_mark(C):
+    """F-C（IMP-02）：微生物培养＋药敏面板识别（同一受试者·同表单·同日期的组合）。
+    培养类检查行（检查名 培养/涂片/镜检/染色/鉴定）标 _micro='C'；同面板内满足药敏形态的行标 _micro='S'：
+    ① MIC 比较值（<=0.25、>=8、<=0.5/9.5）且无单位，或 ② lo/hi 写 S/R 断点文本（R>=4），或 ③ 描述写敏感/耐药/中介。
+    药敏是判读型结果不是数值异常——不入检验异常核查（不发 CS 质疑、不计潜在 PD/风险）；药敏明细挂到培养行上下文。
+    纯数值且无判读/断点信号的行不判（如 CRP '<10' 带单位 mg/L、或裸数值 0.25——形态不自证，保守不剥离）。"""
+    panels = defaultdict(list)
+    for f in C.findings:
+        panels[(f.get('sid'), f.get('sheet'), f.get('date'))].append(f)
+    for rows in panels.values():
+        if not any(_MICRO_TEST_RX.search(str(r.get('test') or '')) for r in rows):
+            continue
+        sus = []
+        for r in rows:
+            if _MICRO_TEST_RX.search(str(r.get('test') or '')):
+                r.setdefault('_micro', 'C')
+                continue
+            mic = bool(_MICRO_MIC_RX.match(str(r.get('raw') or ''))) and not str(r.get('unit') or '').strip()
+            brk = any(_MICRO_BREAK_RX.match(str(r.get(k) or '')) for k in ('hi', 'lo'))
+            interp = bool(_MICRO_INTERP_RX.search(str(r.get('desc') or '')))
+            if mic or brk or interp:
+                r['_micro'] = 'S'
+                sus.append(r)
+        if sus:
+            for r in rows:
+                if r.get('_micro') == 'C':
+                    r['_micro_sus'] = sus
+
+
 def build_labrows(C):
     doms = set(C.A.get('labDomains', ['lab', 'vs', 'ecg']))
     match = [(re.compile(a), re.compile(b), w) for a, b, w in C.A.get('aeMatch', [])]  # [metricRe, aeTermRe, ±days]
@@ -732,6 +773,8 @@ def build_labrows(C):
         bc = (b or {}).get('clin') or 0
         pts, cat = [], '治疗后新发/加重检验异常'
         for r in rows:
+            if r.get('_micro') == 'S':
+                continue          # F-C（IMP-02）：药敏 MIC 行是判读结果，不作数值异常核查（不发质疑/不计 PD/风险）
             if not r['post'] or (C.aeEnd.get(sid) and is_full_date(r.get('date')) and r['date'] > C.aeEnd[sid]):
                 continue
             new = finding_abn(r) and (r.get('clin') == 2 or (r.get('grade') or 0) > bg or (r.get('clin') or 0) > bc or not (b and finding_abn(b)))
@@ -745,6 +788,12 @@ def build_labrows(C):
                 if l[:2] not in [x[:2] for x in links]:
                     links.append(l)
         ctx = []
+        for r, _ in pts:                                   # F-C：培养行汇总同面板药敏（明细挂上下文，不另发质疑）
+            sus = r.get('_micro_sus')
+            if sus:
+                res = '；'.join(f"{s.get('test')} {s.get('raw')}{('，' + str(s.get('desc'))) if s.get('desc') else ''}" for s in sus[:12])
+                ctx.append(f"同日药敏 {len(sus)} 项（{res}{'…' if len(sus) > 12 else ''}）——判读型结果，不另作数值异常核查")
+                break
         opp = ext_rules.opposite_dir([r for r, _ in pts])   # mm4：方向相反的 AE 不算同期疑似（嗜酸性粒细胞升高 ≠「白细胞减少」）
         # inferred AE (no dynamic link but a plausible AE exists) → context only, never auto-links
         # 用户裁定（PLAN §15.1，2026-10-28）：时间口径＝AE 持续期间覆盖检验日期（ae_covers，与第七批 AE 时间口径同因同策），
@@ -1116,7 +1165,8 @@ def combo_rules(C):
 
 
 def ae_checks(C):
-    on = set(C.A.get('aeChecks', ['predose_related', 'grade_vs_lab', 'cm_flag', 'cm_missing', 'aesi_terms', 'aesi_unmatched', 'duplicate']))
+    on = set(C.A.get('aeChecks', ['predose_related', 'grade_vs_lab', 'cm_flag', 'cm_missing', 'aesi_terms', 'aesi_unmatched',
+                                  'duplicate', 'severity_logic', 'grade_floor']))
     lab_by_ae = defaultdict(list)
     for (sid, mid), rows in C.F.items():
         for r in rows:
@@ -1150,7 +1200,28 @@ def ae_checks(C):
                 add_other(C, sid, 'AE合并用药记录核对', 3, f"AE「{a['t']}」（{dshow(a['s'])}）记「是否有合并用药=是」，合并用药页未见引用该 AE 的记录", None, a['s'], a['sh'], a['row'], a['t'],
                           rel=[['AE', a['t'], a['s'], a['n']]], risk='AE', wb=a.get('wb') or '')
         if 'aesi_terms' in on and a['_aesi_term'] and not a['aesi'] and not a['pre']:
-            add_other(C, sid, 'AESI标记核对', 3, f"AE「{a['t']}」符合方案 AESI 定义（{'、'.join(a['_aesi_def'])}），但「是否AESI」未勾选", None, a['s'], a['sh'], a['row'], a['t'], rel=[['AE', a['t'], a['s'], a['n']]], risk='AE', wb=a.get('wb') or '')
+            add_other(C, sid, 'AESI标记核对', 3, f"AE「{a['t']}」符合方案 AESI 定义（{'、'.join(a['_aesi_def'])}），但「是否AESI」未勾选", None, a['s'], a['sh'], a['row'], a['t'], rel=[['AE', a['t'], a['s'], a['n']]], risk='AE')
+        if 'severity_logic' in on:
+            # F-E（IMP-04）：高级别（默认 ≥3 级）AE 未按 SAE 且 SAE 标准全未勾选 → 内部矛盾，请核实严重性判定
+            #（不作 SAE 违规断言——是否构成 SAE 由研究者/方案定义；已停药/暂停者在文案中带出）。
+            gi2 = grade_int(a['g']) or 0
+            if gi2 >= int(C.A.get('severeGradeNosae', 3)) and not a['sae'] and not str(a.get('sae_crit') or '').strip():
+                stopw = '，且对研究用药已停药/暂停' if re.search(r'停|暂停|终止', str(a.get('act') or '')) else ''
+                add_other(C, sid, 'AE严重性逻辑核对', 3,
+                          f"AE「{a['t']}」记 {a['g']}，但未按 SAE（SAE 标准如住院/致死/致残等均未勾选）{stopw}——高级别事件的严重性判定请核实",
+                          None, a['s'], a['sh'], a['row'], a['t'], rel=[['AE', a['t'], a['s'], a['n']]], risk='AE', wb=a.get('wb') or '')
+        if 'grade_floor' in on:
+            # F-E（IMP-04）：gradeFloor（配置驱动，如分级标准中「X 衰竭」类术语最低 2 级）——低于下限疑编码/分级错误。
+            # 术语→最低级别属标准/方案知识，由 rules 层编译进 analysis.gradeFloor（{re, min, label}），脚本只放通用机制。
+            for R in C.A.get('gradeFloor') or []:
+                if not R.get('re') or not R.get('min'):
+                    continue
+                gi3 = grade_int(a['g']) or 0
+                if gi3 and gi3 < int(R['min']) and re.search(R['re'], ' '.join(x for x in (a['t'], a.get('pt') or '') if x)):
+                    add_other(C, sid, 'AE分级下限核对', 3,
+                              f"AE「{a['t']}」记 {a['g']}，但分级标准中「{R.get('label') or R['re']}」类术语至少 {R['min']} 级——疑编码或分级错误，请核实",
+                              None, a['s'], a['sh'], a['row'], a['t'], rel=[['AE', a['t'], a['s'], a['n']]], risk='AE', wb=a.get('wb') or '')
+                    break
     termdefs = [d for d in C.aesiDefs if d['_t'] or d['_soc']]
     if 'aesi_unmatched' in on and termdefs and len(termdefs) == len(C.aesiDefs) and not any(R.get('aesi') for R in C.A.get('thresholdRules', []) + C.A.get('comboRules', [])):
         for a in C.aes:  # flagged AESI but matches none of the protocol's (purely term-based) AESI definitions
@@ -1901,18 +1972,31 @@ def build_soa(C):
             spec.append({'name': names[sh], 'sheet': sh, 'visits': exp, 'cond': False})
     out = []
     for sp in spec:
-        by = recs.get(sp['sheet']) or recs.get(sheet2grp.get(sp['sheet']), {})   # 方案 SoA 可写 sheet 名或组名
+        # F-F（CRUX-01）：alt＝替代量表（成人版/儿童版等同一家族的互换表单）。带 alt 时：
+        # ① 应做人群＝做过本表或任一替代表（任一访视有记录）的受试者——从未做过家族任一表者不在该表人群
+        #（成人不做儿童量表，反之亦然），不再全人群判缺失；② 某访视由本表或替代表任一完成即算完成。
+        alts = [a for a in (sp.get('alt') or []) if a]
+        members = [sp['sheet']] + alts
+        bys = [recs.get(m) or recs.get(sheet2grp.get(m), {}) for m in members]   # 方案 SoA 可写 sheet 名或组名
+        pop = set()
+        if alts:
+            for b in bys:
+                for d0, n0 in b.values():
+                    pop |= d0 | n0
         cells = {}
         for v in cols:
             n = visited[v]
-            done = (by.get(v) or [set(), set()])[0] & n
-            no = (by.get(v) or [set(), set()])[1] & n - done
+            if alts:
+                n = n & pop
+            done = set().union(*[((b.get(v) or (set(), set()))[0] & n) for b in bys]) if bys else set()
+            no = set().union(*[((b.get(v) or (set(), set()))[1] & n) for b in bys]) - done if bys else set()
             if v in sp['visits']:
                 miss = n - done - no
                 cells[v] = [len(n), len(done), len(no), len(miss), sorted(miss), sorted(no), 0]
             elif done:
                 cells[v] = [len(n), len(done), 0, 0, [], [], 1]
-        out.append({'name': sp['name'], 'sheet': sp['sheet'], 'exp': sp['visits'], 'cond': sp.get('cond', False), 'cells': cells})
+        out.append({'name': sp['name'], 'sheet': sp['sheet'], 'exp': sp['visits'], 'cond': sp.get('cond', False),
+                    **({'alt': alts} if alts else {}), 'cells': cells})
     if spec and any(s.get('cond') for s in spec):
         C.S.setdefault('study', {}).setdefault('soaCond', [s['name'] for s in spec if s.get('cond')])
     C.soa, C.soacols = out, cols
@@ -2052,7 +2136,11 @@ def build_eff(C):
                     anomalies.append({'sid': sid, 'site': C.subj[sid]['site'], 'k': f'{kv} {m["label"]}缺失', 'c': '', 'v': kv, 't': f'{kv} 访视已发生，但未见 {m["label"]} 数据', 'st': '核对是否未录入/未评估'})
     C.KZeff = {'metrics': [{k: v for k, v in m.items() if k not in ('src', 'derive', 'baseVisit')} | {'note': m.get('note', '')} for m in M],
                'data': list(data.values()), 'anomalies': anomalies, 'rulesText': C.A.get('effRulesText', ''),
-               'notes': C.A.get('effNotes') or []}   # mm4：未生成/未对上的原因（宿主按方案终点×listing 生成）
+               'notes': C.A.get('effNotes') or [],   # mm4：未生成/未对上的原因（宿主按方案终点×listing 生成）
+               # F-J（IMP-06）：配置了的有效性终点指标在 listing 中完全无记录 → 显式行动项（不静默空页）
+               'missing': [{'id': m['id'], 'label': m.get('label') or m['id'], 'src': m.get('src'),
+                            'note': '终点配置了该指标，但 listing 中无任何对应记录——请核查量表表是否已映射/指标名是否一致'}
+                           for m in M if not any(m['id'] in (d.get('v') or {}) for d in data.values())]}
 
 
 # ----------------------------------------------------------------------------- subject files
@@ -2331,12 +2419,21 @@ def defaults(C):
     if not C.S.get('todo'):
         C.todo = [['CS·未关联', 'solid-red', f"{sum(g['risk'] == 'CSX' for g in C.labrows)} 行判CS但未关联AE/MH", 'safety.html#tab=lab&risk=CSX'],
                   ['优先核实', 'red', f"{sum(o['pr'] == 4 for o in C.others)} 条专项信号优先核实", 'safety.html#tab=oth'],
-                  ['AESI', 'red', f"{sum(a['aesi'] for a in C.aes if not a['pre'])} 例次 AESI", 'safety.html#tab=ae&aesi=1'],
+                  ['AESI', 'red', f"{sum(a['aesi'] for a in C.aes if not a['pre'] and not a.get('dup'))} 例次 AESI", 'safety.html#tab=ae&aesi=1'],
                   ['一致性', 'grn', f"判定一致性 {len(C.cons)} 组（同中心 {sum(1 for c in C.cons if c['scope'] == 'center')} · 同受试者 {sum(1 for c in C.cons if c['scope'] == 'subject')}）：需核实 {sum(c['st'] == '需核实' for c in C.cons)}", 'safety.html#tab=cons'],
                   ['质疑', 'org', f"{len(C.queries)} 条医学质疑已写入交付表格", 'queries.html']]
         an = Counter(x['k'] for x in C.KZeff['anomalies'])
         if an:
             C.todo.insert(4, ['有效性', 'blu', '；'.join(f'{k} {v}' for k, v in an.most_common(2)), 'efficacy.html'])
+        miss_eff = (C.KZeff or {}).get('missing') or []
+        if miss_eff:
+            C.todo.insert(1, ['终点缺失', 'solid-red',
+                              f"{len(miss_eff)} 项终点指标无数据：{'、'.join(x['label'] for x in miss_eff[:3])}"
+                              f"{'…' if len(miss_eff) > 3 else ''}（核查量表映射/指标名）", 'efficacy.html'])
+        if any(o.get('cat') == '妊娠暴露核查' for o in C.others):
+            C.todo.insert(1, ['妊娠暴露', 'solid-red',
+                              f"{sum(1 for o in C.others if o.get('cat') == '妊娠暴露核查')} 例妊娠暴露待优先追踪（结局随访、避孕依从核查）",
+                              'safety.html#tab=oth'])
         pot = (C.pdd or {}).get('potential') or []
         if pot:
             C.todo.insert(1, ['方案偏离', 'red', f"潜在 PD {len(pot)} 条：重要 {sum(1 for x in pot if x['grade'] == '重要')}，未见记录 {sum(1 for x in pot if x['status'] == '未见记录')}", 'deviations.html'])
@@ -2424,6 +2521,7 @@ def analyze(C):
     build_findings(C)
     _strip_disease_term_links(C)                         # F02 边界：研究疾病词目不作 MH 关联（先于一切关联消费方）
     annotate_links(C)                                    # 回溯后的关联类型（判定一致性归因维度用）
+    micro_panel_mark(C)                                  # F-C（IMP-02）：微生物培养/药敏面板标记（药敏行不入异常核查）
     build_labrows(C)
     rel_candidates(C)
     entry_errors(C)                                      # mm5 疑似录入错误（数据质量提示，不发 query）
@@ -2454,7 +2552,7 @@ def analyze(C):
     stc = Counter(s['status'] for s in S.values())
     subs = []
     for sid, s in S.items():
-        ae = [x for x in C.ae_by[sid] if x['te']]
+        ae = [x for x in C.ae_by[sid] if x['te'] and not x.get('dup')]   # F-D：完全重复记录（第 2 份起）不计数
         subs.append([sid, s['site'], s['status'], s.get('rand') or '', s['fd'] or '', s.get('age'), s.get('bmi'), len(ae), max([grade_int(x['g']) or 0 for x in ae] + [0]),
                      sum(x['sae'] for x in ae), sum(x['aesi'] for x in ae), sum(x['_rel'] for x in ae), len(C.mh_by[sid]), len(C.cm_by[sid]),
                      sum(q['sid'] == sid for q in C.queries), sum(x.get('sid') == sid for x in C.extq), s.get('icf') or '', s['lo'] or '', s.get('strat') or '', s['ld'] or '', s.get('grp')])

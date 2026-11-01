@@ -31,7 +31,7 @@ DOMAIN_RE = [  # (domain, sheet-name/label regex)
     ('ae', r'^(AE|不良事件)'), ('mh', r'^(MH|病史|既往史|现病史)'), ('cm', r'^(CM|合并用药|既往用药|伴随用药)'), ('proc', r'^(PR|手术|操作|非药物治疗)'),
     ('findings:lab', r'^(LB|血常规|血生化|生化|尿常规|凝血|实验室|甲功|血脂|肝功|肾功|电解质|妊娠|HEMA|CHEM|URIN|COAG)'),
     ('findings:vs', r'^(VS|生命体征)'),
-    ('efficacy', r'^(QS|EFF|RS|TU|TR|量表|评分|疗效|有效性|问卷|日记)|量表|问卷|评定|生活质量|印象变化|PGI|NRS|VAS|QO-?L'), ('pd', r'^(DV|PD|方案偏离|偏离|违背)'), ('extq', r'(质疑|QUERY|Query|query|^CROQ|^DCF|^EDCQ)'),
+    ('efficacy', r'^(QS|EFF|RS|TU|TR|量表|评分|疗效|有效性|问卷|日记)|量表|问卷|评定|生活质量|印象变化|PGI|NRS|VAS|QO-?L|评分|指数'), ('pd', r'^(DV|PD|方案偏离|偏离|违背)'), ('extq', r'(质疑|QUERY|Query|query|^CROQ|^DCF|^EDCQ)'),
     ('pk', r'^(PK|PC|药代|血药浓度|采样)'), ('ada', r'^(ADA|IS|免疫原性|抗药抗体)'),
 ]
 FIELD_SYN = {  # normalized field → variable/label patterns (first match wins)
@@ -40,7 +40,10 @@ FIELD_SYN = {  # normalized field → variable/label patterns (first match wins)
     'time': [r'(TIM|TIME|时间)$'],
     'icf': [r'^(DSICDAT|ICFDAT)$', r'知情同意书?签署日期'], 'rescreen': [r'(RSCRYN|是否.{0,3}重复筛选|是否.{0,3}重新筛选)'], 'prev_sid': [r'(首次筛选.{0,6}编号|DSSUBJID)'], 'eot_d': [r'(EOTDAT|末次(给药|服药)日期|治疗结束.*日期|终止治疗.*日期)'], 'eot_why': [r'(EOTREAS|终止治疗.*原因|治疗结束.*原因)', r'(DSDECOD|DSTERM|退出原因|终止原因|未完成原因)'],
     'eos_d': [r'(EOSDAT|DSSTDAT|研究结束.*日期|完成/?退出日期|退出(研究|试验)?日期)'], 'eos_done': [r'(EOSCOMP|DSCOMYN|是否完成)'], 'eos_why': [r'(EOSREAS|DSREAS|研究结束原因|未完成.*原因)'], 'age': [r'^(AGE|年龄)'], 'sex': [r'^(SEX|性别)'], 'rand': [r'(RANDNO|RANNUM|随机号)'], 'rand_d': [r'(RANDAT|随机日期)'], 'status': [r'^(受试者状态)$', r'(RANYN|是否筛选成功并随机)'], 'ht': [r'(HEIGHT|身高)'], 'wt': [r'^(WEIGHT|体重)'],
-    'term': [r'(AETERM|MHTERM|CMTRT|PRTRT|DVTERM|名称$|术语|偏离描述|事件描述)'], 'start': [r'(STDAT|STDTC|开始日期|起始日期)'], 'end': [r'(ENDAT|ENDTC|结束日期|停止日期)'],
+    # F-A：具体变量/事件名称列先于通用「名称$」——访视名称/页面名称是结构性元数据，不是事件术语
+    #（RUX 实证：term 落到 VISIT 后 AE/CM/MH 全表「共同页」）；lookbehind 挡住 访视/页面/表单/中心/研究 名称。
+    'term': [r'(AETERM|MHTERM|CMTRT|PRTRT|DVTERM|术语|事件名|药名|通用名|不良事件名称|事件名称|偏离描述|事件描述|详述$)',
+             r'(?<!访视)(?<!页面)(?<!表单)(?<!中心)(?<!研究)名称$'], 'start': [r'(STDAT|STDTC|开始日期|起始日期)'], 'end': [r'(ENDAT|ENDTC|结束日期|停止日期)'],
     'ongoing': [r'(ONGO|是否持续|仍在)'], 'grade': [r'(TOXGR|SEV|严重程度|分级|CTCAE)'], 'serious': [r'^(AESERYN|是否SAE)$', r'^是否(为)?严重不良事件', r'^(AESER|严重不良事件)$', r'(AESER|是否SAE)'], 'fast': [r'(FAST$|是否.{0,4}空腹)'],
     'pt': [r'(AEDECOD|AEPT|首选术语|^PT(名称)?$)'], 'soc': [r'(AESOC|AEBODSYS|系统器官分类|^SOC)'], 'llt': [r'(AELLT|低位语|^LLT)'],
     'aware': [r'(AWARE|获知日期|知晓日期)'], 'rpt': [r'(RPTDAT|SAERPT|报告日期|上报日期)'], 'aesi': [r'(AESI|特别关注)'],
@@ -81,9 +84,12 @@ def header_rows(rows):
 # EDC 导出的系统元数据列（每张表都有、不是业务内容）：只允许映射到指定字段，其余字段一律跳过
 #（否则「试验中心名称」会被当成 AE 术语、「最后修改时间」当成采样时刻、「Instance顺序号」当成记录编号）。
 # 「受试者状态」放行给 subjects.status（筛选失败/完成试验，pd_rules RAND-02 口径；它只在 subjects 域字段表中，别域天然收不到）
+# F-A 补：另一类 EDC 导出（D002/RUX 式）的 页面名称/记录号/研究中心/中心编号/Flag/MM comment 同为结构性元数据
+#（「页面名称」值如「不良事件 1-头痛-2024-06-25」更不能被 名称$ 当成术语）。
 SYS_META = {'项目编号': None, '表单编号': None, '姓名缩写': None, '受试者状态': 'status', 'Instance顺序号': None, '数据块': None,
             'Block顺序号': None, '数据页': None, '最后修改时间': None, '行号': None, '数据节': 'visit', '试验中心编号': 'site',
-            '试验中心名称': 'center', '动态链接': 'link'}
+            '试验中心名称': 'center', '动态链接': 'link',
+            '页面名称': None, '记录号': None, '研究中心': 'center', '中心编号': 'site', 'Flag': None, 'MM comment': None}
 LABEL_VAR = re.compile(r'(.+?)\s*[（(]([A-Z][A-Z0-9_]{1,19})[)）]')
 
 # exposure 候选校正（SAR 深审 F3）：药物滥用史表与背景治疗日志不是研究药物给药——吞进 exposure 会虚增
@@ -121,6 +127,78 @@ def guess(names, field):
     return None
 
 
+_TOTAL_SCORE_RX = re.compile(r'总分|总得分|总评分|总百分比分|totalscore', re.I)
+_PD_HDR_RX = re.compile(r'方案违背(详述|主分类|子分类)|偏离(详述|描述)|DVTERM|DVCAT', re.I)
+
+
+def sheet_domain_by_header(sheet, labels):
+    """表头签名兜底（F-B/F-H）：表名纯代码或中性名（RES1/总表 式）时按表头判域。
+    量表必有「总分」汇总列（检验/生命体征表没有）→ efficacy；PD 记录表必有「方案违背详述/主分类」列 → pd。
+    判不出返回 None（不猜其他域）。"""
+    for lab in labels or []:
+        base = re.sub(r'[（(][^）)]*[）)]\s*$', '', str(lab or '').strip())
+        if base and _PD_HDR_RX.search(base):
+            return 'pd'
+        if base and _TOTAL_SCORE_RX.search(base):
+            return 'efficacy'
+    return None
+
+
+# 访视归一（F-G）：带明确访视号（V6/W28/D15…）的标签优先于融合型兜底（FU/EOT）。
+# SAR 实证：「安全性随访期V6/V7」都并成 FU 后，V6、V7 访视窗全部失配 → 342/345 条虚假逾期。
+VISIT_RULES = [
+    (r'筛选|Screen', 'SCR'), (r'第\s*1\s*天|D1\b|Day\s*1\b', 'D1'),
+    (r'计划外|Unsch|USV', 'USV'), (r'提前|ET\b|退出', 'ET'),
+    (r'安全(性)?随访|随访期|Follow', 'FU'), (r'治疗结束|EOT\b', 'EOT'),
+]
+_VIS_TAIL_BRACKET = re.compile(r'[（(][^）)]*[）)]\s*$')
+_VIS_IDENT = [re.compile(r'第\s*(\d+)\s*周'),
+              re.compile(r'(?<![A-Za-z0-9])([DWMV])\s*(\d+)(?![A-Za-z0-9])'),
+              re.compile(r'(?<![A-Za-z0-9])(\d+)\s*([DWMV])(?![A-Za-z0-9])')]
+
+
+def _visit_ident(v):
+    """标签主干（去掉尾部括号窗说明）里的明确访视号：第2周→W2、V6/D15→原样、2W→W2。取第一个命中的标记。"""
+    s = _VIS_TAIL_BRACKET.sub('', str(v or '').strip())
+    for i, rx in enumerate(_VIS_IDENT):
+        m = rx.search(s)
+        if not m:
+            continue
+        if i == 0:
+            return 'W' + m.group(1)
+        a, b = m.group(1), m.group(2)
+        return (a if a.isalpha() else b) + (b if a.isalpha() else a)
+    return None
+
+
+def visit_code(v, soa=()):
+    """访视标签 → 标准访视代码（visit_map 生成用）。顺序：方案表精确命中 → 具体关键词（筛选/D1/计划外/提前退出）
+    → 融合型关键词（随访→FU、治疗结束→EOT）在标签自带明确访视号时让位 → 访视号 → 其余兜底。"""
+    v = str(v or '').strip()
+    if v in soa:
+        return v
+    ident = _visit_ident(v)
+    for pat, code in VISIT_RULES:
+        if not re.search(pat, v, re.I):
+            continue
+        if code in ('FU', 'EOT') and ident:
+            # 方案表明确用融合码时从方案；否则访视号（V6/W28）保信息量，不与兄弟访视并码
+            return code if (soa and code in soa and ident not in soa) else ident
+        return code
+    if ident:
+        return ident
+    m = re.search(r'第\s*(\d+)\s*周', v)
+    if m:
+        return 'W' + m.group(1)
+    m = re.fullmatch(r'\s*(W|D|V|M)\s*(\d+)\s*', v, re.I)
+    if m:
+        return m.group(1).upper() + m.group(2)
+    m = re.search(r'(?:V|访视)\s*(\d+)', v)
+    if m:
+        return 'V' + m.group(1)
+    return None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('books', nargs='+', help='alias=path.xlsx')
@@ -147,6 +225,8 @@ def main():
             data = [r for r in rows[ds - 1:] if any(c not in (None, '') for c in r)]
             hdr = ' '.join(labels)
             dom = next((d for d, rx in DOMAIN_RE if re.search(rx, ws.title) or re.search(rx, labels[0] if labels else '')), None)
+            if dom is None:
+                dom = sheet_domain_by_header(ws.title, labels)   # F-B：表名纯代码时按「总分」表头签名判 efficacy
             dom = refine_exposure(dom, ws.title, hdr)        # F3：滥用史/背景治疗日志不是研究药物给药
             if dom == 'pd' and not re.search(r'偏离|违背|deviation|DVTERM|DVCAT', hdr, re.I):
                 dom = None                                   # 表名 PD 但不是方案偏离（如药效学 PD 样本）
@@ -199,11 +279,9 @@ def main():
             draft['domains'][base if base != 'pk' and base != 'ada' else 'findings'].append(spec_ if base not in ('pk', 'ada') else {**spec_, 'domain': base, 'layout': 'long'})
     vm = {}
     for v, n in visits.most_common():
-        m = re.search(r'(筛选|Screen)', v) and 'SCR' or re.search(r'第\s*1\s*天|D1\b|Day\s*1\b', v) and 'D1' or re.search(r'计划外|Unsch|USV', v, re.I) and 'USV' or \
-            re.search(r'提前|ET\b|退出', v) and 'ET' or re.search(r'安全随访|随访期|Follow', v, re.I) and 'FU' or re.search(r'治疗结束|EOT\b', v) and 'EOT' or (re.search(r'第\s*(\d+)\s*周', v) and 'W' + re.search(r'第\s*(\d+)\s*周', v).group(1)) or \
-            (re.search(r'(?:V|访视)\s*(\d+)', v) and 'V' + re.search(r'(?:V|访视)\s*(\d+)', v).group(1)) or v
-        vm[v] = m
-        if m == v:
+        m = visit_code(v)
+        vm[v] = m if m is not None else v
+        if m is None:
             pre.append(['需确认', f'访视「{v}」未能自动映射为标准访视代码，请在 visit_map 中确认'])
     draft['visit_map'] = vm
     cm = []

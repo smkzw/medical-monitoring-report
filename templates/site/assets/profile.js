@@ -22,7 +22,7 @@ K.profile=async(el,sc)=>{
   const title=sub?`${sub.id} · ${K.esc(K.center(sub.site))}`:site?`${site} ${K.esc(K.center(site))}`:'全试验';
   const refNote=sub?'对照：所在中心、整体（按给药受试者）':site?'对照：整体（按给药受试者）':'全部给药受试者';
   /* ---------- AE ---------- */
-  const AE=D.aes.filter(a=>a.te!==false);
+  const AE=D.aes.filter(a=>a.te!==false&&!a.dup);   /* F-D：完全重复记录（第 2 份起）不计例次；明细表仍列出并标「重复」 */
   const aeRows=[['TEAE',a=>true],['TRAE（与试验药相关）',a=>a.rl],['SAE',a=>a.sae],['AESI',a=>a.aesi],['≥3级',a=>gi(a.g)>=3],['导致停药/终止',a=>stopRe.test(a.act||'')],
     ...[1,2,3,4,5].map(k=>[`${k}级`,a=>gi(a.g)===k])];
   const aeCell=(g,f)=>{const I=ids(g),xs=AE.filter(a=>I.has(a.sid)&&f(a)),ns=new Set(xs.map(a=>a.sid)).size;
@@ -52,7 +52,7 @@ K.profile=async(el,sc)=>{
   el.innerHTML=`<div class="card mb"><div class="hd"><h2>安全性概览 · ${title}</h2><span class="sub">${refNote}</span>${sub?`<span class="sp"></span><a class="small" href="subjects.html#s=${sub.id}">参与者资料 ›</a>　<a class="small" href="timeline.html#s=${sub.id}">时间线 ›</a>`:site?`<span class="sp"></span><a class="small" href="subjects.html#c=${site}">本中心受试者 ›</a>　<a class="small" href="safety.html#tab=ov">中心总览 ›</a>`:''}</div>
    <div class="grid g2"><div><div class="sec-t" style="margin-top:0"><h2>不良事件</h2><span class="muted small">给药后（TEAE）</span></div>${tbl(aeRows.map(([l,f])=>[l,groups.map(g=>aeCell(g,f))]))}</div>
    <div><div class="sec-t" style="margin-top:0"><h2>AE 类别</h2><span class="muted small">${sub?'本例发生的类别 · 所在中心与整体的发生率（受试者%）':'发生率（受试者%）· 前 '+cats.length+' 类'}</span></div><div class="chart" id="pf-aec" style="height:${Math.max(160,cats.length*24+40)}px"></div></div></div>
-   ${sub?`<div class="sec-t"><h2>本例 AE 明细</h2></div><table class="t"><tbody>${subAE.map(a=>`<tr><td><b>${K.esc(a.t)}</b> ${a.sae?K.p('SAE','solid-red'):''}${a.aesi?K.p('AESI','red'):''}${a.rl?K.p('相关','org'):''}</td><td class="nowrap">${K.esc(a.s||'')} → ${a.e?K.esc(a.e):'持续'}</td><td>${K.p(a.g,gi(a.g)>=3?'solid-red':gi(a.g)>=2?'red':'yel')}</td><td class="small">${K.esc(a.act||'')}</td><td class="small">${K.esc(a.out||'')}</td></tr>`).join('')||'<tr><td class="empty">无 AE 记录</td></tr>'}</tbody></table>`:''}</div>
+   ${sub?`<div class="sec-t"><h2>本例 AE 明细</h2></div><table class="t"><tbody>${subAE.map(a=>`<tr><td><b>${K.esc(a.t)}</b> ${a.sae?K.p('SAE','solid-red'):''}${a.aesi?K.p('AESI','red'):''}${a.rl?K.p('相关','org'):''}${a.dup?' '+K.p(`重复×${a.dup_n||2}`,'yel'):''}</td><td class="nowrap">${K.esc(a.s||'')} → ${a.e?K.esc(a.e):'持续'}</td><td>${K.p(a.g,gi(a.g)>=3?'solid-red':gi(a.g)>=2?'red':'yel')}</td><td class="small">${K.esc(a.act||'')}</td><td class="small">${K.esc(a.out||'')}</td></tr>`).join('')||'<tr><td class="empty">无 AE 记录</td></tr>'}</tbody></table>`:''}</div>
   <div class="grid g2 mb">
    <div class="card"><div class="sec-t" style="margin-top:0"><h2>病史（MH）</h2><span class="muted small">${sub?'本例全部':'最常见 10 项 · 例数（%）'}</span></div>${sub?mhList(MC.mh.filter(r=>r[0]===sub.id)):tbl(topTerms(MC.mh,1).map(t=>[K.esc(t),groups.map(g=>termPct(MC.mh,1,t,g))]))}</div>
    <div class="card"><div class="sec-t" style="margin-top:0"><h2>合并用药（CM）</h2><span class="muted small">${sub?'本例全部':'最常见 10 种 · 例数（%）'}</span></div>
