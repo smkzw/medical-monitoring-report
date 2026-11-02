@@ -217,7 +217,8 @@ K.chips=(el,opts,onChange,{multi=false,all='全部',value=null}={})=>{
 K.seg=(el,opts,val,onChange)=>{function draw(){el.innerHTML=opts.map(([v,l])=>`<button class="${v===val?'on':''}" data-v="${v}">${l}</button>`).join('');el.querySelectorAll('button').forEach(b=>b.onclick=()=>{val=b.dataset.v;draw();onChange(val)})}draw();return{get:()=>val}};
 K.tabs=(el,opts,val,onChange)=>{function draw(){el.innerHTML=opts.map(([v,l,n])=>`<button class="${v===val?'on':''}" data-v="${v}">${l}${n!=null?`<span class="n">${n}</span>`:''}</button>`).join('');el.querySelectorAll('button').forEach(b=>b.onclick=()=>{val=b.dataset.v;draw();onChange(val)})}draw();onChange(val);return{set(v){val=v;draw();onChange(v)}}};
 /* charts */
-K.COL=['#FF9900','#407AAA','#587B3B','#A85F34','#8B0000','#FFCC00','#8E6CB8','#3BA3A0','#7F7F7F'];
+/* V6：类别色取康哲 tokens charts.categorical（固定顺序、5 色，已过色觉区分度校验）＋对照中性色；风险红不再混作类别色（状态色专用） */
+K.COL=['#D46B08','#008F8A','#7B5CC7','#B38A00','#C4457C','#6E7B8C'];
 /* R2-1（D002 E2E 深链页 pageerror×6）：markLine/markPoint 坐标不可用（yAxis:undefined——KRI 未配置容忍限度、
  * 空集合中位数 null/NaN）在 ECharts marker 转换后 e[0].coord 取 undefined 崩整页。K.chart 入口统一守卫：
  * 坐标缺失/非有限值的 marker 项剔除，全部无效则撤除整个 markLine/markPoint（不渲染辅助线，不崩页）；
@@ -231,8 +232,14 @@ K._markerItemOk=it=>{if(it==null)return false;if(Array.isArray(it))return it.len
 K.chartGuard=opt=>{(opt&&opt.series||[]).forEach(s=>{if(!s)return;for(const mk of['markLine','markPoint']){const m=s[mk];
   if(!m||!Array.isArray(m.data))continue;m.data=m.data.filter(K._markerItemOk);if(!m.data.length)delete s[mk]}});return opt};
 K.chart=(el,opt)=>{if(typeof el==='string')el=document.querySelector(el);let c=echarts.getInstanceByDom(el);if(!c){c=echarts.init(el,null,{renderer:'canvas'});new ResizeObserver(()=>c.resize()).observe(el)}
-  opt=Object.assign({color:K.COL,textStyle:{fontFamily:'Microsoft YaHei, PingFang SC, Noto Sans CJK SC, Arial',fontSize:11},animationDuration:300},K.chartGuard(opt));c.setOption(opt,true);return c};
-K.axis={axisLine:{onZero:false,lineStyle:{color:'#C9CCD1'}},axisTick:{show:false},axisLabel:{color:'#64676B'},splitLine:{lineStyle:{color:'#F0F1F4'}}};
+  K.chartLang(opt);
+  opt=Object.assign({color:K.COL,textStyle:{fontFamily:'Microsoft YaHei, PingFang SC, Noto Sans CJK SC, Arial',fontSize:12,color:'#404040'},
+    animationDuration:K.RM?0:700,animationEasing:'cubicOut',animationDurationUpdate:0},K.chartGuard(opt));c.setOption(opt,true);return c};
+/* V6 图表语言（康哲 05 CHART-02/04）：折线不平滑、缺失点留缺口（不当 0）；数据揭示只在首次出现时生长，切换口径直接呈现新真值（不补间）；
+ * 减少动态时不做动画。显式写了 smooth/connectNulls 的图表沿用其设置。 */
+K.RM=typeof matchMedia==='function'&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+K.chartLang=opt=>{(opt&&opt.series||[]).forEach(s=>{if(!s||s.type!=='line')return;if(s.smooth===undefined)s.smooth=false;if(s.connectNulls===undefined)s.connectNulls=false});return opt};
+K.axis={axisLine:{onZero:false,lineStyle:{color:'#CED3D8'}},axisTick:{show:false},axisLabel:{color:'#404040'},splitLine:{lineStyle:{color:'#E7EBEE'}}};
 K.q=(arr,p)=>{if(!arr.length)return null;const a=arr.slice().sort((x,y)=>x-y);const i=(a.length-1)*p,lo=Math.floor(i),hi=Math.ceil(i);return a[lo]+(a[hi]-a[lo])*(i-lo)};
 K.median=a=>K.q(a,.5);
 /* EDC-like listing render: rows [{sh,row,f,hl}] */

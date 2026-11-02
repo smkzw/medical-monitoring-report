@@ -103,6 +103,12 @@ K.roster=(el,sids)=>{if(!el||!window.echarts)return;const Dd=D();
     tooltip:{trigger:'axis',axisPointer:{type:'shadow'}},xAxis:{type:'value',minInterval:1,...K.axis},yAxis:{type:'category',data:rows.map(r=>r[0]),inverse:true,...K.axis},
     series:C.map((c,i)=>({name:c[0],type:'bar',stack:'r',barMaxWidth:12,itemStyle:{color:c[1],borderColor:'#fff',borderWidth:1},data:rows.map(r=>r[1][i]||null)}))});
   const ch=echarts.getInstanceByDom(el);ch.off('click');ch.on('click',p=>{location.href='subjects.html#s='+encodeURIComponent(p.name)})};
+/* ---- KPI 数字短时计数到真值（康哲 CHART-04：从 0 起、不用随机数、终值写入 aria-label；减少动态时直接显示真值；只在首次载入时） */
+K.countUpAll=root=>{if(K.RM)return;(root||document).querySelectorAll('.kpi .v,.facts .f b').forEach(el=>{const tn=[...el.childNodes].find(n=>n.nodeType===3&&/\d/.test(n.nodeValue));if(!tn||el.dataset.cu)return;
+  const m=tn.nodeValue.match(/^(\s*)(\d+(?:\.\d+)?)(.*)$/s);if(!m)return;const end=parseFloat(m[2]),dec=(m[2].split('.')[1]||'').length;if(!(end>0))return;
+  el.dataset.cu='1';el.setAttribute('aria-label',el.textContent.trim());const t0=performance.now(),dur=520;
+  const step=now=>{const k=Math.min(1,(now-t0)/dur),e=1-Math.pow(1-k,3);tn.nodeValue=m[1]+(end*e).toFixed(dec)+m[3];if(k<1)requestAnimationFrame(step);else tn.nodeValue=m[1]+m[2]+m[3]};requestAnimationFrame(step)})};
+window.addEventListener('load',()=>setTimeout(()=>K.countUpAll(),30));
 /* ---- 信号聚合：同受试者 × 同日期 × 同类别 × 同表单 → 一组（行动项、中心待办） */
 /* 检验项标题＝「指标 · 类别」→ 按类别聚合（指标进明细）；其余（专项/偏离…）标题本身就是类别 */
 const catOf=o=>o.kind==='lab'?(o.title||'').replace(/^.*? · /,''):(o.title||'');

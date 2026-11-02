@@ -1177,6 +1177,26 @@ def pct_rule_norm(R):
     return op, v
 
 
+_LIVER_RX = re.compile(r'ALT|AST|转氨酶|谷丙|谷草|胆红素|TBIL', re.I)
+
+
+def threshold_ask(R, o):
+    """用户 2026-11-02（阈值类质疑问法 B）：数值本身真实时不问「请核实并更正」，按方案规定的处理来问；措辞由程序模板生成。
+    只对方案阈值规则生效（规则带 metric 与 v）；规则自带 ask 时沿用。"""
+    if not (R.get('metric') and R.get('v') is not None and o.get('cat') == '阈值规则核对'):
+        return ''
+    parts = []
+    if R.get('stop'):
+        parts.append('请确认是否已按方案暂停或停止研究药物并记录处理')
+    if R.get('aesi'):
+        parts.append('请确认是否已按方案记录为 AESI 并在规定时限内报告')
+    if not parts:
+        parts.append('请确认是否已按方案完成复查与评估，如需记录 AE 请补充')
+    if _LIVER_RX.search(str(o.get('test') or '')):
+        parts.append("如涉及肝功能，请同时评估是否符合 Hy's law")
+    return '已达到方案规定的阈值，' + '；'.join(parts) + '。'
+
+
 def threshold_rules(C):
     """analysis.thresholdRules: protocol-defined numeric triggers (AESI/AE/stopping/eligibility-like) evaluated per finding.
     不同阈值（3×ULN 报告、5×ULN 停药）是不同判据，各自出信号（mm5 审阅修正口径，V6 不改）；只修文案里漏出的正则写法。"""
@@ -2042,9 +2062,12 @@ def build_queries(C):
         R = o['_rule']
         if o['pr'] < C.A.get('queryMinPr', 3) or R.get('query') is False:
             continue
-        ask = R.get('ask') or C.A.get('askByCat', {}).get(o['cat']) or '请核实并更正，或提供医学说明。'
-        new_q(o['sid'], o['cat'], o['sh'], o['row'], o['v'], o['d'], o['test'], o['sum'].rstrip('。；，') + '，', ask, [[o['sh'], o['row'], o['v'], o['test']]], o, o.get('qkey', ''),
-              {'问题': o['cat'], '事实': o['sum'].rstrip('。；，'), **({'指标': o['test']} if o.get('test') else {}), **({'访视': o['v']} if o.get('v') else {}), '建议动作': ask})
+        thr = threshold_ask(R, o) if not R.get('ask') else ''
+        ask = R.get('ask') or thr or C.A.get('askByCat', {}).get(o['cat']) or '请核实并更正，或提供医学说明。'
+        qq = new_q(o['sid'], o['cat'], o['sh'], o['row'], o['v'], o['d'], o['test'], o['sum'].rstrip('。；，') + '，', ask, [[o['sh'], o['row'], o['v'], o['test']]], o, o.get('qkey', ''),
+                   {'问题': o['cat'], '事实': o['sum'].rstrip('。；，'), **({'指标': o['test']} if o.get('test') else {}), **({'访视': o['v']} if o.get('v') else {}), '建议动作': ask})
+        if thr and qq:
+            qq['fixed'] = True                           # 用户 2026-11-02：阈值类质疑措辞固定用程序模板，不交模型润色
     for m in C.S.get('queries_manual', []) or []:  # MM-written queries: {sid, cat, sh, row, v, d, test, fact, ask}
         if m.get('sid') in C.subj:
             new_q(m['sid'], m['cat'], m.get('sh', ''), m.get('row'), m.get('v'), m.get('d'), m.get('test'), m['fact'], m.get('ask', ''),
@@ -2058,7 +2081,7 @@ def build_queries(C):
         hit = QT_.get(q.get('qkey') or q['id'])
         if not (hit and hit.get('h') == q['card_h']):
             hit = QT_.get(f"{q.get('qkey') or q['id']}#{q['card_h']}")
-        if hit and hit.get('h') == q['card_h'] and hit.get('text'):
+        if hit and hit.get('h') == q['card_h'] and hit.get('text') and not q.get('fixed'):
             q['text'], q['parts'], q['writer'] = hit['text'], [[hit['text'], 0]], 'model'
     for q in Q:                                          # 事实卡自检：基线/数值/较基线百分比必须互相吻合（模型照卡写，错数字会直接进句子）
         for c in q['_cards']:
@@ -2747,7 +2770,7 @@ def tier_variants(a, KZ, X, out, aud):
 
 def query_cards(C):
     return [{'qkey': q.get('qkey') or q['id'], 'id': q['id'], 'cat': q['cat'], 'h': q['card_h'], 'cards': q['_cards'], 'text': q['text'],
-             'writer': q.get('writer', 'template')} for q in C.queries]   # 交工作台撰写（模型只措辞，不判定）
+             'writer': q.get('writer', 'template'), **({'fixed': True} if q.get('fixed') else {})} for q in C.queries]   # 交工作台撰写（模型只措辞，不判定）
 
 
 def analyze(C):

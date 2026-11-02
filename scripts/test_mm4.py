@@ -3424,6 +3424,17 @@ class V6Generalization(unittest.TestCase):
         self.assertIsNone(worse_vs_base(r, b, 0.3, disease=True)) # 研究疾病表现：绝对变化 0.25 < 0.3 不算明显加重
         self.assertIsNotNone(worse_vs_base(dict(r, value=0.8), b, 0.3, disease=True))
 
+    def test_threshold_query_asks_protocol_action(self):
+        # 用户 2026-11-02（问法 B）：阈值类质疑按方案规定的处理来问，不问「请核实并更正」；措辞固定用程序模板
+        from mm_build import threshold_ask
+        o = {'cat': '阈值规则核对', 'test': '丙氨酸氨基转移酶（ALT）'}
+        a = threshold_ask({'metric': 'ALT', 'v': 5, 'stop': True}, o)
+        self.assertIn('暂停或停止研究药物', a)
+        self.assertIn("Hy's law", a)
+        self.assertNotIn('更正', a)
+        self.assertIn('AESI', threshold_ask({'metric': 'QTcF', 'v': 500, 'aesi': True}, {'cat': '阈值规则核对', 'test': 'QTcF'}))
+        self.assertEqual(threshold_ask({'metric': 'X', 'v': 1}, {'cat': '入排标准核对'}), '')
+
     def test_ctcae_v6_corrections_vs_official(self):
         # 2026-11-02 对照 NCI DCTD《CTCAE v6.0》Clean Copy 核对：血小板减少 4 级 <10×10^9/L；
         # ALT/AST 基线已异常时 3 级 >2.0、4 级 >4.0 倍基线；CPK increased 在 v6.0 已删除（表中不应有 CK）

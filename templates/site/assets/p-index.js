@@ -17,6 +17,11 @@ const kpi=(l,v,s,href,cls='')=>`<${href?'a':'div'} class="kpi ${cls}${href?' cli
 const sec=(n,t,s)=>`<div class="sec-h"><span class="n">${n}</span><b>${t}</b><span class="s">${s}</span></div>`;
 app.innerHTML=`${K.knBar(D.knowledge)}
 ${sec('一','综合数据',`研究进展与数据状态 · 数据截止 ${K.esc(cut)}${O.stage==='daily'?' · 日常监查，数据仍在录入':''}`)}
+${(()=>{/* V6 首屏吸收：打开即见的关键事实条（结构不变，只把最需要先知道的四件事放在第一屏） */
+  const qx=K.qtlRows?K.qtlRows().filter(r=>r.st==='exceed'):[],open=K.actFor?K.actFor('all').filter(a=>a.sig.s==='open'):[],
+    now=open.filter(a=>a.score>=80).length,sae=S.reduce((a,s)=>a+s.sae,0),preg=oth.filter(o=>o.cat==='妊娠暴露核查').length,gap=oth.filter(o=>o.cat==='访视中断核对').length;
+  const f=(lab,v,u,href,risk)=>`<span class="f${risk?' risk':''}">${href?`<a href="${href}">`:''}${lab} <b>${v}</b> ${u}${href?'</a>':''}</span>`;
+  return `<div class="facts">${f('容忍限度超限',qx.length,'项','monitor.html#tab=kri',qx.length>0)}${f('今日必须处理',now,'项','#act',now>0)}${f('待处理行动项',open.length,'项','#act')}${f('SAE',sae,'例次','profile.html',sae>0)}${preg?f('妊娠暴露待追踪',preg,'例','safety.html#tab=oth',true):''}${gap?f('访视中断',gap,'例','safety.html#tab=oth',true):''}</div>`})()}
 <div class="kpis">
  ${kpi('筛选 / 随机并给药',`${m.n}<small>/ ${m.dosed} 例</small>`,Object.entries(st).map(([k,v])=>K.p(k+' '+v,K.STC[k]??'')).join(''),'monitor.html#tab=enr')}
  ${kpi('入组进度',planned?`${(dosed.length/planned*100).toFixed(0)}<small>% · ${dosed.length}/${planned}</small>`:`${dosed.length}<small>例给药</small>`,planned?(dosed.length>=planned?K.p('已达计划例数','grn'):proj?K.p('按近 90 天速率预计 '+proj+' 达成','line'):K.p('近 90 天入组不足 3 例，无法预测','line')):'<span class="xs faint">方案未给计划例数</span>','monitor.html#tab=enr','blu')}
@@ -101,7 +106,10 @@ function drawAct(){const A=K.actFor(role),g=s=>A.filter(a=>a.sig.s===s);
   const top=showAll?open:open.slice(0,12),idx=new Map();const L=[];const push=a=>{L.push(a);return L.length-1};
   const tbl=(rows)=>`<table class="t actq"><tbody>${rows.map(a=>row(a,push(a))).join('')}</tbody></table>`;
   document.getElementById('actn').innerHTML=`待处理 <b>${open.length}</b> · 处理中 <b>${doing.length}</b> · 暂缓 <b>${hold.length}</b> · 已处理 <b>${done.length}</b>`;
-  document.getElementById('act').innerHTML=(open.length?`<div class="sec-t" style="margin-top:0"><h2>今日优先处理</h2><span class="muted small">按严重程度、是否本次新增/加重、是否关键数据排序</span></div>${tbl(top)}${open.length>12?`<div class="mt"><a class="small" href="javascript:void 0" id="more">${showAll?'只看前 12 项':'显示全部 '+open.length+' 项'}</a></div>`:''}`:'<div class="empty">该角色没有待处理事项</div>')
+  /* V6：待处理按紧急度分三组——今日必须处理（分值≥80：CS 未关联、超限、关键数据/本次新增加重等）、本周处理（40–79）、跟踪观察（<40） */
+  const G=[['now','今日必须处理',open.filter(a=>a.score>=80),'严重程度最高或本次新增/加重、关键数据'],['week','本周处理',open.filter(a=>a.score>=40&&a.score<80),'需核实的专项与偏离'],['watch','跟踪观察',open.filter(a=>a.score<40),'提示类，可随下次数据更新复核']];
+  const lim=showAll?1e9:8;
+  document.getElementById('act').innerHTML=(open.length?`<div class="actg">${G.filter(g=>g[2].length).map(([k,t,rows,d])=>`<div class="gh ${k}"><b>${t}</b><span class="c">${rows.length}</span><span class="muted small">${d}</span></div>${tbl(rows.slice(0,lim))}${rows.length>lim?`<div class="xs muted">另有 ${rows.length-lim} 项</div>`:''}`).join('')}</div>${open.some(()=>true)&&G.some(g=>g[2].length>8)?`<div class="mt"><a class="small" href="javascript:void 0" id="more">${showAll?'每组只看前 8 项':'显示全部'}</a></div>`:''}`:'<div class="empty">没有待处理项</div>')
    +(doing.length?`<div class="sec-t"><h2>处理中</h2><span class="muted small">${doing.length} 项</span></div>${tbl(doing)}`:'')
    +(hold.length?`<details class="fold"><summary>暂缓 ${hold.length} 项</summary><div class="fold-b">${tbl(hold)}</div></details>`:'')
    +(done.length?`<details class="fold"><summary>已处理 / 核实无问题 ${done.length} 项</summary><div class="fold-b">${tbl(done)}</div></details>`:'');
