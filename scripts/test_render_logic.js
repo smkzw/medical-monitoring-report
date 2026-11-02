@@ -147,5 +147,31 @@ ok(K.caseNote({ qu: 0.9 }, true) === '', '不偏高（q≥0.10）无标注');
 ok(K.caseNote({ qu: 0.01 }, false) === '', '非小中心无标注');
 ok(K.caseNote(null, true) === '', '无格数据无标注');
 
+/* ---- R2-1（D002 E2E 深链页渲染崩溃）：ECharts markLine/markPoint 空数据守卫 ----
+ * 实测（build ec34087 安全/监察深链页 pageerror×6）：markLine data 项坐标不可用（yAxis:undefined——
+ * KRI 未配置容忍限度、中心中位数对空集合=null/NaN）在 ECharts 内部 marker 转换后进 Array.filter，
+ * e[0].coord 取 undefined 崩整页。守卫＝K.chart 入口统一判空：不可数值化/缺失坐标的 marker 项剔除，
+ * 全部无效则整个 markLine/markPoint 撤除（不渲染辅助线，不崩页）。 */
+ok(typeof K.chartGuard === 'function', '缺 K.chartGuard（kz.js 空数据 marker 守卫）');
+if (typeof K.chartGuard === 'function') {
+  const o1 = { series: [{ type: 'line', data: [], markLine: { symbol: 'none', data: [{ yAxis: undefined }, { yAxis: 3 }] } }] };
+  K.chartGuard(o1);
+  ok(o1.series[0].markLine.data.length === 1 && o1.series[0].markLine.data[0].yAxis === 3, 'undefined 坐标项剔除、有效项保留');
+  const o2 = { series: [{ type: 'scatter', data: [], markLine: { symbol: 'none', data: [{ xAxis: null }, { yAxis: NaN }, { xAxis: '' }] } }] };
+  K.chartGuard(o2);
+  ok(!o2.series[0].markLine, 'marker 项全部无效 → 整个 markLine 撤除');
+  const o3 = { series: [{ type: 'line', markLine: { data: [{ xAxis: '2026-03-30' }, { yAxis: 0 }, { coord: [3, 4] }, [{ coord: [1, 2] }, { coord: [3, 4] }] ] } }, { type: 'bar', data: [1, 2] }] };
+  const keep3 = o3.series[0].markLine.data.length;
+  K.chartGuard(o3);
+  ok(o3.series[0].markLine.data.length === keep3 && keep3 === 4, '字符串日期/数值/coord/点对 形态全部保留（不误伤既有研究）');
+  ok(o3.series[1].data[0] === 1, '无 marker 的 series 原样通过');
+  const o4 = { series: [{ type: 'line', markPoint: { data: [{ coord: [NaN, 1] }, { coord: [2, 3] }] } }] };
+  K.chartGuard(o4);
+  ok(o4.series[0].markPoint.data.length === 1, 'markPoint 同口径守卫（coord 含 NaN 剔除）');
+  const o5 = { series: [{ type: 'line', markLine: { data: [] } }] };
+  K.chartGuard(o5);
+  ok(!o5.series[0].markLine, '空 data 数组的 marker 撤除');
+}
+
 if (fails) { console.error(`${fails} 处断言失败`); process.exit(1); }
-console.log('render logic ok: knCard/knBar/knHint/ptCons/judgeCell/bh/poisUp/qlt/sig/qtl/sigKey/heatCase');
+console.log('render logic ok: knCard/knBar/knHint/ptCons/judgeCell/bh/poisUp/qlt/sig/qtl/sigKey/heatCase/chartGuard');

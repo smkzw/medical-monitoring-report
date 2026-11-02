@@ -19,7 +19,9 @@ import openpyxl
 from common import open_workbook_lenient
 
 DOMAIN_RE = [  # (domain, sheet-name/label regex)
-    ('subjects', r'^(DM|人口学|受试者信息|筛选|知情|ENR|RAND|RAN\b|随机)'), ('subjects', r'^(DS|完成|结束|退出|EOS|EOT|研究总结)'),
+    # R2-2：参与者/人口统计为通用 CRF 命名变体（受试者/参与者两系术语、人口学/人口统计学）；
+    # 治疗结束页/研究结束页为 DS 类完成状态页通用表名。
+    ('subjects', r'^(DM|人口学|人口统计|受试者信息|参与者信息|筛选|知情|ENR|RAND|RAN\b|随机)'), ('subjects', r'^(DS|完成|结束|退出|EOS|EOT|研究总结|治疗结束|研究结束)'),
     ('visits', r'^(SV|访视日期|访视)'),
     # findings before exposure so ECG/ECHO are not caught by ^EC; any non lab/vs/ecg findings domain becomes a generic 专项检查 group
     ('findings:ecg', r'^(EG|ECG|心电图|12导联)'),
@@ -28,12 +30,46 @@ DOMAIN_RE = [  # (domain, sheet-name/label regex)
     ('findings:exam', r'^(OE|OP|眼科|肺功能|PFT|妇科|乳腺|骨密度|DXA|Holter|动态心电|EEG|脑电|肌电|听力|皮肤科)'),
     # DA/DAH 由 refine_exposure 守卫改归 cm（滥用史不是研究药物给药；保留 DA 供给药记录表名命中）
     ('exposure', r'^(EC(?![GH])|EX|给药|研究药物|用药记录|服药|DA|药物发放)'),
-    ('ae', r'^(AE|不良事件)'), ('mh', r'^(MH|病史|既往史|现病史)'), ('cm', r'^(CM|合并用药|既往用药|伴随用药)'), ('proc', r'^(PR|手术|操作|非药物治疗)'),
-    ('findings:lab', r'^(LB|血常规|血生化|生化|尿常规|凝血|实验室|甲功|血脂|肝功|肾功|电解质|妊娠|HEMA|CHEM|URIN|COAG)'),
+    ('ae', r'^(AE|不良事件)'), ('mh', r'^(MH|病史|既往史|现病史|个人史|月经史|孕产史)'), ('cm', r'^(CM|合并用药|既往(及)?合并用药|既往用药|伴随用药)'), ('proc', r'^(PR|手术|操作|非药物治疗|既往(及)?合并非药物治疗)'),
+    ('findings:lab', r'^(LB|血常规|血生化|生化|尿常规|凝血|实验室|甲功|血脂|肝功|肾功|电解质|妊娠|尿妊娠|HEMA|CHEM|URIN|COAG)'),
     ('findings:vs', r'^(VS|生命体征)'),
     ('efficacy', r'^(QS|EFF|RS|TU|TR|量表|评分|疗效|有效性|问卷|日记)|量表|问卷|评定|生活质量|印象变化|PGI|NRS|VAS|QO-?L|评分|指数'), ('pd', r'^(DV|PD|方案偏离|偏离|违背)'), ('extq', r'(质疑|QUERY|Query|query|^CROQ|^DCF|^EDCQ)'),
     ('pk', r'^(PK|PC|药代|血药浓度|采样)'), ('ada', r'^(ADA|IS|免疫原性|抗药抗体)'),
 ]
+
+# R2-2（D002 E2E build ec34087 零信号定罪）：EDC 导出常见「(页号)表名」结构性前缀——DOMAIN_RE 的 ^锚定
+# 在 (59)不良事件/(48)研究药物给药/(7)人口统计学 上全部未命中 → subjects/exposure 域从未进草稿 →
+# norm 无 subjects/exposure → 分析人群为空 → queries/others/受试者页全零。域识别入口先剥页号前缀
+# （形态归一：半/全角括号页号、数字序号点/顿号/横线/下划线；纯页号不是前缀）。
+_PAGE_PREFIX = re.compile(r'^\s*(?:[（(]\s*[0-9一二三四五六七八九十]+\s*[)）]|'
+                          r'[0-9]+\s*[.．、,，\-—_]|[一二三四五六七八九十]+\s*[、.．])\s*')
+
+
+def strip_page_prefix(name):
+    """剥表名结构性页号前缀；剥后为空（纯页号）或无前缀时原样返回。"""
+    s = str(name or '').strip()
+    t = _PAGE_PREFIX.sub('', s)
+    return t or s
+
+
+def domain_of_sheet(title, first_label=''):
+    """sheet 域识别（页号前缀容错）：原名 → 剥前缀名 → 首列标签（原/剥）依次试 DOMAIN_RE，首个命中域。"""
+    for cand in (str(title or '').strip(), strip_page_prefix(title), str(first_label or '').strip(),
+                 strip_page_prefix(first_label)):
+        if not cand:
+            continue
+        d = next((dom for dom, rx in DOMAIN_RE if re.search(rx, cand)), None)
+        if d:
+            return d
+    return None
+
+
+def is_subjects_sheet(title, first_label=''):
+    """DM 类受试者基准表判定（「受试者编号不在 DM」核查用）——与 domain_of_sheet 同容错。"""
+    for cand in (str(title or '').strip(), strip_page_prefix(title), str(first_label or '').strip()):
+        if cand and re.search(DOMAIN_RE[0][1], cand):
+            return True
+    return False
 FIELD_SYN = {  # normalized field → variable/label patterns (first match wins)
     'sid': [r'^(SUBJID|USUBJID|SUBJECT|受试者(编号|号|代码)?|参与者(编号|号)|筛选号|病例号|Participant ID|Subject ID)$'], 'site': [r'^(SITEID|SITENO|中心(编号|号)?)$'], 'center': [r'^(SITENAME|中心名称|研究中心)$'],
     'visit': [r'^(VISIT|VISITNAME|FOLDERNAME|访视(名称)?|访视阶段)$', r'^(数据节|FOLDER)$'], 'date': [r'(DAT|DTC|日期)$'], 'tpt': [r'(TPT|时间点)$'],
@@ -224,7 +260,7 @@ def main():
             names = [split_label(a, b) for a, b in zip(labels + [''] * (len(vars_) - len(labels)), vars_ + [''] * (len(labels) - len(vars_)))]
             data = [r for r in rows[ds - 1:] if any(c not in (None, '') for c in r)]
             hdr = ' '.join(labels)
-            dom = next((d for d, rx in DOMAIN_RE if re.search(rx, ws.title) or re.search(rx, labels[0] if labels else '')), None)
+            dom = domain_of_sheet(ws.title, labels[0] if labels else '')   # R2-2：页号前缀容错（(59)不良事件 式）
             if dom is None:
                 dom = sheet_domain_by_header(ws.title, labels)   # F-B：表名纯代码时按「总分」表头签名判 efficacy
             dom = refine_exposure(dom, ws.title, hdr)        # F3：滥用史/背景治疗日志不是研究药物给药
@@ -298,7 +334,7 @@ def main():
         pre.append(['提示', '未提供 PD listing：入排/禁用药/超窗信号无法与已记录偏离逐事件比对'])
     if sid_sets:
         allsid = set().union(*sid_sets.values())
-        dm = next((v for (al, sh), v in sid_sets.items() if re.search(DOMAIN_RE[0][1], sh)), None)
+        dm = next((v for (al, sh), v in sid_sets.items() if is_subjects_sheet(sh)), None)   # R2-2：(7)人口统计学 式页号前缀同样可作 DM 基准
         if dm:
             extra = allsid - dm
             if extra:

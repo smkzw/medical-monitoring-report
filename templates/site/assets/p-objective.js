@@ -15,6 +15,8 @@ const CMP=(op,a,b)=>a!=null&&(op==='>='?a>=b:op==='>'?a>b:op==='<='?a<=b:a<b);
 const abn=m=>{const f=FX0[m.id];const s=new Set();(T.obs[m.id]||[]).forEach(r=>{const lo=f?f[0]:r[12],hi=f?f[1]:r[13];if(dosed(r[0])&&AGG(r)&&r[16]===1&&r[8]&&r[3]!=null&&((hi!=null&&r[3]>hi)||(lo!=null&&r[3]<lo)))s.add(r[0])});return s.size};
 T.metrics.forEach(m=>m.nab=abn(m));
 const groups=[...new Set(T.metrics.map(m=>m.group))];
+const QTESTS=(T.qual&&T.qual.tests)||[];                                                       // R2-1 空数据守卫
+if(!T.metrics.length&&!QTESTS.length){app.innerHTML=`<div class="flex mb"><h1 style="font-size:18px">检验检查趋势</h1></div><div class="box yel">暂无可展示的定量指标与定性结果（数据面为空或指标未映射）；终点指标缺失的升级行动项见有效性页</div>`;return}
 app.innerHTML=`<div class="flex mb"><h1 style="font-size:18px">检验检查趋势</h1><span class="muted small">${T.metrics.length} 项定量指标${(T.qual&&T.qual.tests&&T.qual.tests.length)?' + 定性':''} · 仅给药参与者 · 基线按方案定义</span><span class="sp"></span>${(K.cfg().blind||{}).on?K.p('盲态合并','blu'):''}</div>
 <div class="grid" style="grid-template-columns:230px 1fr;gap:14px;align-items:start">
  <div class="card" style="padding:8px 0;position:sticky;top:66px"><div style="padding:0 10px 6px"><input class="s" id="ms" placeholder="搜索指标" style="width:100%"></div><div class="subj-list" id="ml" style="max-height:calc(100vh - 150px)"></div></div>
@@ -22,7 +24,7 @@ app.innerHTML=`<div class="flex mb"><h1 style="font-size:18px">检验检查趋�
 let cur=H.m&&H.m.startsWith('q:')?{qual:H.m.slice(2),id:H.m}:T.metrics.find(m=>m.id===H.m)||T.metrics[0],mode=H.v||'val',hc=H.c||'';
 function mlist(){const q=document.getElementById('ms').value.trim();
   document.getElementById('ml').innerHTML=groups.map(g=>{const ms=T.metrics.filter(m=>m.group===g&&(!q||m.label.includes(q)));if(!ms.length)return '';return `<div class="xs muted" style="padding:6px 10px 2px;font-weight:600">${g}</div>`+ms.map(m=>`<div class="it ${m.id===cur.id?'on':''}" data-id="${K.esc(m.id)}" style="padding:4px 10px"><span class="small" style="flex:1;color:var(--ink)">${K.esc(m.label.replace(/（(.*)）/,' $1'))}</span>${m.nab?`<span class="xs ${m.nab>=10?'':'faint'}" style="color:${m.nab>=10?'var(--brand-d)':''}" title="给药后超范围人数">${m.nab}</span>`:''}</div>`).join('')}).join('')+
-   `<div class="xs muted" style="padding:6px 10px 2px;font-weight:600">定性/描述性结果</div>`+T.qual.tests.filter(t=>!q||t.includes(q)).map(t=>`<div class="it ${cur.qual===t?'on':''}" data-q="${K.esc(t)}" style="padding:4px 10px"><span class="small" style="color:var(--ink)">${K.esc(t)}</span></div>`).join('');
+   `<div class="xs muted" style="padding:6px 10px 2px;font-weight:600">定性/描述性结果</div>`+QTESTS.filter(t=>!q||t.includes(q)).map(t=>`<div class="it ${cur.qual===t?'on':''}" data-q="${K.esc(t)}" style="padding:4px 10px"><span class="small" style="color:var(--ink)">${K.esc(t)}</span></div>`).join('');
   document.querySelectorAll('#ml .it').forEach(it=>it.onclick=()=>{if(it.dataset.id){cur=T.metrics.find(m=>m.id===it.dataset.id)}else cur={qual:it.dataset.q,id:'q:'+it.dataset.q};mlist();draw()})}
 document.getElementById('ms').oninput=mlist;mlist();
 const mn=document.getElementById('mn');

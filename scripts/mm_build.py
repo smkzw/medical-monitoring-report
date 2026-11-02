@@ -1611,6 +1611,13 @@ def eligibility_checks(C):
     for E in C.A.get('eligibilitySubject', []):  # {"field":"age","op","v","text"}
         for sid in C.pop:
             v = C.subj[sid].get(E['field'])
+            if isinstance(v, str):
+                # R2-2（D002 仿真定罪连带）：受试者字段可能是文本型数值（'47'）——按数值参与比较；
+                # 不可数值化的文本（空串/区间写法）不比较（cmp 对 None 已跳过，此处同口径不猜）。
+                try:
+                    v = float(v.strip())
+                except ValueError:
+                    continue
             if cmp(E['op'], v, E['v']):
                 add_other(C, sid, E.get('cat', '入排标准核对'), E.get('pr', 4), f"{E.get('label', E['field'])} = {fmt(v) if isinstance(v, float) else v}，不符合入选/排除「{E['text']}」", None, C.subj[sid].get('icf'),
                           C.subj[sid].get('sheet', ''), C.subj[sid].get('row'), bkey=f"{E['field']}|{E.get('id') or ''}")

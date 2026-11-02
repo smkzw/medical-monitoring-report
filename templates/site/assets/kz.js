@@ -185,8 +185,20 @@ K.seg=(el,opts,val,onChange)=>{function draw(){el.innerHTML=opts.map(([v,l])=>`<
 K.tabs=(el,opts,val,onChange)=>{function draw(){el.innerHTML=opts.map(([v,l,n])=>`<button class="${v===val?'on':''}" data-v="${v}">${l}${n!=null?`<span class="n">${n}</span>`:''}</button>`).join('');el.querySelectorAll('button').forEach(b=>b.onclick=()=>{val=b.dataset.v;draw();onChange(val)})}draw();onChange(val);return{set(v){val=v;draw();onChange(v)}}};
 /* charts */
 K.COL=['#FF9900','#407AAA','#587B3B','#A85F34','#8B0000','#FFCC00','#8E6CB8','#3BA3A0','#7F7F7F'];
+/* R2-1（D002 E2E 深链页 pageerror×6）：markLine/markPoint 坐标不可用（yAxis:undefined——KRI 未配置容忍限度、
+ * 空集合中位数 null/NaN）在 ECharts marker 转换后 e[0].coord 取 undefined 崩整页。K.chart 入口统一守卫：
+ * 坐标缺失/非有限值的 marker 项剔除，全部无效则撤除整个 markLine/markPoint（不渲染辅助线，不崩页）；
+ * 字符串坐标（时间/类目轴日期）与有限数值、coord/点对形态全部保留。 */
+K._coordOk=v=>typeof v==='number'?isFinite(v):typeof v==='string'?v.trim()!=='':false;
+K._markerItemOk=it=>{if(it==null)return false;if(Array.isArray(it))return it.length===2?(K._markerItemOk(it[0])&&K._markerItemOk(it[1])):it.every(K._coordOk);
+  if(typeof it!=='object')return K._coordOk(it);
+  if('coord'in it)return(it.coord||[]).every(K._coordOk);
+  if('xAxis'in it||'yAxis'in it)return(!('xAxis'in it)||K._coordOk(it.xAxis))&&(!('yAxis'in it)||K._coordOk(it.yAxis));
+  return true};
+K.chartGuard=opt=>{(opt&&opt.series||[]).forEach(s=>{if(!s)return;for(const mk of['markLine','markPoint']){const m=s[mk];
+  if(!m||!Array.isArray(m.data))continue;m.data=m.data.filter(K._markerItemOk);if(!m.data.length)delete s[mk]}});return opt};
 K.chart=(el,opt)=>{if(typeof el==='string')el=document.querySelector(el);let c=echarts.getInstanceByDom(el);if(!c){c=echarts.init(el,null,{renderer:'canvas'});new ResizeObserver(()=>c.resize()).observe(el)}
-  opt=Object.assign({color:K.COL,textStyle:{fontFamily:'Microsoft YaHei, PingFang SC, Noto Sans CJK SC, Arial',fontSize:11},animationDuration:300},opt);c.setOption(opt,true);return c};
+  opt=Object.assign({color:K.COL,textStyle:{fontFamily:'Microsoft YaHei, PingFang SC, Noto Sans CJK SC, Arial',fontSize:11},animationDuration:300},K.chartGuard(opt));c.setOption(opt,true);return c};
 K.axis={axisLine:{onZero:false,lineStyle:{color:'#C9CCD1'}},axisTick:{show:false},axisLabel:{color:'#64676B'},splitLine:{lineStyle:{color:'#F0F1F4'}}};
 K.q=(arr,p)=>{if(!arr.length)return null;const a=arr.slice().sort((x,y)=>x-y);const i=(a.length-1)*p,lo=Math.floor(i),hi=Math.ceil(i);return a[lo]+(a[hi]-a[lo])*(i-lo)};
 K.median=a=>K.q(a,.5);

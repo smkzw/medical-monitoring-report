@@ -2996,5 +2996,86 @@ class HIFixEffMissingAction(unittest.TestCase):
         self.assertTrue(any('IGA' in t[2] for t in getattr(C, 'todo', [])) or C.KZeff.get('missing'))
 
 
+class R2FixPagePrefixedSheetDomain(unittest.TestCase):
+    """R2-2（D002 E2E build ec34087 零信号定罪后的泛化修）：EDC 导出常见「(页号)表名」结构性前缀——
+    DOMAIN_RE 的 ^锚定使 (59)不良事件/(48)研究药物给药/(7)人口统计学 全部未命中 → subjects/exposure 域
+    从未进草稿 → norm 无 subjects/exposure → 分析人群 C.pop=0 → queries/others/受试者页全零
+    （实测：D002 全簿 69 sheet 仅 4 个 PK 采血表靠表头签名识别，其余全部「—」）。
+    修法＝域识别入口剥页号前缀（形态归一）＋参与者/人口统计通用命名变体；不写死任何研究表名。"""
+
+    def test_page_prefixed_core_domains_detected(self):
+        import inspect_listing as IL
+        for sh, want in (('(59)不良事件', 'ae'), ('(9)病史', 'mh'), ('(60)合并用药', 'cm'),
+                         ('(48)研究药物给药', 'exposure'), ('(7)人口统计学', 'subjects'),
+                         ('(1)参与者信息', 'subjects'), ('(4)随机', 'subjects'),
+                         ('(63)治疗结束页', 'subjects'), ('(66)研究结束页', 'subjects'),
+                         ('(2)访视日期', 'visits'), ('(18)心电图单次', 'findings:ecg'),
+                         ('(17)生命体征', 'findings:vs'), ('(14)体格检查_1', 'findings:pe'),
+                         ('(29)实验室检查-血常规_1', 'findings:lab'),
+                         ('(60)既往及合并用药', 'cm'), ('(61)既往及合并非药物治疗', 'proc'),
+                         ('(10)个人史', 'mh'), ('(11)月经史', 'mh'), ('(12)孕产史', 'mh'),
+                         ('(45)尿妊娠试验', 'findings:lab'), ('(55)骨密度检查DXA', 'findings:exam')):
+            self.assertEqual(IL.domain_of_sheet(sh), want, sh)
+
+    def test_page_prefix_forms(self):
+        """页号前缀形态归一：半/全角括号页号、数字序号点/顿号/横线，剥后为空则保留原名。"""
+        import inspect_listing as IL
+        self.assertEqual(IL.strip_page_prefix('(59)不良事件'), '不良事件')
+        self.assertEqual(IL.strip_page_prefix('（一）病史'), '病史')
+        self.assertEqual(IL.strip_page_prefix('01.实验室检查'), '实验室检查')
+        self.assertEqual(IL.strip_page_prefix('2、不良事件'), '不良事件')
+        self.assertEqual(IL.strip_page_prefix('3-生命体征'), '生命体征')
+        self.assertEqual(IL.strip_page_prefix('(1)'), '(1)')          # 纯页号不是前缀（原名保留）
+        self.assertEqual(IL.strip_page_prefix('不良事件'), '不良事件')  # 无前缀不变
+
+    def test_plain_and_first_label_paths_unchanged(self):
+        """无前缀表名与首列标签兜底路径保持既有行为（LBHEMA/RES1 式不回归）。"""
+        import inspect_listing as IL
+        self.assertEqual(IL.domain_of_sheet('不良事件'), 'ae')
+        self.assertEqual(IL.domain_of_sheet('LBHEMA--实验室检查-血常规'), 'findings:lab')
+        self.assertEqual(IL.domain_of_sheet('RES1', 'rTNSS总分(RTNSSNUM)'), None)  # 总分签名走 sheet_domain_by_header，不在此判
+
+    def test_dm_sid_set_check_uses_stripped_name(self):
+        """DM 表选取（「受试者编号不在 DM」核查）同样剥页号前缀：(7)人口统计学 作为 DM 基准可被选中。"""
+        import inspect_listing as IL
+        import re as _re
+        self.assertTrue(IL.is_subjects_sheet('(7)人口统计学'))
+        self.assertTrue(IL.is_subjects_sheet('DM'))
+        self.assertFalse(IL.is_subjects_sheet('(59)不良事件'))
+        self.assertFalse(bool(_re.search(IL.DOMAIN_RE[0][1], '(7)人口统计学')))   # 修前：裸正则确实不命中（红证据锚点）
+
+
+class R2FixEligibilitySubjectTypeGuard(unittest.TestCase):
+    """R2-2 连带缺陷（D002 仿真实证）：eligibilitySubject 拿受试者字段原值对照数值阈值——
+    文本型数值（'47'）或字段缺失（None）直接 TypeError 崩构建。此前 C.pop=0 时从未走到该分支
+    （零信号掩盖了它）。修法＝不可数值化的取值不参与比较（跳过，不猜）。"""
+
+    def _run(self, age):
+        from types import SimpleNamespace
+        from mm_build import eligibility_checks
+        C = SimpleNamespace(pop={'S1'}, subj={'S1': {'age': age, 'site': '01'}},
+                            A={'eligibilitySubject': [{'id': 'IE-I2', 'field': 'age', 'op': '<', 'v': 18.0,
+                                                       'label': '年龄', 'text': '入选标准：年龄18~50周岁'}]},
+                            others=[])
+        eligibility_checks(C)
+        return C.others
+
+    def test_text_numeric_age_not_crashing(self):
+        out = self._run('47')                     # 文本型数值：不崩、按 47 判定（≥18 不符的不发）
+        self.assertEqual(out, [])
+
+    def test_underage_text_age_flagged(self):
+        out = self._run('16')                     # 文本型且确实不符 → 照发
+        self.assertEqual(len(out), 1)
+        self.assertIn('16', out[0]['sum'])
+
+    def test_missing_field_skipped(self):
+        self.assertEqual(self._run(None), [])     # 字段缺失：不可比较，跳过不崩
+
+    def test_numeric_age_unchanged(self):
+        self.assertEqual(self._run(47.0), [])     # 数值路径不回归
+        self.assertEqual(len(self._run(16.0)), 1)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)
