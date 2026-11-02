@@ -33,8 +33,9 @@ async function draw(){const my=++seq,m=I.sheets[st.k];K.setHash({k:st.k,c:st.c,s
   const sids=Object.keys(I.subs).filter(s=>I.subs[s].includes(st.k)&&(!st.c||(SUB[s]||{}).site===st.c)&&(!st.s||s.includes(st.s))).sort();
   const tb=document.getElementById('tb');tb.innerHTML=`<div class="empty">载入 ${sids.length} 名受试者的原始数据…</div>`;
   const rows=[],hit=new Set();let done=0;
-  for(const s of sids){const R=await K.raw(s);if(my!==seq)return;done++;if(done%25===0)tb.innerHTML=`<div class="empty">载入中 ${done}/${sids.length}…</div>`;
-    ((R||{})[st.k]||[]).forEach(r=>{const key=s+'|'+r[0];rows.push([s,...r]);if((sheetSig[st.k]||new Set()).has(key))hit.add(rows.length-1)})}
+  for(let i=0;i<sids.length;i+=16){const batch=sids.slice(i,i+16),Rs=await Promise.all(batch.map(s=>K.raw(s)));if(my!==seq)return;   /* 16 个并行载入 */
+    done+=batch.length;tb.innerHTML=`<div class="empty">载入中 ${done}/${sids.length}…</div>`;
+    batch.forEach((s,bi)=>((Rs[bi]||{})[st.k]||[]).forEach(r=>{const key=s+'|'+r[0];rows.push([s,...r]);if((sheetSig[st.k]||new Set()).has(key))hit.add(rows.length-1)}))}
   const kw=st.q;let idx=rows.map((_,i)=>i);
   if(st.hit)idx=idx.filter(i=>hit.has(i));if(kw)idx=idx.filter(i=>rows[i].some(v=>String(v).includes(kw)));
   const hl=new Set(m.hl||[]),ord=K.rawOrder(m),cols=ord.map(j=>m.cols[j]),MAX=1500;

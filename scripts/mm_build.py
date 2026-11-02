@@ -699,6 +699,26 @@ def pick_baseline(C, sid, mid, rows, rules):
     return b, btype
 
 
+def panel_level_clin(C):
+    """V6（复核 D002 阴道分泌物：同一份化验单 5 行全判 CS，含「滴虫 阴性」——是整份判定逐行重复，不是逐项判定）。
+    长表同受试者×同表单×同日期 ≥3 行且全部判 CS 时：判定只留在异常行（超出参考范围/分级 ≥1/定性阳性），其余行置未评价并标 _panel；
+    一行都判不出异常时保持原样（交研究者判定，不猜）。宽表共用临床意义列另由 normalize._record_level_clin 处理。"""
+    grp = defaultdict(list)
+    for (sid, _mid), rows in C.F.items():
+        for r in rows:
+            if r.get('clin') is not None and r.get('date'):
+                grp[(sid, r.get('sheet'), r.get('date'))].append(r)
+    for rs in grp.values():
+        if len(rs) < 3 or any(r.get('clin') != 2 for r in rs):
+            continue
+        abn = [r for r in rs if r.get('oor') or (r.get('grade') or 0) >= 1 or
+               (r.get('value') is None and (ext_rules.qual_level(r.get('raw')) or 0) > 0)]
+        for r in rs:
+            r['_panel'] = True
+            if abn and r not in abn:
+                r['clin'] = None
+
+
 def finding_abn(r):
     return (r.get('clin') in (1, 2)) or (r.get('grade') or 0) >= 1 or r.get('oor')
 
@@ -918,7 +938,8 @@ def build_labrows(C):
                 if orphan:
                     risk = 'CSX'
                     ctx.append('CS 结果未关联且不在已关联事件期间：' + '、'.join(f"{r.get('visit')}（{r.get('date')}）" for r in orphan[:3]))
-            ibg = next((bb for a, bb in (C.A.get('indicationBackground') or []) if re.search(a, mid)), None) if risk == 'CSX' else None
+            ibg = next((bb for a, bb in (C.A.get('indicationBackground') or []) if re.search(a, mid)
+                        and ext_rules.bg_applies(bb, mid, P[0].get('sheet', '') if P else '')), None) if risk == 'CSX' else None
             if ibg:
                 nm = re.sub(r'（医学常识）$', '', str(ibg).split('：')[0])
                 if b is None:
@@ -954,7 +975,8 @@ def build_labrows(C):
         if unassessed and risk != 'AE' and C.metric[mid].get('hasClin'):   # 表单没有临床意义字段时不写「未评价」
             ctx.append('临床意义未评价')
         if risk in ('MH', 'NCS2', 'NA', 'NA2'):   # mm4：方案/IB 列出的研究疾病表现 → 审阅时可见（CSX/DIS 已在上方判定）
-            ibg = next((b for a, b in (C.A.get('indicationBackground') or []) if re.search(a, mid)), None)
+            ibg = next((b for a, b in (C.A.get('indicationBackground') or []) if re.search(a, mid)
+                        and ext_rules.bg_applies(b, mid, P[0].get('sheet', '') if P else '')), None)
             if ibg:
                 ctx.append('可能为研究疾病表现：' + re.sub(r'（医学常识）$', '', str(ibg).split('：')[0]))
         if not C.G.has(C.cmap.get(mid)):
@@ -1582,7 +1604,7 @@ def cm_checks(C):
     for P in C.A.get('prohibited', []):  # {"name","re","window":[daysBeforeFd, 'ld'|daysAfterFd], "pr"}
         pre = re.compile(P['re'], re.I)
         systemic_only = bool(_SYSTEMIC.search(P.get('name') or '')) and not _TOPICAL.search(P.get('name') or '')
-        for sid in C.pop:
+        for sid in sorted(C.pop):
             s = C.subj[sid]
             if not s['fd']:
                 continue
@@ -1602,7 +1624,7 @@ def cm_checks(C):
                               bkey=f"{c['t']}|{c['s']}", wb=c.get('wb') or '')
     for W in C.A.get('washout', []):  # {"name","re","days","ref":"icf"|"fd"}
         pre = re.compile(W['re'], re.I)
-        for sid in C.pop:
+        for sid in sorted(C.pop):
             s = C.subj[sid]
             ref = s.get({'rand': 'rand_d'}.get(W.get('ref', 'fd'), W.get('ref', 'fd')))
             if not is_full_date(ref):
@@ -1794,7 +1816,7 @@ def eligibility_checks(C):
                       f"{det}不符，但已随机/给药",
                       r.get('visit'), r.get('date'), r['sheet'], r['row'], lab, r.get('clin'), ctx=ctx, bkey=bkey, wb=r.get('wb') or '')
     for E in C.A.get('eligibilitySubject', []):  # {"field":"age","op","v","text"}
-        for sid in C.pop:
+        for sid in sorted(C.pop):
             v = C.subj[sid].get(E['field'])
             if isinstance(v, str):
                 # R2-2（D002 仿真定罪连带）：受试者字段可能是文本型数值（'47'）——按数值参与比较；
@@ -1959,7 +1981,7 @@ def build_queries(C):
             continue
         cat, ft, ask = T[g['risk']]
         cand = [c for c in g['ctx'] if c.startswith('同期 AE')]
-        bg = next((b for rx, b in ind_bg if rx.search(g.get('mid') or '')), None) if g['risk'] == 'CSX' else None
+        bg = next((b for rx, b in ind_bg if rx.search(g.get('mid') or '') and ext_rules.bg_applies(b, g.get('mid') or '', g.get('grp') or '')), None) if g['risk'] == 'CSX' else None
         if g['risk'] == 'CSX' and cand:  # a plausible AE exists but the finding is not linked → ask to link instead of "report AE"
             cat, ft, ask = T.get('CSX_AE', T['CSX'])
             ft = ft.replace('{cand}', '、'.join(re.sub(r'可能对应，但检验页未关联', '', c).replace('同期 ', '') for c in cand))
@@ -2648,7 +2670,7 @@ def defaults(C):
         C.todo = [['CS·未关联', 'solid-red', f"{sum(g['risk'] == 'CSX' for g in C.labrows)} 行判CS但未关联AE/MH", 'safety.html#tab=lab&risk=CSX'],
                   ['优先核实', 'red', f"{sum(o['pr'] == 4 for o in C.others)} 条专项信号优先核实", 'safety.html#tab=oth'],
                   ['AESI', 'red', f"{sum(a['aesi'] for a in C.aes if not a['pre'] and not a.get('dup'))} 例次 AESI", 'safety.html#tab=ae&aesi=1'],
-                  ['一致性', 'grn', f"判定一致性 {len(C.cons)} 组（同中心 {sum(1 for c in C.cons if c['scope'] == 'center')} · 同受试者 {sum(1 for c in C.cons if c['scope'] == 'subject')}）：需核实 {sum(c['st'] == '需核实' for c in C.cons)}", 'safety.html#tab=cons'],
+                  ['一致性', 'yel' if any(c['st'] == '需核实' for c in C.cons) else 'grn', f"判定一致性 {len(C.cons)} 组（同中心 {sum(1 for c in C.cons if c['scope'] == 'center')} · 同受试者 {sum(1 for c in C.cons if c['scope'] == 'subject')}）：需核实 {sum(c['st'] == '需核实' for c in C.cons)}", 'safety.html#tab=cons'],
                   ['质疑', 'org', f"{len(C.queries)} 条医学质疑已写入交付表格", 'queries.html']]
         an = Counter(x['k'] for x in C.KZeff['anomalies'])
         if an:
@@ -2748,6 +2770,7 @@ def analyze(C):
     ae_summary(C)
     micro_panel_mark(C)                                  # F-C＋第三轮：微生物培养/药敏先分域（build_findings 不收入 C.F）
     build_findings(C)
+    panel_level_clin(C)                                  # V6：长表同一份化验单逐行重复的整份 CS 判定 → 只留在异常行
     bind.rebind(C)                                       # V6：规则指标正则零命中 → 按括注缩写/域别名重绑（说明进 KZ.bind）
     _strip_disease_term_links(C)                         # F02 边界：研究疾病词目不作 MH 关联（先于一切关联消费方）
     annotate_links(C)                                    # 回溯后的关联类型（判定一致性归因维度用）

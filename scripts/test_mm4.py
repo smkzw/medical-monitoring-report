@@ -3424,6 +3424,34 @@ class V6Generalization(unittest.TestCase):
         self.assertIsNone(worse_vs_base(r, b, 0.3, disease=True)) # 研究疾病表现：绝对变化 0.25 < 0.3 不算明显加重
         self.assertIsNotNone(worse_vs_base(dict(r, value=0.8), b, 0.3, disease=True))
 
+    def test_disease_background_specimen(self):
+        from ext_rules import bg_applies
+        note = '可见于鼻分泌物涂片嗜酸性粒细胞增多'
+        self.assertFalse(bg_applies(note, 'lab:嗜酸性粒细胞计数（EOS#）', '血常规'))   # 外周血不套用鼻涂片背景
+        self.assertTrue(bg_applies(note, 'exam:鼻分泌物涂片嗜酸性粒细胞', '鼻涂片'))
+        self.assertTrue(bg_applies('研究疾病常见贫血', 'lab:血红蛋白', '血常规'))        # 未写标本照常适用
+
+    def test_panel_level_cs_kept_on_abnormal_rows(self):
+        from mm_build import panel_level_clin
+        rows = {('S1', f'lab:{t}'): [{'sid': 'S1', 'sheet': 'WBC', 'date': '2026-03-01', 'clin': 2, 'raw': raw, 'value': None, 'oor': False}]
+                for t, raw in (('霉菌', '阳性'), ('滴虫', '阴性'), ('线索细胞', '阴性'), ('清洁度', 'Ⅱ'))}
+        C = self._C(rows, {k[1]: {'label': k[1]} for k in rows})
+        panel_level_clin(C)
+        cl = {k[1]: v[0]['clin'] for k, v in C.F.items()}
+        self.assertEqual(cl['lab:霉菌'], 2)                                       # 整份 CS 只留在阳性行
+        self.assertIsNone(cl['lab:滴虫'])
+        self.assertTrue(all(v[0].get('_panel') for v in C.F.values()))
+
+    def test_negative_result_judged_cs_is_entry_check(self):
+        import ext_rules
+        r = {'sid': 'S1', 'raw': '未见', 'value': None, 'clin': 2, 'post': True, 'visit': 'W4', 'date': '2026-03-01',
+             'sheet': 'LB', 'row': 5, 'links': [], 'base': None, 'mid': 'lab:滴虫'}
+        C = self._C({('S1', 'lab:滴虫'): [r]}, {'lab:滴虫': {'label': '滴虫'}})
+        C.labrows, C.S, C.indBg, C.mhMatch = [], {}, [], []
+        C.cfg['thresholds'] = {'dev': 0.3, 'base': 0.3}
+        ext_rules.m23_csb(C)
+        self.assertEqual([o['risk'] for o in C.others], ['M16-NEGCS'])           # 录入核对，不按 CS 未关联追 AE
+
     def test_partial_start_pre_dose(self):
         from mm_build import _pre_dose
         self.assertTrue(_pre_dose('2026-01', '2026-02-03'))

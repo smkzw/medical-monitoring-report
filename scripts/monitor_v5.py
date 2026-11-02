@@ -301,7 +301,7 @@ def freshness(C, cutoff):
 def followup(C, cutoff):
     """{sid: 随访人日}：首剂 → 研究结束（无则在研者到数据截止、已结束者到最后观察日），不超过数据截止。"""
     fu = {}
-    for sid in C.pop:
+    for sid in sorted(C.pop):                                # 按受试者号遍历：输出字节级可复现（集合顺序随哈希种子变）
         s = C.subj[sid]
         fd = s.get('fd')
         if not is_full_date(fd):
@@ -330,7 +330,7 @@ KRI_DEFS = [
     ('ae', 'TEAE 报告率', '安全', '/100人月', 'low', None, 'TEAE 例次 / 随访人月 ×100（偏低提示可能漏报）'),
     ('sae', 'SAE 报告率', '安全', '/100人月', 'both', None, 'SAE 例次 / 随访人月 ×100'),
     ('late', 'SAE/AESI 报告超时', '安全', '%', 'high', (0, 5, 10), '报告超时 / SAE 与 AESI 例次'),
-    ('csx', 'CS 未关联', '安全', '/例', 'high', None, '判 CS 未关联 AE/病史（受试者×指标）/ 给药'),
+    ('csx', 'CS 未关联（检验）', '安全', '/例', 'high', None, '检验风险层：判 CS 未关联 AE/病史（受试者×指标，一个指标多次只计一次）/ 给药。专项（心电图/生命体征整份判定等）与质疑另计'),
     ('q', '申办方质疑', '数据', '/例', 'high', None, '申办方医学质疑 / 给药'),
     ('ent', '疑似录入错误', '数据', '/千条', 'high', None, '疑似录入错误 / 数值型检验检查记录 ×1000'),
     ('fresh', '数据新鲜度', '数据', '天', 'high', None, '数据截止 − 最近一条记录日期（研究层面取各中心中位数）'),
@@ -342,7 +342,7 @@ def kri(C):
     cut = C.ops.get('cutoff') or ''
     S = C.subj
     sites = sorted({s['site'] for s in S.values()})
-    dosed = [sid for sid in C.pop if S[sid].get('fd')]
+    dosed = [sid for sid in sorted(C.pop) if S[sid].get('fd')]
     pd = (C.pdd or {}).get('potential') or []
     ran = {r['id']: r.get('state') for r in (C.pdd or {}).get('rules') or []}
     # V6（PM 审阅 2026-11-02）：容忍限度分子只计「事实已成立」的潜在偏离；文案本身写着请核实/待判定/需经治疗后仍超标

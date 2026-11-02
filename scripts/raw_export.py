@@ -113,7 +113,7 @@ def export_raw(C, out):
                     continue
                 keep.append(j)
             idx['sheets'][key] = {'name': ws.title, 'wb': alias, 'mapped': meta is not None, 'domain': (meta or {}).get('domain') or '',
-                                  'cols': [labels[j] for j in keep], 'const': const, 'hl': [h_ for h_ in hl if h_ in labels],
+                                  'cols': [labels[j] for j in keep], 'const': const, 'hl': [c for c in dict.fromkeys(labels) if c in hl],
                                   'n': len(data), 'nsub': len({d[0] for d in data})}
             for sid, rn, vals in data:
                 per_sub[sid].setdefault(key, []).append([rn] + [vals[j] for j in keep])

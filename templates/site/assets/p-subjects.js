@@ -126,6 +126,10 @@ async function show(id){
   }
   function tVS(){
     pp.innerHTML=`${Object.keys(d.ecg||{}).length?`<div class="card mb"><div class="sec-t" style="margin-top:0"><h2>心电图</h2><span class="muted small">${K.esc(CF.ecgNote||'')}</span></div><div id="em"></div></div>`:''}${Object.keys(d.vs||{}).length?`<div class="card"><div class="sec-t" style="margin-top:0"><h2>生命体征</h2><span class="muted small">${K.esc(CF.vsNote||'')}</span></div><div id="vm"></div></div>`:''}`;
+    /* V6：心电图/生命体征同样给异常热力图（超出参考范围或判 CS 的项目；无参考范围的只显示 CS 标记） */
+    pp.insertAdjacentHTML('afterbegin','<div class="card mb"><div class="sec-t" style="margin-top:0"><h2>异常项目热力图</h2><span class="muted small">心电图与生命体征中超出参考范围或判 CS 的项目 × 访视；点格查看全程与原始行</span></div><div id="vhm" class="chart"></div></div>');
+    if(!K.labHeat||!K.labHeat(document.getElementById('vhm'),{...(d.ecg||{}),...(d.vs||{})},{onPick:t=>{const g=lr.find(x=>x.test===t);g?K.showLabG(g):K.seriesPanel(K.drawer(`${id} · ${K.esc(t)}`,'<div id="sp"></div>').querySelector('#sp'),{sid:id,tests:[t],hl:(((d.ecg||{})[t])||((d.vs||{})[t])||[]).filter(r=>r[7]===2).map(r=>[r[9],r[10]])})}}))
+      document.getElementById('vhm').closest('.card').remove();
     const vb=(vis,tp)=>rows=>{const i=vis?rows.findIndex(r=>r[1]===vis&&(!tp||new RegExp(tp).test(r[11]||''))):-1;return i>=0?i:baseIdx(rows,d.fd)};
     if(document.getElementById('em'))mx(document.getElementById('em'),[['心电图',Object.keys(d.ecg)]],d.ecg,{bfn:vb(BL.ecg,BL.ecgTpt)});
     if(document.getElementById('vm'))mx(document.getElementById('vm'),[['生命体征',Object.keys(d.vs||{})]],d.vs||{},{bfn:vb(BL.vs,BL.vsTpt)});

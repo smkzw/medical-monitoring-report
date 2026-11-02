@@ -175,9 +175,22 @@ def desc_ae_match(C, sid, r):
     return out
 
 
-def disease_hint(C, mid):
+_SPECIMEN = re.compile(r'鼻(分泌物|涂片|黏膜|拭子)?|痰|尿|粪|大便|脑脊液|关节液|胸水|腹水|皮损|阴道分泌物|白带')
+
+
+def bg_applies(note, mid, sheet=''):
+    """V6（MM 审阅：SAR 外周血嗜酸性粒细胞 33 条套用「可见于鼻分泌物涂片嗜酸性粒细胞增多」）：
+    研究疾病背景写明了标本（鼻涂片/痰/尿…）时，只套用到同标本的指标；指标名与表单名都不含该标本 → 不适用。"""
+    sp = {m.group(0)[:1] if m.group(0).startswith('鼻') else m.group(0) for m in _SPECIMEN.finditer(str(note or ''))}
+    if not sp:
+        return True
+    where = f"{mid}|{sheet}"
+    return any(s in where for s in sp)
+
+
+def disease_hint(C, mid, sheet=''):
     for mre, note in C.indBg:
-        if mre.search(mid):
+        if mre.search(mid) and bg_applies(note, mid, sheet):
             return note or '研究疾病常见表现'
     return None
 
@@ -933,6 +946,9 @@ def _base_abn(r):
     return (hi is not None and v > hi) or (lo is not None and v < lo)
 
 
+_NEG_RES = re.compile(r'阴性|未见|未检出|未发现|无|正常|-|－|—|neg(ative)?', re.I)
+
+
 def m23_csb(C):
     """步骤 1/1′/2/3/4 确定性 → 直接 query；其余 → 步骤 5 候选（交工作台 explain_cs）。"""
     t_base = float(C.cfg['thresholds'].get('base', 0.3))
@@ -951,6 +967,14 @@ def m23_csb(C):
             if r.get('clin') != 2 or (sid, r['sheet'], r['row']) in handled or (sid, r['sheet'], r['row']) in seen:
                 continue
             seen.add((sid, r['sheet'], r['row']))
+            if r.get('value') is None and not r.get('_panel') and _NEG_RES.fullmatch(str(r.get('raw') or '').strip()):
+                # V6（MM 审阅：D002「未见滴虫」判 CS）：结果写阴性/未见却判有临床意义 → 多为录入或判定错位，发录入核对，不按「CS 未关联」追 AE
+                add_ext(C, sid, '定性结果核对', 'M16-NEGCS', 3,
+                        f"{r.get('visit')}（{r.get('date')}）{C.metric[mid]['label']}结果「{r.get('raw')}」，但临床意义判定为 CS",
+                        r.get('visit'), r.get('date'), r['sheet'], r['row'], C.metric[mid]['label'],
+                        rule={'ask': '结果为阴性/未见却判为有临床意义，请核实结果或临床意义判定是否录入有误。'},
+                        bkey=f"{mid}|{r.get('visit')}|{r.get('date')}|negcs", wb=r.get('wb') or '')
+                continue
             known, worse, flags = _worsening(r, t_base)
             binding = {'link': None, 'matched_ae': [], 'matched_mh': []}
             emit = None                                  # ('LINK'|'CSX_AE'|'MH'|'CSW'|'CSX', rec, extra)
@@ -1050,7 +1074,7 @@ def m23_csb(C):
                             continue                     # 病史可解释 → 通过
                         if known and worse:
                             emit = ('CSW', mmhs[0], f"，病史有「{mmhs[0]['term']}」但给药后较基线加重，未见对应AE")
-            dh = disease_hint(C, mid)
+            dh = disease_hint(C, mid, r.get('sheet', ''))
             if emit is None and not link and r['post'] and known and worse and not (exempt and dh) and not judgment_only(C, r, rows, t_base):
                 emit = ('CSW' if _base_abn(r) else 'CSX', None, None)   # 步骤 4：确定性恶化直接 query（D19/D21）
             # 已关联且对象存在、对应性无法确定 → 步骤 5 候选（三问 Q3），不按「未关联」发 query（D002 QC：超声「其他异常」已关联病史/AE 曾被报 CS 未关联）
