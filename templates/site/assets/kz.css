@@ -134,14 +134,14 @@ input.s,select.s{height:28px;border:1px solid var(--line);border-radius:7px;padd
 /* ===== V6 视觉层（用户 2026-11-02 决定 1＝A：结构不变，借鉴康哲 Design 7.2 tokens 与图表语言；不引入光场/电影/倾斜等动效） =====
  * 颜色取自康哲 tokens：canvas #FBFCFD、ink #0F1115、body #404040、muted #64676B、risk #C00000、图表网格 #E7EBEE、坐标 #CED3D8。
  * 卡片＝同族玻璃（三停渐变面＋rim 折光边＋暖色分层阴影，静态，不随指针倾斜）；任何卡片/提示框不加边缘色条（康哲 LG-02）。
- * 字号：正文 14px、表格 13px、说明文字不低于 12px（监察报告是高密度数据页，按康哲 responsive 档下调一级，交付说明里注明）。 */
+ * 字号：维持原有密度（正文 13px、表格 12.5px），只把最小说明文字从 11px 提到 11.5–12px（用户 2026-11-02：康哲字号下限会让监察页信息密度过低，维持原字号）。 */
 :root{--bg:#F7F6F3;--canvas:#FBFCFD;--risk:#C00000;--risk-t:#F8E1E1;--line:#E7EBEE;--line2:#F0F2F4;--r:16px;
   --kz-face:linear-gradient(145deg,rgba(255,253,251,.96) 0%,rgba(255,251,242,.92) 48%,rgba(255,245,228,.88) 100%);
   --kz-rim:linear-gradient(165deg,rgba(255,255,255,.96) 0%,rgba(190,178,161,.34) 32%,rgba(190,178,161,.2) 68%,rgba(255,255,255,.72) 100%);
   --kz-shadow:0 1px 2px rgba(72,52,24,.06),0 6px 14px rgba(72,52,24,.05),0 18px 40px rgba(72,52,24,.06)}
-body{font-size:14px;background:radial-gradient(1200px 520px at 12% -8%,rgba(255,219,148,.20),rgba(255,219,148,0) 70%),var(--bg)}
-h2{font-size:16px}h3{font-size:14.5px}
-.small{font-size:12.5px}.xs{font-size:12px}.note{font-size:12.5px}.hd .sub{font-size:12.5px}
+body{font-size:13px;background:radial-gradient(1200px 520px at 12% -8%,rgba(255,219,148,.20),rgba(255,219,148,0) 70%),var(--bg)}
+h2{font-size:15px}h3{font-size:13.5px}
+.small{font-size:12px}.xs{font-size:11.5px}.note{font-size:12px}.hd .sub{font-size:12px}
 .card,.kpi{background:var(--kz-face) padding-box,var(--kz-rim) border-box;border:1px solid transparent;border-radius:var(--r);box-shadow:inset 0 1px 0 rgba(255,255,255,.9),var(--kz-shadow)}
 .card{padding:14px 16px}
 .box{background:rgba(255,255,255,.72);border:1px solid rgba(190,178,161,.32);border-radius:12px}
@@ -149,15 +149,15 @@ h2{font-size:16px}h3{font-size:14.5px}
 /* KPI：数值＋单位＋标签，数值用表格数字字形（康哲 .kz-number） */
 .kpi{padding:12px 14px}
 .kpi .l{font-size:12.5px}
-.kpi .v{font:700 28px/1.15 Arial,var(--font);font-variant-numeric:tabular-nums;color:var(--ink);letter-spacing:-.2px}
-.kpi .v small{font:500 13px var(--font);color:var(--muted);margin-left:2px;letter-spacing:0}
+.kpi .v{font:700 25px/1.15 Arial,var(--font);font-variant-numeric:tabular-nums;color:var(--ink);letter-spacing:-.2px}
+.kpi .v small{font:500 12px var(--font);color:var(--muted);margin-left:2px;letter-spacing:0}
 .kpi.risk .v{color:var(--risk)}
 /* 段标题：三段编号徽标＋标题＋一句说明 */
 .sec-h{margin:28px 0 12px;padding-bottom:8px;border-bottom:1px solid rgba(190,178,161,.35)}
-.sec-h b{font-size:18px}.sec-h .n{background:linear-gradient(135deg,#FFC966,var(--brand));color:var(--ink);font-weight:700;padding:2px 10px}
+.sec-h b{font-size:16px}.sec-h .n{background:linear-gradient(135deg,#FFC966,var(--brand));color:var(--ink);font-weight:700;padding:2px 10px}
 .sec-h .s{font-size:13px}
 /* 表格：表头安静、数字右对齐、行悬停 */
-.t{font-size:13px}
+.t{font-size:12.5px}
 .t th{background:rgba(255,247,236,.92);border-bottom:1px solid rgba(214,128,0,.35);font-size:12.5px}
 .t td{border-bottom:1px solid var(--line2)}
 .t tbody tr:hover td{background:rgba(255,244,226,.55)}

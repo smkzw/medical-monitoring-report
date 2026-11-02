@@ -108,7 +108,7 @@ K.countUpAll=root=>{if(K.RM)return;(root||document).querySelectorAll('.kpi .v,.f
   const m=tn.nodeValue.match(/^(\s*)(\d+(?:\.\d+)?)(.*)$/s);if(!m)return;const end=parseFloat(m[2]),dec=(m[2].split('.')[1]||'').length;if(!(end>0))return;
   el.dataset.cu='1';el.setAttribute('aria-label',el.textContent.trim());const t0=performance.now(),dur=520;
   const step=now=>{const k=Math.min(1,(now-t0)/dur),e=1-Math.pow(1-k,3);tn.nodeValue=m[1]+(end*e).toFixed(dec)+m[3];if(k<1)requestAnimationFrame(step);else tn.nodeValue=m[1]+m[2]+m[3]};requestAnimationFrame(step)})};
-window.addEventListener('load',()=>setTimeout(()=>K.countUpAll(),30));
+if(typeof window.addEventListener==='function')window.addEventListener('load',()=>setTimeout(()=>K.countUpAll(),30));
 /* ---- 信号聚合：同受试者 × 同日期 × 同类别 × 同表单 → 一组（行动项、中心待办） */
 /* 检验项标题＝「指标 · 类别」→ 按类别聚合（指标进明细）；其余（专项/偏离…）标题本身就是类别 */
 const catOf=o=>o.kind==='lab'?(o.title||'').replace(/^.*? · /,''):(o.title||'');
