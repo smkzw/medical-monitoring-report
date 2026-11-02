@@ -3424,6 +3424,19 @@ class V6Generalization(unittest.TestCase):
         self.assertIsNone(worse_vs_base(r, b, 0.3, disease=True)) # 研究疾病表现：绝对变化 0.25 < 0.3 不算明显加重
         self.assertIsNotNone(worse_vs_base(dict(r, value=0.8), b, 0.3, disease=True))
 
+    def test_ctcae_v6_corrections_vs_official(self):
+        # 2026-11-02 对照 NCI DCTD《CTCAE v6.0》Clean Copy 核对：血小板减少 4 级 <10×10^9/L；
+        # ALT/AST 基线已异常时 3 级 >2.0、4 级 >4.0 倍基线；CPK increased 在 v6.0 已删除（表中不应有 CK）
+        import json
+        t = json.loads((Path(__file__).parent / 'grading' / 'ctcae_v6.0.json').read_text(encoding='utf-8'))
+        g4 = next(s for s in t['items']['PLT'][0]['steps'] if s['g'] == 4)
+        self.assertEqual(g4['v'], 10)
+        for k in ('ALT', 'AST'):
+            ab = next(c for c in t['items'][k] if c.get('when') == 'baseAbnormal')
+            self.assertEqual({s['g']: s['v'] for s in ab['steps']}[3], 2.0)
+            self.assertEqual({s['g']: s['v'] for s in ab['steps']}[4], 4.0)
+        self.assertNotIn('CK', t['items'])
+
     def test_disease_background_specimen(self):
         from ext_rules import bg_applies
         note = '可见于鼻分泌物涂片嗜酸性粒细胞增多'

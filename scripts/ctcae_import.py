@@ -28,14 +28,17 @@ def norm(s):
 def read_official(path):
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     out = {}
+    TERM = r'CTCAE(\s*v[\d.]+)?(\s*MedDRA\s*[\d.]+)?\s*Term'   # v5「CTCAE Term」；v6「CTCAE v6.0 MedDRA 28.0 Term」
     for ws in wb.worksheets:
+        if re.search(r'Tracked|Mapping|Errata|Notes', ws.title, re.I):
+            continue                                     # v6 工作簿另有修订痕迹/新旧映射/勘误页，只读 Clean Copy
         rows = list(ws.iter_rows(values_only=True))
-        hi = next((i for i, r in enumerate(rows[:15]) if any(re.search(r'CTCAE\s*Term', norm(c), re.I) for c in r)), None)
+        hi = next((i for i, r in enumerate(rows[:15]) if any(re.search(TERM, norm(c), re.I) for c in r)), None)
         if hi is None:
             continue
         H = [norm(c) for c in rows[hi]]
         col = lambda rx: next((i for i, h in enumerate(H) if re.search(rx, h, re.I)), None)
-        ct, soc, code, dfn = col(r'CTCAE\s*Term'), col(r'SOC'), col(r'MedDRA\s*Code|^Code'), col(r'Definition')
+        ct, soc, code, dfn = col(TERM), col(r'SOC'), col(r'MedDRA.*(Code|LLT)|^Code'), col(r'Definition')
         gcols = {g: col(rf'^Grade\s*{g}\b') for g in range(1, 6)}
         for r in rows[hi + 1:]:
             t = norm(r[ct]) if ct is not None and ct < len(r) else ''
