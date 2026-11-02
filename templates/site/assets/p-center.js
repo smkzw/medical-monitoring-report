@@ -26,9 +26,10 @@ function draw(site){
    ${kpi('访视',`${due.length}<small>次应完成</small>`,`逾期 ${due.filter(d=>d[6]==='overdue').length} · 超窗 ${due.filter(d=>d[6]==='out').length} · 未来 14 天 ${(O.upcoming||[]).filter(u=>u[1]===site).length}`)}
    ${kpi('潜在方案偏离',`${POT.length}<small>条</small>`,`重要 ${POT.filter(p=>p.grade==='重要').length}`)}
    ${kpi('申办方质疑',`${q.length}<small>条</small>`,`疑似录入错误 ${ent.length}`)}</div>
-  <div class="flex wrap mb small" style="gap:12px"><a href="profile.html#c=${site}">安全性概览 · 本中心 ›</a><a href="safety.html#tab=lab&c=${site}">本中心检验风险 ›</a><a href="deviations.html">方案偏离 ›</a><a href="subjects.html#c=${site}">本中心受试者 ›</a></div>
+  <div class="flex wrap mb small" style="gap:12px"><a href="profile.html#c=${site}">安全性概览 · 本中心 ›</a><a href="safety.html#tab=lab&c=${site}">本中心检验风险 ›</a><a href="deviations.html">方案偏离 ›</a><a href="subjects.html#c=${site}">本中心受试者 ›</a><a href="raw.html#c=${site}">本中心原始数据 ›</a></div>
   <div class="grid g12"><div class="card"><div class="hd"><h2>KRI</h2><span class="sub">本中心 · 研究整体 · 研究层面限度（${K.QTLN[K.qtlTier()]}档）</span><span class="sp"></span><a class="small" href="monitor.html#tab=kri">全部中心 ›</a></div><div id="ck"></div></div>
    <div class="card"><div class="hd"><h2>风险类别</h2><span class="sub">观察数与按${K.esc(CR.unit)}推算的期望；着色＝校正多重比较后偏高/偏少</span><span class="sp"></span><a class="small" href="safety.html#tab=ov">热力图 ›</a></div><div id="cr"></div></div></div>
+  <div class="card mt"><div class="hd"><h2>本中心受试者风险构成</h2><span class="sub">每名已给药受试者的检验 CS 未关联、专项（需核实及以上）、质疑与 AE；点条形进入个例资料</span><span class="sp"></span><a class="small" href="raw.html#c=${site}">本中心原始数据 ›</a></div><div id="crs" class="chart"></div></div>
   <div class="card mt"><div class="hd"><h2>本中心待办</h2><span class="sub">待处理/处理中 ${open.length} 项（全部角色）· 点行打开证据并处置</span></div><div id="ca"></div></div>
   <div class="grid g12 mt"><div class="card"><div class="hd"><h2>潜在方案偏离</h2><span class="sub">${POT.length} 条</span></div><div id="cpd"></div></div>
    <div class="card"><div class="hd"><h2>访视与录入</h2><span class="sub">逾期/超窗访视、疑似录入错误</span></div><div id="cv"></div></div></div>
@@ -40,6 +41,7 @@ function draw(site){
   /* 风险类别 */
   document.getElementById('cr').innerHTML=`<table class="t"><thead><tr><th>组</th><th>类别</th><th class="num">观察</th><th class="num">期望</th><th></th></tr></thead><tbody>${cats.map(([k,g,l,,desc])=>{const x=(CR.cell[k]||{})[site];if(!x)return '';
     return `<tr title="${K.esc(desc)}"><td class="xs muted">${g}</td><td class="small">${l}</td><td class="num" style="${K.qStyle(x.qu,x.ql)}">${x.o}</td><td class="num">${x.e.toFixed(1)}</td><td>${K.qlt(x.qu,.10)?K.p(K.qlt(x.qu,.05)?'明显偏高':'偏高','org'):K.qlt(x.ql,.10)?K.p('偏少','blu'):''}</td></tr>`}).join('')}</tbody></table>`;
+  if(K.roster)K.roster(document.getElementById('crs'),ds.map(s=>s.id));
   /* 待办 */
   const L=open.slice(0,30);document.getElementById('ca').innerHTML=L.length?`<table class="t actq"><tbody>${L.map((a,i)=>`<tr class="click" data-i="${i}"><td class="sc" style="width:28px">${a.score}</td><td style="width:150px">${K.p(a.tag[0],a.tag[1])}${a.tags.map(t=>K.p(t[0],t[1],t[2])).join('')}</td><td><b style="color:var(--ink)">${K.esc(a.title)}</b><div class="xs muted">${K.esc(String(a.why||'').slice(0,140))}</div></td><td class="nowrap" style="width:80px">${a.sid?K.sid(a.sid):''}</td><td style="width:80px">${K.sigPill(a.kind,a.x)}</td></tr>`).join('')}</tbody></table>${open.length>30?`<div class="xs muted mt">另有 ${open.length-30} 项，见总览「需要干什么」</div>`:''}`:'<div class="empty">本中心没有待处理事项</div>';
   document.querySelectorAll('#ca tr[data-i]').forEach(tr=>tr.onclick=e=>{if(!e.target.closest('a'))L[+tr.dataset.i].open()});

@@ -183,7 +183,9 @@ def automap(metrics, G, overrides=None):
         for code, (d, inc, exc) in an.items():
             if d != dom or not G.has(code):
                 continue
-            if re.search(inc, label, re.I) and not (exc and re.search(exc, label, re.I)) \
+            # V6：中文写法与词典不同时靠括注缩写命中（「丙氨酸基转移酶（ALT）」——D001/SAR 转氨酶此前不分级）
+            from bind import label_variants
+            if any(re.search(inc, x, re.I) for x in label_variants(label)) and not (exc and re.search(exc, label, re.I)) \
                     and _entry_dirs_ok(G, code, label):
                 out[mid] = code
                 break

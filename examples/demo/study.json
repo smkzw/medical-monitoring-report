@@ -506,6 +506,7 @@
   ]
  },
  "analysis": {
+  "consMinDiff": 0,
   "population": "dosed",
   "aeCatMap": [
    [

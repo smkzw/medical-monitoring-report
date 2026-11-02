@@ -25,6 +25,7 @@ Every output record keeps `sheet` and `row` (Excel row number) so findings/queri
 """
 import argparse
 import re
+from collections import Counter
 from pathlib import Path
 
 import openpyxl
@@ -34,7 +35,7 @@ from inspect_listing import guess, is_struct_col
 
 DATE_FIELDS = {'date', 'start', 'end', 'icf', 'eot_d', 'eos_d', 'rand_d', 'fd', 'ld', 'aware', 'rpt'}
 NUM_FIELDS = {'age', 'bmi', 'ht', 'wt', 'lo', 'hi'}
-BOOL_FIELDS = {'serious', 'aesi', 'ongoing_b'}
+BOOL_FIELDS = {'serious', 'aesi', 'ongoing_b', 'dili'}   # V6：dili 也是「是/否」——原样字符串「否」在下游 bool() 为真（D002 全部 AE 标 DILI）
 EVENT_DOMS = ('ae', 'mh', 'cm', 'proc', 'pd')      # 带 term 的事件型域
 SHEETS = {}
 
@@ -198,7 +199,8 @@ def read_spec(spec, books, M, dom=None):
     # PR-8: SHEETS keyed by per-workbook unique id "wb:sheet" — same-name sheets in different
     # workbooks no longer collapse into one meta entry (each keeps its own highlight columns / sid label).
     sid_key = f"{alias}:{spec['sheet']}"
-    meta = SHEETS.setdefault(sid_key, {'wb': alias, 'sheet': spec['sheet'], 'label_row': lr, 'var_row': vr, 'data_start': ds, 'hl': [], 'sid': None})
+    meta = SHEETS.setdefault(sid_key, {'wb': alias, 'sheet': spec['sheet'], 'label_row': lr, 'var_row': vr, 'data_start': ds, 'hl': [], 'sid': None,
+                                       'domain': spec.get('domain') or dom})
     for k, i in cols.items():
         if i is not None and i < len(labels) and k in hlk and labels[i] not in meta['hl']:
             meta['hl'].append(labels[i])
@@ -257,6 +259,53 @@ def read_spec(spec, books, M, dom=None):
         yield rec, r, labels, vars_
 
 
+def _numv(x):
+    try:
+        return float(str(x).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _record_level_clin(items, spec):
+    """V6 R2（审阅者 2026-11-02，D002/SAR 复盘）：宽表里一个「临床意义」列被多个参数共用（心电图整份一个判定）时，
+    原实现把同一 CS 抄给每个参数 → 心率/PR/QRS… 各发一条「CS 未关联 AE」。改为：判定只留在超出参考范围的参数上；
+    没有参数可判异常（或无参考范围）时，生成一条「<表>·总体评价」记录承载该判定（关联/描述随行），参数本身不带判定。"""
+    cnt = Counter(it['_clin_col'] for it in items if it.get('_clin_col'))
+    shared = {c for c, n in cnt.items() if n >= 2}
+    if not shared:
+        return items
+    out = [it for it in items if it.get('_clin_col') not in shared]
+    for col in shared:
+        grp = [it for it in items if it.get('_clin_col') == col]
+        cv = next((it.get('clin') for it in grp if it.get('clin') not in (None, '')), None)
+        abn = []
+        for it in grp:
+            v, lo, hi = _numv(it.get('value')), _numv(it.get('lo')), _numv(it.get('hi'))
+            if v is not None and ((lo is not None and v < lo) or (hi is not None and v > hi)):
+                abn.append(it)
+        rec = None
+        if cv is not None and not abn:
+            # 审阅修正（MM/CRA 2026-11-02：88 条「「」判定为CS」）：关联/描述先于参数清理取出；结果写描述或各参数值，不留空
+            rec = {'test': f"{spec.get('group') or spec['sheet']}·总体评价", 'clin': cv}
+            for k in ('link', 'link_mh', 'link_ae', 'desc', 'reason_disease', 'reason_link', 'reason_other'):
+                v = next((it.get(k) for it in grp if it.get(k) not in (None, '')), None)
+                if v is not None:
+                    rec[k] = v
+            summ = '；'.join(f"{it['test']} {it.get('value')}" for it in grp if it.get('value') not in (None, ''))
+            rec['value'] = str(rec.get('desc') or summ or '')[:120] or None
+        for it in grp:
+            if it not in abn:
+                it['clin'] = None
+                for k in ('link', 'link_mh', 'link_ae', 'desc'):
+                    it.pop(k, None)                    # 整份记录的关联/描述随判定走（异常参数或总体评价）
+            out.append(it)
+        if rec:
+            out.append(rec)
+    for it in out:
+        it.pop('_clin_col', None)
+    return out
+
+
 def _bool_flag_tests(spec, book, M, lay):
     """F01①：完成标志类布尔测试集合。宽表逐测试列看全列值域；长表按测试名分组看值域。
     判据（通用）：值域非空且⊂{0,1,是,否…}勾选形态，且（测试名/列名含 是否/完成/勾选，或同表多数测试列
@@ -309,6 +358,7 @@ def findings(spec, books, M):
     alias = spec.get('wb', next(iter(books)))
     flag_tests = _bool_flag_tests(spec, books[alias], M, lay)
     for rec, r, labels, vars_ in read_spec(spec, books, M):
+        loc = str(rec.get('loc') or '').strip()       # V6：测量部位限定词（DXA 腰椎/股骨颈/全髋）拼进检查名
         base = {k: rec.get(k) for k in ('sid', 'visit', 'date', 'time', 'tpt', 'sheet', 'row', 'done', 'wb', 'reason', 'reason_text', '_chg',
                                         'reason_disease', 'reason_link', 'reason_other', 'flag')}
         if base.get('_chg') is None:
@@ -336,13 +386,16 @@ def findings(spec, books, M):
                         it[k] = c if k in ('unit',) else None
                     else:
                         it[k] = conv(k, r[i] if i < len(r) else None, M)
+                if tc.get('clin') is not None:
+                    it['_clin_col'] = str(tc['clin'])
                 items.append(it)
+            items = _record_level_clin(items, spec)
         for it in items:
             raw = it.get('value')
             if raw in (None, '') and it.get('clin') is None:
                 continue
             f = dict(base)
-            f.update({'test': str(it.get('test') or '').strip(), 'raw': None if raw is None else str(raw),
+            f.update({'test': str(it.get('test') or '').strip() + (f'·{loc}' if loc else ''), 'raw': None if raw is None else str(raw),
                       'value': to_num(raw), 'unit': it.get('unit'), 'lo': to_num(it.get('lo')), 'hi': to_num(it.get('hi')),
                       'clin': it.get('clin'), 'desc': it.get('desc'),
                       'links': parse_links(it.get('link'), M.get('link_re')) + parse_typed_links(it.get('link_mh'), 'MH') +
@@ -443,6 +496,8 @@ def main():
     dump_json({'workbooks': {k: b.path for k, b in books.items()}, 'label_row': M.get('label_row', 1),
                'var_row': M.get('var_row', 2), 'data_start': M.get('data_start', 3),
                'sheets': SHEETS, 'sheets_by_name': by_name,
+               # V6 B4：未映射的表名（终点无数据时据此给出「可能的来源表」候选，不自动绑定）
+               'unmapped': sorted({n for b in books.values() for n in b.wb.sheetnames} - {m['sheet'] for m in SHEETS.values()}),
                'formNames': {k: v for b in books.values() for k, v in form_names(b).items()}}, out / '_source.json')
 
 

@@ -63,7 +63,7 @@ K.qtlBar=el=>{const k=K.kri();if(!el||!k)return;el.innerHTML=`<span class="xs mu
   K.seg(el.querySelector('#kz-qtl'),k.tiers,K.qtlTier(),v=>K.setQtl(v))};
 K.qtlTiles=el=>{const rows=K.qtlRows();if(!el)return;if(!rows.length){el.innerHTML='<div class="empty">本构建没有 KRI 数据</div>';return}
   el.innerHTML=`<div class="qtl">${rows.map(r=>`<a class="qt ${r.st||'na'}" href="monitor.html#tab=kri" title="${K.esc(r.note)}"><div class="l">${K.esc(r.l)}</div>
-   <div class="v">${r.na?'—':K.kriFmt(r.k,r.v)}</div><div class="s">${r.na?`<span class="faint">${K.esc(r.na)}</span>`:`限度 ≤${r.lim}${r.u==='%'?'%':''} · ${r.nd?r.nd[0]+'/'+r.nd[1]:''} ${r.st?K.p(K.QTLC[r.st][0],K.QTLC[r.st][1]):''}`}</div></a>`).join('')}</div>`};
+   <div class="v">${r.na?'—':K.kriFmt(r.k,r.v)}</div><div class="s">${r.na?`<span class="faint">${K.esc(r.na)}</span>`:`限度 ≤${r.lim}${r.u==='%'?'%':''} · ${r.nd?r.nd[0]+'/'+r.nd[1]:''}${(((D().ops||{}).kriPending)||{})[r.k]?` <span class="faint">另 ${D().ops.kriPending[r.k]} 例待核实未计入</span>`:''} ${r.st?K.p(K.QTLC[r.st][0],K.QTLC[r.st][1]):''}`}</div></a>`).join('')}</div>`};
 /* 中心 KRI 单元：研究层面限度（有限度的指标，分母 ≥5 才判超限）＋同列中心间的观察/期望（BH） */
 K.kriSite=(site,k)=>((K.kri()||{}).sites||{})[site]?.[k]||null;
 
@@ -87,7 +87,10 @@ K.showOth=r=>{const b=K.drawer(`${r.sid} · ${K.esc(r.cat)}`,`${sigBox()}<div cl
 K.showEnt=r=>{const b=K.drawer(`${r.sid} · ${K.esc(r.test)}`,`${sigBox()}<div class="box org small mb">${K.esc(r.visit)} ${K.esc(r.raw)} ${K.esc(r.unit)}：${K.esc(r.why)}</div><div class="note small mb">只作数据质量提示，请 CRA 核对源数据；不发医学质疑。</div><div id="sp"></div>`,K.p(K.loc(r.sh,r.row),'sq'));
   K.sigCtl(b.querySelector('.sigbox'),'ent',r);K.seriesPanel(b.querySelector('#sp'),{sid:r.sid,tests:[r.test],hl:[[r.sh,r.row]],ae:false})};
 K.showVis=v=>{const b=K.drawer(`${v.sid} · ${K.esc(v.v)} 访视`,`${sigBox()}<div class="box small">方案窗 ${K.esc(v.lo)} ~ ${K.esc(v.hi)}，截至数据截止未见该访视记录${(D().ops||{}).stage==='daily'?'（日常监查阶段：可能只是尚未录入，请先与中心确认）':''}。</div>
-  <div class="mt"><a class="small" href="subjects.html#s=${v.sid}">参与者资料 ›</a>　<a class="small" href="timeline.html#s=${v.sid}">时间线 ›</a></div>`);K.sigCtl(b.querySelector('.sigbox'),'vis',v)};
+  <div class="vis-raw"></div><div class="mt"><a class="small" href="subjects.html#s=${v.sid}&t=raw">原始数据 ›</a>　<a class="small" href="subjects.html#s=${v.sid}">参与者资料 ›</a>　<a class="small" href="timeline.html#s=${v.sid}">时间线 ›</a></div>`);K.sigCtl(b.querySelector('.sigbox'),'vis',v);
+  /* V6：该受试者的访视记录原行（核对是否其实做了、只是访视名写法不同） */
+  K.rawIdx().then(I=>{if(!I)return;const vs=Object.keys(I.sheets).filter(k=>I.sheets[k].domain==='visits');K.raw(v.sid).then(R=>{if(!R)return;const ev=[];vs.forEach(k=>(R[k]||[]).forEach(r=>ev.push([k,r[0]])));
+    if(ev.length)K.rawBox(b.querySelector('.vis-raw'),v.sid,ev,{ctx:0,title:'本受试者访视记录（原始）'})})})};
 K.showSite=(kind,x,title,html)=>{const b=K.drawer(title,`${sigBox()}${html}<div class="mt"><a class="small" href="center.html#c=${x.site||''}">中心画像 ›</a></div>`);K.sigCtl(b.querySelector('.sigbox'),kind,x)};
 
 /* ---------- 行动项：把各页的风险项汇成一张「今天先处理什么」的清单 ----------
@@ -104,9 +107,13 @@ K.actions=()=>{if(K._act)return K._act;const Dd=D(),O=Dd.ops||{},out=[];
   K.lab.forEach(g=>{const b=g.risk==='REL'?(K.relRisk(g)?[30,'较基线显著变化·未关联']:null):LB[g.risk];if(!b)return;
     add({kind:'lab',x:g,base:b[0]+(g.mg||0)*3,roles:['mm'],sid:g.sid,site:g.site,title:`${g.test} · ${b[1]}`,why:(g.ctx||[])[0]||'',tag:['检验','org'],open:()=>K.showLabG(g)})});
   const shift=new Set(['范围内明显变化','持续变化趋势']);
-  Dd.others.forEach(o=>{if(o.pdId||(o.pr<3&&!shift.has(o.cat)))return;
-    add({kind:'oth',x:o,base:o.cat==='范围内明显变化'?32:shift.has(o.cat)?22:o.pr*12,roles:['mm'],sid:o.sid,site:o.site,title:o.cat,why:o.sum,tag:[shift.has(o.cat)?'变化预警':'专项',shift.has(o.cat)?'yel':'line'],open:()=>K.showOth(o)})});
-  ((Dd.pd||{}).potential||[]).forEach(p=>{if(p.sig)return;          /* 由检验/专项信号推断的潜在 PD 与该信号是同一件事，只列信号 */
+  /* V6（PM 审阅 2026-11-02）：旧版这里跳过带 pdId 的信号、下面又跳过带 sig 的潜在 PD → 同一件事两头都丢（RUX 232 条、含重要 40 条）。
+     改为保留信号这一条，并把潜在 PD 分级并入它的分值与标签。 */
+  const PDB={'重要':60,'待判定':28,'一般':14},pdOf=Object.fromEntries(((Dd.pd||{}).potential||[]).map(p=>[p.id,p]));
+  Dd.others.forEach(o=>{const p=o.pdId&&pdOf[o.pdId];if(!p&&o.pr<3&&!shift.has(o.cat))return;
+    add({kind:'oth',x:o,base:Math.max(o.cat==='范围内明显变化'?32:shift.has(o.cat)?22:o.pr*12,p?PDB[p.grade]||14:0),roles:p?(/^SAFE/.test(p.rule)?['mm','cra']:['mm','cra']):['mm'],sid:o.sid,site:o.site,title:o.cat+(p?` · 潜在PD（${p.grade}）`:''),why:o.sum,tag:[shift.has(o.cat)?'变化预警':p?'方案偏离':'专项',shift.has(o.cat)?'yel':p&&p.grade==='重要'?'red':'line'],open:()=>K.showOth(o)})});
+  const addedLab=new Set(out.filter(o=>o.kind==='lab').map(o=>o.x));
+  ((Dd.pd||{}).potential||[]).forEach(p=>{if(p.sig&&(p.sig[0]==='oth'?(Dd.others[p.sig[1]]||{}).pdId===p.id:addedLab.has(Dd.labrows[p.sig[1]])))return;   /* 信号已列（同一件事）才跳过 */
     add({kind:'pd',x:p,base:{'重要':60,'待判定':28,'一般':14}[p.grade]||14,roles:/^SAFE/.test(p.rule)?['mm','cra']:['cra'],sid:p.sid,site:p.site,title:p.title,why:p.fact,tag:['方案偏离',p.grade==='重要'?'red':'line'],open:()=>K.showPD(p.id)})});
   (O.entry||[]).forEach(e=>add({kind:'ent',x:e,base:35,roles:['cra'],sid:e.sid,site:e.site,title:`${e.test} 疑似录入错误`,why:`${e.visit} ${e.raw} ${e.unit}：${e.why}`,tag:['数据质量','yel'],open:()=>K.showEnt(e)}));
   (O.due||[]).filter(d=>d[6]==='overdue').forEach(d=>{const v={sid:d[0],site:d[1],v:d[2],lo:d[3],hi:d[4]},late=K.days(O.cutoff,d[4])||0;
@@ -127,7 +134,8 @@ K.actions=()=>{if(K._act)return K._act;const Dd=D(),O=Dd.ops||{},out=[];
   Object.entries(O.fresh||{}).forEach(([site,f])=>{if(!(f[2]&&f[1]!=null&&f[1]>30))return;const t={site};
     add({kind:'fresh',x:t,base:f[1]>60?42:30,roles:['cra','pm'],sid:'',site,title:`中心 ${site} ${f[1]} 天无新数据`,why:`最近一条记录 ${f[0]}，仍有 ${f[2]} 例在研`,tag:['新鲜度','yel'],
       open:()=>K.showSite('fresh',t,`${site} ${K.esc(K.center(site))} · 数据新鲜度`,`<div class="box small">最近一条记录 ${K.esc(f[0])}，距数据截止 ${f[1]} 天，仍有 ${f[2]} 例在研：请确认是否有数据未录入。</div>`)})});
-  return K._act=out.sort((a,b)=>b.score-a.score)};
+  /* V6：同受试者×同日期×同类别×同表单的信号合并为一条（中心页 59 项待办里 MCH/MCHC/MCV/HCT 逐项拆行），展开见明细与原始行 */
+  return K._act=(K.groupSig?K.groupSig(out):out).sort((a,b)=>b.score-a.score)};
 K.actFor=role=>K.actions().filter(a=>role==='all'||a.roles.includes(role));
 document.addEventListener('kz-sig',()=>{K._act=null});
 

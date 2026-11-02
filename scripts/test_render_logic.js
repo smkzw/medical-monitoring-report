@@ -173,5 +173,16 @@ if (typeof K.chartGuard === 'function') {
   ok(!o5.series[0].markLine, '空 data 数组的 marker 撤除');
 }
 
+/* ---- V6：信号聚合（同受试者×同日期×同类别×同表单 → 一条；不同受试者/不同类型不合并；无受试者的研究/中心项原样） ---- */
+require(path.resolve(dir, 'kz6.js'));
+{
+  const mk = (t, s, d, sh) => ({ kind: 'lab', sid: s, title: t, score: 90, x: { pts: [['W2', d, '1', '', null, 2, null, sh, 3, '', null, 'wb']] }, open() {} });
+  const g = K.groupSig([mk('MCH · CS 未关联', '01', '2026-04-13', 'LB'), mk('MCV · CS 未关联', '01', '2026-04-13', 'LB'),
+    mk('MCV · CS 未关联', '02', '2026-04-13', 'LB'), mk('MCV · CS 未关联', '01', '2026-05-01', 'LB'), { kind: 'qtl', sid: '', title: 'x', score: 85 }]);
+  ok(g.length === 4, 'groupSig：只合并同受试者同日期同类同表单');
+  const grp = g.find(x => x.group);
+  ok(grp && grp.group.length === 2 && /2 项/.test(grp.title) && grp.why === 'MCH、MCV', 'groupSig：合并卡标题计数、列出指标');
+}
+
 if (fails) { console.error(`${fails} 处断言失败`); process.exit(1); }
-console.log('render logic ok: knCard/knBar/knHint/ptCons/judgeCell/bh/poisUp/qlt/sig/qtl/sigKey/heatCase/chartGuard');
+console.log('render logic ok: knCard/knBar/knHint/ptCons/judgeCell/bh/poisUp/qlt/sig/qtl/sigKey/heatCase/chartGuard/groupSig');

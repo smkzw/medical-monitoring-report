@@ -117,8 +117,62 @@ def mh_terms_hit(C, mid, mh_list):
     return any(mre.search(mid) and tre.search(m.get('t') or '') for mre, tre in C.mhMatch for m in mh_list)
 
 
+_DOM_AE = {   # V6（MM/CRA 审阅 2026-11-02）：心电图/生命体征整份判定（「总体评价」行）没有指标级 aeMatch → 按域给 AE 术语族
+    'ecg': r'心电图|心律|心率|心动|窦性|QT|PR间期|QRS|传导|阻滞|ST段|T波|ST-T|早搏|期前收缩|房颤|房扑|心肌',
+    'vs': r'血压|高血压|低血压|心率|心动|发热|体温|呼吸|脉搏',
+}
+
+
+# V6（MM 审阅 2026-11-02：AE/MH 同义词未用——ALT 备注「肝酶升高AE」、D002 红细胞指数类质疑 16/35 有贫血病史）：
+# 检验指标族 ↔ AE/病史术语族（医学常识层，项目 aeMatch/mhMatch 优先；只用于「同期疑似对应 / 病史可解释」判断与同事件比对）
+LAB_EVENT_FAMILY = [
+    (r'ALT|AST|GGT|ALP|转氨酶|转肽酶|碱性磷酸酶|胆红素|TBIL|DBIL', r'肝|转氨酶|胆红素|黄疸|胆汁淤积'),
+    (r'血红蛋白|Hb\b|HGB|红细胞(计数|压积)|RBC|HCT|MCV|MCH|红细胞体积|红细胞血红蛋白|网织红|铁蛋白|血清铁|转铁', r'贫血|血红蛋白|缺铁|失血|出血'),
+    (r'中性粒|NEUT|ANC|白细胞计数|WBC|粒细胞', r'中性粒|白细胞|粒细胞|骨髓抑制'),
+    (r'淋巴细胞', r'淋巴细胞'),
+    (r'血小板|PLT', r'血小板'),
+    (r'嗜酸', r'嗜酸'),
+    (r'肌酐|Cr\b|CREA|尿素|BUN|eGFR|肾小球滤过', r'肾|肌酐|尿素'),
+    (r'肌酸激酶|CK\b|CPK|肌红蛋白', r'肌酸激酶|CK|横纹肌|肌炎|肌痛|肌损伤'),
+    (r'葡萄糖|血糖|GLU|HbA1c|糖化', r'血糖|糖尿病|糖耐量'),
+    (r'甘油三酯|TG\b|胆固醇|CHOL|LDL|HDL', r'血脂|脂血症|甘油三酯|胆固醇'),
+    (r'钾|(?<![A-Za-z])K\b', r'钾'), (r'钠|(?<![A-Za-z])Na\b', r'钠'), (r'钙|(?<![A-Za-z])Ca\b', r'钙'), (r'镁', r'镁'),   # 不让「CK」「HbA1c」误入
+    (r'淀粉酶|脂肪酶', r'胰|淀粉酶|脂肪酶'),
+    (r'尿酸', r'尿酸|痛风'),
+    (r'尿蛋白', r'蛋白尿|肾'), (r'尿潜血|尿红细胞|隐血', r'血尿'), (r'尿白细胞|白细胞酯酶', r'尿路感染|泌尿'),
+    (r'TSH|FT3|FT4|甲状腺', r'甲状腺'),
+    (r'QT', r'QT'), (r'骨密度', r'骨量|骨密度|骨质疏松'),
+    (r'收缩压|舒张压|血压', r'血压'), (r'心率|脉搏', r'心动|心率'), (r'体温', r'发热|体温'), (r'体重', r'体重'),
+]
+
+
+def family_terms(mid):
+    """指标 → AE/病史术语族正则列表（按指标名命中）。"""
+    lab = str(mid).split(':', 1)[-1]
+    return [re.compile(e) for l, e in LAB_EVENT_FAMILY if re.search(l, lab, re.I)]
+
+
 def ae_match_rows(C, mid):
-    return [(re.compile(a), re.compile(b), w) for a, b, w in (C.A.get('aeMatch') or []) if re.search(a, mid)]
+    rows = [(re.compile(a), re.compile(b), w) for a, b, w in (C.A.get('aeMatch') or []) if re.search(a, mid)]
+    dom = str(mid).split(':')[0]
+    if not rows and dom in _DOM_AE and '总体评价' in str(mid):
+        rows = [(re.compile('.'), re.compile(_DOM_AE[dom]), 0)]
+    if not rows:
+        rows = [(re.compile('.'), e, 0) for e in family_terms(mid)]
+    return rows
+
+
+def desc_ae_match(C, sid, r):
+    """研究者描述（「窦性心动过缓」「ST-T 改变」）与同期 AE 术语互相包含 → 视为同期疑似对应（只用于提示关联，不自动关联）。"""
+    d = re.sub(r'\s', '', str(r.get('desc') or (r.get('raw') if r.get('value') is None else '') or ''))
+    if len(d) < 2 or not is_full_date(r.get('date')):
+        return []
+    out = []
+    for a in C.ae_by[sid]:
+        t_ = re.sub(r'[（(].*$', '', str(a.get('t') or '')).strip()
+        if len(t_) >= 2 and (t_ in d or (len(d) <= 12 and d in t_)) and ae_covers(a, r['date']):
+            out.append({'no': a['n'], 'term': a['t'], 'start': a['s'], 'match': True})
+    return out
 
 
 def disease_hint(C, mid):
@@ -189,12 +243,15 @@ _PREG = re.compile(r'妊娠|怀孕|hcg|pregn', re.I)
 
 
 def m16_qual(C):
+    """定性结果：弱阳性提示（M16）、基线阴性后新发阳性（M16-NEW）。
+    V6 R8（审阅者 2026-11-02）：同受试者同指标同类情况按访视逐条拆单 → 合并为一条（首次为证据，其余访视进上下文）。"""
     for (sid, mid), rows in sorted(C.F.items()):
         if sid not in C.pop or _PREG.search(mid) or all(r.get('value') is not None for r in rows):
             continue                                   # 只看定性（无数值）指标；妊娠类定性由 M18 处理
         pre_lv = [qual_level(r.get('raw')) for r in rows if not r['post']]
         base_lv = next((x for x in reversed(pre_lv) if x is not None), 0)
         test = C.metric[mid]['label']
+        weak, new = [], []
         for r in rows:
             if not r['post']:
                 continue
@@ -202,20 +259,32 @@ def m16_qual(C):
             if lv is None:
                 continue
             if lv == 1 and (r.get('clin') or 0) != 2:
-                add_ext(C, sid, '定性结果核对', 'M16', 1,
-                        f"{r.get('visit')}（{r.get('date')}）{test}「{r.get('raw')}」（±/弱阳性/微量）",
-                        r.get('visit'), r.get('date'), r['sheet'], r['row'], test,
-                        ctx=['弱阳性，仅作提示（研究者判为有临床意义的另按「CS 未关联」核查）'],
-                        rule={'ask': '请结合复测与临床判断是否需关注。'}, bkey=f"{mid}|{r.get('visit')}|{r.get('date')}", wb=r.get('wb') or '')
+                weak.append(r)
             elif lv == 2 and base_lv == 0 and (r.get('clin') or 0) != 2:
-                # 研究者判定优先：已评价为正常/NCS 的新发定性异常只作提示（pr1，不发 query）；未评价才请研究者评价（pr3）
-                assessed = r.get('clin') in (0, 1)
-                add_ext(C, sid, '定性结果核对', 'M16-NEW', 1 if assessed else 3,
-                        f"{r.get('visit')}（{r.get('date')}）{test}「{r.get('raw')}」，该指标基线（首剂前最近一次）为阴性",
-                        r.get('visit'), r.get('date'), r['sheet'], r['row'], test,
-                        ctx=['定性结果新出现阳性（基线阴性 → ≥+）'] +
-                            (['研究者已评价为' + ('正常' if r.get('clin') == 0 else '异常无临床意义') + '（研究者判定优先，仅提示）'] if assessed else []),
-                        rule={'ask': '请评估该新发定性异常的临床意义，必要时复测。'}, bkey=f"{mid}|{r.get('visit')}|{r.get('date')}", wb=r.get('wb') or '')
+                new.append(r)
+
+        def more(rs):
+            return [f"另有 {len(rs) - 1} 次：" + '、'.join(f"{x.get('visit')}（{x.get('date')}）「{x.get('raw')}」" for x in rs[1:5])
+                    + ('…' if len(rs) > 5 else '')] if len(rs) > 1 else []
+        if weak:
+            r = weak[0]
+            add_ext(C, sid, '定性结果核对', 'M16', 1,
+                    f"{r.get('visit')}（{r.get('date')}）{test}「{r.get('raw')}」（±/弱阳性/微量）" + (f"，共 {len(weak)} 次" if len(weak) > 1 else ''),
+                    r.get('visit'), r.get('date'), r['sheet'], r['row'], test,
+                    ctx=['弱阳性，仅作提示（研究者判为有临床意义的另按「CS 未关联」核查）'] + more(weak),
+                    rule={'ask': '请结合复测与临床判断是否需关注。'}, bkey=f"{mid}|weak", wb=r.get('wb') or '')
+        if new:
+            # 研究者判定优先：已评价为正常/NCS 的新发定性异常只作提示（pr1，不发 query）；有未评价的才请研究者评价（pr3）
+            un = [x for x in new if x.get('clin') not in (0, 1)]
+            r = (un or new)[0]
+            assessed = not un
+            add_ext(C, sid, '定性结果核对', 'M16-NEW', 1 if assessed else 3,
+                    f"{r.get('visit')}（{r.get('date')}）{test}「{r.get('raw')}」，该指标基线（首剂前最近一次）为阴性"
+                    + (f"，给药后共 {len(new)} 次阳性" if len(new) > 1 else ''),
+                    r.get('visit'), r.get('date'), r['sheet'], r['row'], test,
+                    ctx=['定性结果新出现阳性（基线阴性 → ≥+）'] + more([r] + [x for x in new if x is not r]) +
+                        (['研究者已评价为' + ('正常' if r.get('clin') == 0 else '异常无临床意义') + '（研究者判定优先，仅提示）'] if assessed else []),
+                    rule={'ask': '请评估该新发定性异常的临床意义，必要时复测。'}, bkey=f"{mid}|new", wb=r.get('wb') or '')
 
 
 # --------------------------------------------------------------------------- M17 CM-IND
@@ -246,6 +315,10 @@ def m17_cm_ind(C):
 
 
 # --------------------------------------------------------------------------- M18 PREG
+_PREG_RANGE_RX = re.compile(r'(?:非孕|未孕|早孕|孕早|中孕|孕中|晚孕|孕晚|绝经)期?\s*[:：]?\s*[<>≤≥]?\s*\d|参考(?:区间|范围|值)', re.I)
+_NEG_RX = re.compile(r'阴性|未见|未孕|非孕|否认|无妊娠|negative', re.I)
+
+
 def m18_preg(C):
     """F-I（PREG-ESCALATION）：妊娠暴露升级为专项核查。证据源两路：
     ① 妊娠类定性指标（检查名含 妊娠/怀孕/HCG/pregn）阳性（CS／「阳」／超上限）；
@@ -254,26 +327,46 @@ def m18_preg(C):
     不逐条发常规 CS 质疑；阴性/未孕结果不触发。"""
     pre = re.compile(r'妊娠|怀孕|hcg|pregn', re.I)
     desc_pre = re.compile(r'宫内(?:早)?孕|早孕|妊娠囊|宫内妊娠|怀孕|pregnan', re.I)
-    by_sub = {}
+    by_sub, pre_dose = {}, {}
     for (sid, mid), rows in sorted(C.F.items()):
         if sid not in C.pop:
             continue
         test = (C.metric.get(mid) or {}).get('label') or mid
+        fd = (C.subj.get(sid) or {}).get('fd')
         for r in rows:
-            pos = pre.search(mid) and ((r.get('clin') == 2) or bool(r.get('raw') and re.search(r'阳', str(r.get('raw')))) or
-                                       (r.get('value') is not None and r.get('hi') is not None and r['value'] > r['hi']))
-            scan = bool(desc_pre.search(' '.join(str(r.get(k) or '') for k in ('raw', 'desc'))))
-            if pos or scan:
-                by_sub.setdefault(sid, []).append((test, r))
+            raw = str(r.get('raw') or '')
+            pos = bool(pre.search(mid)) and ((r.get('clin') == 2) or (bool(raw) and bool(re.search(r'阳', raw)) and not _NEG_RX.search(raw)) or
+                                             (r.get('value') is not None and r.get('hi') is not None and r['value'] > r['hi']))
+            txt = ' '.join(str(r.get(k) or '') for k in ('raw', 'desc'))
+            scan = bool(desc_pre.search(txt)) and not _PREG_RANGE_RX.search(txt) and not _NEG_RX.search(txt) \
+                and (bool(pre.search(mid)) or mid.split(':')[0] not in ('lab', 'vs', 'ecg'))   # V6（CRA）：血常规行的备注不作妊娠证据
+            if not (pos or scan):
+                continue
+            # V6 R1：首剂前（筛选期）阳性属入排问题，不是研究期间妊娠暴露；日期不全的仍按研究期间（保守，不漏）
+            d = r.get('date')
+            tgt = pre_dose if is_full_date(d) and is_full_date(fd) and d < fd else by_sub
+            tgt.setdefault(sid, []).append((test, r, pos))
     for sid, ev in sorted(by_sub.items()):
-        r0 = min((r for _, r in ev), key=lambda r: str(r.get('date') or '9999'))
+        r0 = min((r for _, r, _ in ev), key=lambda r: str(r.get('date') or '9999'))
         evs = '；'.join(f"{t}「{str(r.get('raw') or r.get('value') or '')[:24]}」（{dshow(r.get('date'))}）"
-                        for t, r in ev[:4])
-        add_ext(C, sid, '妊娠暴露核查', 'M18', 4,
-                f"研究期间发现妊娠证据：{evs}{'…' if len(ev) > 4 else ''}。妊娠暴露须优先追踪（结局随访、避孕依从核查）",
+                        for t, r, _ in ev[:4])
+        o = add_ext(C, sid, '妊娠暴露核查', 'M18', 4,
+                    f"研究期间发现妊娠证据：{evs}{'…' if len(ev) > 4 else ''}。妊娠暴露须优先追踪（结局随访、避孕依从核查）",
+                    r0.get('visit'), r0.get('date'), r0['sheet'], r0['row'], '妊娠',
+                    rule={'ask': '请确认是否为妊娠事件，并按方案要求完成妊娠报告、结局随访与避孕依从核查；如为误录，请更正。'},
+                    bkey=f"preg|{sid}", wb=r0.get('wb') or '')
+        # 结构化阳性（妊娠检验阳性）才可作停药触发证据（IP-02）；仅描述文本命中的只作核查，不级联判偏离
+        st = [r for _, r, p_ in ev if p_ and is_full_date(r.get('date'))]
+        if isinstance(o, dict) and st:
+            o['_preg_pos'] = min(r['date'] for r in st)
+    for sid, ev in sorted(pre_dose.items()):
+        r0 = min((r for _, r, _ in ev), key=lambda r: str(r.get('date') or '9999'))
+        add_ext(C, sid, '入排标准核对', 'M18', 3,
+                f"首剂前妊娠检测/描述提示阳性：{ev[0][0]}「{str(r0.get('raw') or r0.get('value') or '')[:24]}」（{dshow(r0.get('date'))}），"
+                f"首剂 {dshow((C.subj.get(sid) or {}).get('fd'))}",
                 r0.get('visit'), r0.get('date'), r0['sheet'], r0['row'], '妊娠',
-                rule={'ask': '请确认是否为妊娠事件，并按方案要求完成妊娠报告、结局随访与避孕依从核查；如为误录，请更正。'},
-                bkey=f"preg|{sid}", wb=r0.get('wb') or '')
+                rule={'ask': '首剂前妊娠检测结果提示阳性，请核实受试者是否符合入组标准、是否已复测排除；如为误录，请更正。'},
+                bkey=f"preg-pre|{sid}", wb=r0.get('wb') or '')
 
 
 # --------------------------------------------------------------------------- M19 AE-EX
@@ -285,6 +378,9 @@ def m19_ae_ex(C):
     def near(d1, d2):
         return d1 and d2 and days(d1, d2) is not None and abs(days(d1, d2)) <= w
 
+    # V6（CRA 审阅 2026-11-02）：给药数据只有发药/回收时间戳（无结束日、暂停原因、实际剂量）时测不出中断 → 不做 ②（改由 CRA 核日记卡）
+    rich = sum(1 for e in C.exposure if e.get('end') or e.get('pause') or e.get('dose_act') not in (None, ''))
+    assessable = not C.exposure or rich / len(C.exposure) >= 0.2      # RUX：31137 条中仅 13 条有结束日 → 不可测
     for sid in sorted(C.pop):
         exp = [e for e in C.exposure if e['sid'] == sid]
         for e in exp:                                   # ① 给药中断（原因=不良事件）±w 天无对应措施的 AE
@@ -305,6 +401,16 @@ def m19_ae_ex(C):
         last = max((x[1] for x in iv if is_full_date(x[1])), default=None)
         for a in C.ae_by[sid]:                          # ② AE 措施=停药/暂停但给药记录无中断
             if a.get('dup') or not act_re.search(str(a.get('act') or '')):   # F08：重复记录成员不逐条发（组首覆盖）
+                continue
+            if re.search(r'永久', str(a.get('act'))) and is_full_date(a.get('s')):
+                later = sorted(e['start'] for e in exp if is_full_date(e.get('start')) and (days(e['start'], a['s']) or 0) > w)
+                if later:                               # V6（CRA）：永久停药后又恢复给药——点出真正的矛盾
+                    add_ext(C, sid, 'AE与给药记录一致性核对', 'M19', 3,
+                            f"AE「{a['t']}」（{dshow(a.get('s'))}）采取措施「{a['act']}」，但给药记录显示其后仍有给药（{dshow(later[0])} 起）",
+                            None, a['s'], a['sh'], a['row'], a['t'],
+                            rule={'ask': '请核实 AE 措施与给药记录：是否为永久停药，或给药记录有误。'}, bkey=f"{a.get('n')}|{a['s']}|resume", wb=a.get('wb') or '')
+                    continue
+            if not assessable:
                 continue
             if any(near(d, a.get('s')) for d in stops) or (re.search(r'永久|停药|停用', str(a.get('act'))) and near(last, a.get('s'))):
                 continue
@@ -421,6 +527,14 @@ def date_order(C):
                     f"AE「{a['t']}」开始日期 {a['s']} 晚于结束日期 {a['e']}",
                     None, a['s'], a['sh'], a['row'], a['t'], rel=[['AE', a['t'], a['s'], a['n']]],
                     rule={'ask': '请核实并更正起止日期。'}, bkey=f"{a.get('n')}|{a['s']}|{a['e']}", wb=a.get('wb') or '')
+        if a['sid'] in C.pop and a.get('te_pending'):
+            from mm_build import partial_date
+            sd = '缺失' if not a.get('s') else (f"「{str(a['s'])[:12]}」只精确到{'月' if len(partial_date(a['s'])) == 7 else '年'}，与首剂（{a.get('fd')}）同期"
+                                                if partial_date(a['s']) else '「' + str(a['s'])[:12] + '」无法解析')
+            add_ext(C, a['sid'], '日期完整性核对', 'DATEORD', 3,
+                    f"AE「{a['t']}」开始日期{sd}，无法判定是否为治疗期出现（TEAE，暂按 TEAE 计）",
+                    None, None, a['sh'], a['row'], a['t'], rel=[['AE', a['t'], a['s'], a['n']]],
+                    rule={'ask': '请补充或更正该 AE 的开始日期。'}, bkey=f"{a.get('n')}|start-unk", wb=a.get('wb') or '')
     for c in C.cm:
         if c['sid'] in C.subj and bad(c.get('start'), c.get('end')):
             add_ext(C, c['sid'], '日期完整性核对', 'DATEORD', 3,
@@ -478,9 +592,11 @@ def grade_up(bg, cg):
     return (cg or 0) > (bg or 0) and ((bg or 0) >= 1 or (cg or 0) >= 2)
 
 
-def worse_vs_base(r, b, t_base):
+def worse_vs_base(r, b, t_base, disease=False):
     """D14/D19 较基线加重：分级升高（0→1 级不单独算，见 grade_up），或超出范围且同向较基线变化 ≥T_base。
-    返回说明文本或 None；仅临床意义 NCS→CS 的判定波动不算加重。"""
+    返回说明文本或 None；仅临床意义 NCS→CS 的判定波动不算加重。
+    V6 R3（审阅者 2026-11-02）：disease=True（研究疾病本身的表现，如嗜酸粒细胞）时，小基数指标的相对变化须同时达到
+    绝对变化下限（monitor_v5.abs_floor，0.5→0.7 ×10^9/L 这类相对 40% 的波动不算「明显加重」）。"""
     if not b:                                        # 基线缺失：不虚构「0→2 级」，由调用方按「无法判断」处理
         return None
     if grade_up(b.get('grade'), r.get('grade')):
@@ -495,6 +611,11 @@ def worse_vs_base(r, b, t_base):
     if bv == 0:                                      # 基线为 0（如乙肝表面抗原 0→199.68）：现超出范围即视为加重
         return '基线为 0，现超出参考范围' if above else None
     pct = (v - bv) / abs(bv)
+    if disease:
+        from monitor_v5 import abs_floor
+        fl = abs_floor(bv, r.get('unit'))
+        if fl is not None and abs(v - bv) < fl:
+            return None
     if above and pct >= t_base:
         return f"较基线升高 {pct * 100:.0f}%"
     if below and -pct >= t_base:
@@ -665,20 +786,31 @@ def cons_dev(r, d):
     return x / den if den else x / max(abs(v), 1e-9)
 
 
-def cons_witnesses(cs, ncs, d, cross_subject):
+def cons_witnesses(cs, ncs, d, cross_subject, min_diff=0.0):
     """判定维度配对：每个 CS 行锚定「偏离度不小于它」的最近一名 NCS 行（cross_subject 时要求不同受试者）。
     返回 [(a=CS 更轻, b=NCS 更差或相等, equal)]；equal＝偏离度相等（数值相等）→ 无更差方，判定不同即不一致。"""
     out, used = [], set()
     for a in cs:
         dev_a = cons_dev(a, d)
+        # V6（MM 审阅 2026-11-02：12 条抽样约 8 条是 LDL 3.17/3.32 这类微小差异；用户「没做的一并做了」）：
+        # 更差方须比 CS 方偏离参考边界多 ≥min_diff（相对偏离度，默认 0.05＝5 个百分点，analysis.consMinDiff 可调；0＝旧口径）；数值相等仍算
         cands = [b for b in ncs if id(b) not in used and (not cross_subject or b['sid'] != a['sid'])
-                 and cons_dev(b, d) >= dev_a]
+                 and (cons_dev(b, d) == dev_a or cons_dev(b, d) >= dev_a + min_diff)]
         if not cands:
             continue
         b = min(cands, key=lambda r: (cons_dev(r, d), str(r.get('date') or ''), r.get('row') or 0))
         used.add(id(b))
         out.append((a, b, cons_dev(b, d) == dev_a))
     return out
+
+
+def _mh_then_ae(a, b):
+    """V6 R7（审阅者 2026-11-02）：同一受试者先归因病史、后来归因 AE（病史基础上加重记为 AE）是正常的记录方式，不算归因不一致。"""
+    pa, pb = att_of(a), att_of(b)
+    if {pa, pb} != {'MH', 'AE'}:
+        return False
+    mh, ae = (a, b) if pa == 'MH' else (b, a)
+    return is_full_date(mh.get('date')) and is_full_date(ae.get('date')) and mh['date'] < ae['date']   # 先后不明/同日不豁免
 
 
 def cons_attribution(cs, cross_subject):
@@ -688,7 +820,7 @@ def cons_attribution(cs, cross_subject):
         if id(a) in used:
             continue
         b = next((x for x in cs[i + 1:] if id(x) not in used and (not cross_subject or x['sid'] != a['sid'])
-                  and att_of(x) != att_of(a)), None)
+                  and att_of(x) != att_of(a) and not (not cross_subject and _mh_then_ae(a, x))), None)
         if b is None:
             continue
         used.add(id(a))
@@ -729,7 +861,7 @@ def clin_consistency(C):
         for (d, *_), rs in groups.items():
             cs = [r for r in rs if r['clin'] == 2]
             ncs = [r for r in rs if r['clin'] == 1]
-            for a, b, equal in cons_witnesses(cs, ncs, d, cross_subject=False):
+            for a, b, equal in cons_witnesses(cs, ncs, d, cross_subject=False, min_diff=float(C.A.get('consMinDiff', 0.05))):
                 items.append(('judg', mid, d, a, b, equal))
             for a, b in cons_attribution(cs, cross_subject=False):
                 items.append(('att', mid, d, a, b, False))
@@ -767,9 +899,12 @@ def _worsening(r, t_base):
     bg, cg = b.get('grade') or 0, r.get('grade') or 0
     if grade_up(bg, cg):                       # 0 级 → 1 级不单独算加重（须同时超出范围且同向较基线 ≥T_base，由下方数值规则判定；用户 2026-10-27 确认）
         flags.append(f"等级升高 {bg}→{cg} 级")
-    if (r.get('clin') or 0) > (b.get('clin') or 0):
-        flags.append('CS 新出现')
+    # V6（MM 审阅 2026-11-02：D002「CS较基线加重」9/9 假，尿潜血 3+→2+ 也算加重）：NCS→CS 判定翻转本身不是加重（另由判定一致性核对）
     v, bv = r.get('value'), b.get('value')
+    if v is None and not flags:
+        lv, bl = qual_level(r.get('raw')), qual_level(b.get('raw'))
+        if lv is not None and bl is not None:
+            return (True, True, [f"定性结果 {b.get('raw')}→{r.get('raw')}"]) if lv > bl else (True, False, [])
     if v is not None and bv not in (None, 0):
         hi, lo = ref_hi(r), r.get('lo')
         d = metric_dir(r.get('mid'))                 # 只按不利方向（与 worse_vs_base 同口径）
@@ -842,6 +977,9 @@ def m23_csb(C):
             if link:
                 pool = C.ae_by[sid] if link[0] == 'AE' else C.mh_by[sid]
                 ev = next((x for x in pool if str(x['n']) == str(link[3])), None)
+                if ev is None and (link[1] or '').strip():   # V6：编号口径不同但术语能回溯 → 按术语认（同 mm_build.resolve_links）
+                    t = re.sub(r'[（(].*$', '', link[1].strip())
+                    ev = next((x for x in pool if t and len(t) >= 2 and (x.get('t') or '') and (t in x['t'] or x['t'] in t)), None)
                 if ev is None:                           # 步骤 1′：关联对象不存在
                     binding['link'] = {'type': link[0], 'no': link[3], 'term': link[1], 'exists': False, 'match': None}
                     page = '不良事件页' if link[0] == 'AE' else '病史页'
@@ -887,7 +1025,12 @@ def m23_csb(C):
                     for a in C.ae_by[sid]:
                         if are.search(a['t']) and not opp.search(a['t']) and is_full_date(r.get('date')) and ae_covers(a, r['date']):
                             maes.append({'no': a['n'], 'term': a['t'], 'start': a['s'], 'match': True})
+                if not maes:
+                    maes = desc_ae_match(C, sid, r)
                 binding['matched_ae'] = maes[:4]
+                if maes and re.search(r'AE|不良事件|已报|已记录', str(r.get('desc') or '')) and \
+                        any(re.sub(r'[（(].*$', '', str(m['term'])).strip() in str(r.get('desc') or '') for m in maes):
+                    continue                             # V6（MM：「肝酶升高AE」）：研究者备注已写明对应 AE 且同期存在 → 视为已说明，不发 query
                 if maes:
                     emit = ('CSX_AE', maes[0], None)
                 else:

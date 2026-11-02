@@ -125,3 +125,8 @@ input.s,select.s{height:28px;border:1px solid var(--line);border-radius:7px;padd
 .actq td{vertical-align:top}.actq tr.done td{opacity:.5}.actq .qb{display:flex;gap:3px;flex-wrap:nowrap}.actq .qb button{white-space:nowrap;border:1px solid var(--line);background:#fff;border-radius:5px;font-size:11px;padding:1px 6px;cursor:pointer;color:var(--muted)}
 .actq .qb button:hover{color:var(--ink);border-color:var(--ink)}.actq .sc{font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums}
 .kpi.click{cursor:pointer}.kpi.click:hover{border-color:var(--brand)}
+
+/* V6 原始数据 */
+.listing tr.hit td{background:#FFF6E8}.listing tr.hit td.on{background:#FFE7B8}.listing th.hlc{color:#B86400}
+.raw-sh{margin-bottom:10px}.raw-sh .raw-all{cursor:pointer;margin-left:6px}.rawbox{margin:6px 0 4px}
+.rawbox .listing.tw,.raw-tb .listing.tw{max-width:100%;overflow:auto}

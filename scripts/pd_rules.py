@@ -39,7 +39,8 @@ TAXONOMY = [
 TAX = {t[0]: t for t in TAXONOMY}
 # 已记录 PD 的类别归一（PD listing 文本 → 分类码）；顺序即优先级。可由 analysis.pd.catMap 前置覆盖。
 CAT_RE = [
-    ('ICF', r'知情|ICF|同意书'),
+    # V6（PM 审阅 2026-11-02：SAR 151 条超窗记录因描述里写「知情日期 …」被归 ICF）：只认知情本身出问题的措辞，不认背景交代
+    ('ICF', r'(知情|同意书|ICF).{0,8}(未|晚|延迟|迟|版本|漏|错|重新|过期|缺|不全|不规范)|(未|漏|延迟|错误|重复)签(署|字)|(先于|早于)知情|知情(同意)?前|签署前'),
     ('ELIG', r'入选|排除|入排|入组标准|资格|洗脱'),
     ('RAND', r'随机|揭盲|破盲|盲态|分层'),
     ('SAMP', r'样本|采血|血样|PK|药代|采样'),
@@ -491,8 +492,8 @@ class _PD:
         self.ran['IP-02'] = 'ran'
         preg = defaultdict(list)
         for o in C.others:
-            if re.search(r'妊娠', o['cat']) and is_full_date(o.get('d')):
-                preg[o['sid']].append(o['d'])
+            if o.get('_preg_pos'):                       # V6 R1：只认结构化妊娠检验阳性（描述文本命中不级联判偏离）
+                preg[o['sid']].append(o['_preg_pos'])
         stop_hit = defaultdict(list)
         for o in C.others:
             if o.get('_rule', {}).get('stop') and is_full_date(o.get('d')):

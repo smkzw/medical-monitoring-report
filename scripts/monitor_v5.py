@@ -111,14 +111,55 @@ def planned_n(C):
 
 
 # ----------------------------------------------------------------------------- 访视推算 / 新鲜度 / 随访人日
+def visit_alias(C, W):
+    """V6 方案访视键 → 数据访视代码（审阅者 2026-11-02：D002 方案 V5–V9 对数据 W2–W18 → 616/616 假逾期；
+    SAR 方案 V6/V7 在数据里都记成 FU → 342/345 假逾期）。数据驱动、不靠命名：方案键在数据里零记录时，
+    找「该代码的记录落在本方案访视窗内的比例」最高的数据代码（≥30%、≥3 条）作别名；对不上的方案键判「未映射」。
+    只有数据里确有方案键以外的访视代码（排除计划外/提前退出）时才做对齐——否则零记录就是没做，照常判逾期。
+    → (alias {方案键: 数据代码}, unmapped [方案键])"""
+    sd = defaultdict(list)
+    for v in C.visits:
+        s = C.subj.get(v.get('sid')) or {}
+        if v.get('visit') and is_full_date(v.get('date')) and is_full_date(s.get('fd')):
+            sd[v['visit']].append(days(v['date'], s['fd']) + 1)
+    vc = (getattr(C, 'cfg', None) or {}).get('visits') or {}
+    skip = set(vc.get('unsched') or ['USV']) | set(vc.get('early') or ['ET'])
+    foreign = [c for c, ds in sd.items() if c not in W and c not in skip and len(ds) >= 3]
+    alias, unmapped = {}, []
+    if not foreign:
+        return alias, unmapped                                 # 数据访视代码都在方案键内 → 无命名不一致证据，零记录照常判逾期
+    for pv, spec in W.items():
+        if pv in sd:
+            continue
+        t, mi, pl = _win(spec)
+        if t is None:
+            continue
+        best, share = None, 0.0
+        for code in foreign:                                   # 本身就是方案访视键的代码不借给别的访视
+            ds = sd[code]
+            sh = sum(t - mi <= d <= t + pl for d in ds) / len(ds)
+            if sh > share:
+                best, share = code, sh
+        if best and share >= 0.3:
+            alias[pv] = best
+        else:
+            unmapped.append(pv)
+    return alias, unmapped
+
+
 def visit_due(C, cutoff):
     """→ (due, upcoming)。due 行 [sid, site, 访视, 窗起, 窗止, 实际日期, 状态 overdue|out|ok, 实际研究日, 目标日, −窗, +窗]；
-    upcoming 行 [sid, site, 访视, 窗起, 窗止, 目标日期]（未来 14 天内窗口开启或在窗、受试者未结束）。"""
+    upcoming 行 [sid, site, 访视, 窗起, 窗止, 目标日期]（未来 14 天内窗口开启或在窗、受试者未结束）。
+    V6：方案键经 visit_alias 对齐到数据代码；同一代码下多条记录（如 V6/V7 都记 FU）按访视目标日先后，各取最接近目标日、
+    尚未被占用的一条；「未映射」的方案访视不推算（不计逾期，原因写入 ops.visitUnmapped）。"""
     W = C.A.get('visitWindows') or {}
-    rec = defaultdict(dict)
+    alias, unmapped = visit_alias(C, W)
+    C._visit_alias, C._visit_unmapped = alias, unmapped
+    rec = defaultdict(lambda: defaultdict(list))
     for v in C.visits:
-        if v.get('visit'):
-            rec[v['sid']][v['visit']] = v.get('date') or ''
+        if v.get('visit') and is_full_date(v.get('date')):
+            rec[v['sid']][v['visit']].append(v['date'])
+    order = sorted((k for k in W if k not in unmapped), key=lambda k: (_win(W[k])[0] is None, _win(W[k])[0] or 0))
     horizon = _add(cutoff, 14) if is_full_date(cutoff) else ''
     due, up = [], []
     for sid, s in C.subj.items():
@@ -126,22 +167,119 @@ def visit_due(C, cutoff):
         if not is_full_date(fd):
             continue
         e = _end(s)
-        for v, spec in W.items():
+        stop = _stop(s)
+        taken = set()
+        for v in order:
+            spec = W[v]
             t, mi, pl = _win(spec)
             if t is None:
                 continue
-            lo, hi, got = _add(fd, t - 1 - mi), _add(fd, t - 1 + pl), rec[sid].get(v, '')
+            ad, base = _anchor(s, spec, rec[sid], alias)
+            if not is_full_date(ad):
+                continue                                       # 锚点未发生（如末次给药锚定而仍在治疗）→ 不推算
+            lo, hi = _add(ad, t - base - mi), _add(ad, t - base + pl)
+            code = v if v in rec[sid] or v not in alias else alias[v]
+            pool = [d for d in rec[sid].get(code, []) if (code, d) not in taken]
+            got = min(pool, key=lambda d: abs(days(d, ad) + base - t)) if pool else ''
+            if got and code != v and not (lo <= got <= hi) and len(rec[sid].get(code, [])) > 1:
+                got = ''                                       # 别名代码有多条时，窗外的那条属于别的访视，不硬配
+            if got:
+                taken.add((code, got))
             if not got:
-                if e and lo > e:
-                    continue
+                st_ = (s.get('eos_d') if is_full_date(s.get('eos_d')) else '') if base == 0 and isinstance(spec, dict) and spec.get('anchor') == 'ld' else stop
+                if st_ and st_ <= hi:
+                    continue                                   # V6（CRA）：访视窗关闭前已退出/结束研究 → 不算逾期
                 if not cutoff or hi >= cutoff:
                     if horizon and not e and s.get('status') not in ENDED and lo <= horizon:
-                        up.append([sid, s['site'], v, lo, hi, _add(fd, t - 1)])
+                        up.append([sid, s['site'], v, lo, hi, _add(ad, t - base)])
                     continue
-            sd = days(got, fd) + 1 if is_full_date(got) else None
+            sd = days(got, ad) + base if is_full_date(got) else None
             st = 'overdue' if not got else ('out' if sd is not None and (sd < t - mi or sd > t + pl) else 'ok')
             due.append([sid, s['site'], v, lo, hi, got, st, sd, t, mi, pl])
     return due, up
+
+
+_EARLY = re.compile(r'提前|退出|脱落|中止|终止|失访|撤回')
+
+
+def _stop(s):
+    """受试者实际离开研究的日期：研究结束日；提前退出者无研究结束日时取治疗结束日。完成治疗、进入随访的不算离开。"""
+    xs = [s['eos_d']] if is_full_date(s.get('eos_d')) else []
+    if is_full_date(s.get('eot_d')) and _early_wd(s):     # 提前终止治疗（状态或治疗结束原因判定）：其后的治疗期访视不再应做
+        xs.append(s['eot_d'])                              # （末次给药锚定的随访访视另按锚点推算，不受此限）
+    if not xs and (_EARLY.search(str(s.get('status') or '')) or s.get('status') == '完成试验') and is_full_date(s.get('lo')):
+        xs.append(s['lo'])                                 # 已出组但无结束页日期（D001「中止退出」无日期）→ 末次观察日
+    return min(xs) if xs else ''
+
+
+def _anchor(s, spec, rec_sid, alias):
+    """V6（CRA 审阅 2026-11-02：RUX W28、D002 W18 方案按末次给药锚定，旧实现一律按首剂推算 → 88/97 假超窗）。
+    → (锚点日期, 记日基数)。首剂锚定沿用 D1 记法（目标日 t ＝ 首剂 + t−1）；其余锚点按「锚点后第 t 天」。
+    末次给药锚定只在治疗已结束（有治疗结束日或已出组）时成立。"""
+    anc = spec.get('anchor', 'fd') if isinstance(spec, dict) else 'fd'
+    if anc == 'fd':
+        return s.get('fd'), 1
+    if anc == 'ld':
+        done = is_full_date(s.get('eot_d')) or is_full_date(s.get('eos_d')) or s.get('status') in ENDED
+        return (s.get('ld') if done else ''), 0
+    if anc in ('rand', 'icf'):
+        return s.get({'rand': 'rand_d', 'icf': 'icf'}[anc]), 0
+    code = anc if anc in rec_sid else alias.get(anc, anc)        # 锚定另一访视的实际日期
+    ds = sorted(rec_sid.get(code) or [])
+    return (ds[0] if ds else ''), 0
+
+
+_DONE_WHY = re.compile(r'完成|按方案|方案规定|规定的治疗|治疗周期结束|疗程结束')
+
+
+def _early_wd(s):
+    """V6（PM 审阅 2026-11-02）：提前退出＝状态写明提前/退出/脱落/中止，或有治疗结束日且原因不是「完成方案规定的治疗」。
+    D002 19 例「治疗结束·参与者完成方案规定的治疗」曾被误计（17.2% 超限），SAR「脱落」曾漏计（0/175）。"""
+    st = str(s.get('status') or '')
+    if _EARLY.search(st):
+        return True
+    why = str(s.get('eot_why') or '')
+    return bool(s.get('eot_d') and why and not _DONE_WHY.search(why))
+
+
+_PENDING = re.compile(r'请核实|待判定|待核实|需经治疗|请提供|无法判断|不可得')
+
+
+def _pd_firm(p):
+    return p.get('grade') != '待判定' and not _PENDING.search(str(p.get('fact') or ''))
+
+
+def gap_check(C, add_other):
+    """V6（CRA 审阅 2026-11-02：D001 某例 D3 发生 SAE 后再无访视、无治疗/研究结束页，52 天无任何信号）：
+    在研受试者末次记录距数据截止超过 max(42 天, 2×研究访视间隔中位数)、且无研究结束记录 → 访视中断核对（日常阶段同样提示）。"""
+    alld = [s.get('lo') for s in C.subj.values() if is_full_date(s.get('lo'))]
+    cut = (C.cfg.get('study') or {}).get('cutoff') or (max(alld) if alld else '')
+    if not is_full_date(cut):
+        return
+    gaps = []
+    byv = defaultdict(list)
+    for v in C.visits:
+        if is_full_date(v.get('date')):
+            byv[v['sid']].append(v['date'])
+    for ds in byv.values():
+        ds = sorted(set(ds))
+        gaps += [days(b, a) for a, b in zip(ds, ds[1:]) if days(b, a)]
+    thr = max(42, 2 * statistics.median(gaps)) if gaps else 42
+    for sid in sorted(C.pop):
+        s = C.subj[sid]
+        if is_full_date(s.get('eos_d')) or s.get('status') in ENDED or _EARLY.search(str(s.get('status') or '')) or not is_full_date(s.get('lo')):
+            continue
+        g = days(cut, s['lo'])
+        if g is None or g <= thr:
+            continue
+        sae = [a for a in (getattr(C, 'ae_by', None) or {}).get(sid, []) if a.get('sae')]
+        add_other(C, sid, '访视中断核对', 3,
+                  f"末次记录 {s['lo']}，距数据截止 {g} 天（超过 {int(thr)} 天），未见治疗结束/研究结束记录"
+                  + (f"；此前有 SAE「{sae[-1]['t']}」（{sae[-1]['s']}）" if sae else ''),
+                  None, s['lo'], s.get('sheet', ''), s.get('row'), '',
+                  ctx=['在研受试者长时间无任何记录：可能失访、已退出未录入，或访视未录入'],
+                  rule={'ask': '请确认受试者当前状态（是否失访/退出），并补录后续访视或治疗结束、研究结束页。'},
+                  bkey=f"gap|{sid}")
 
 
 def freshness(C, cutoff):
@@ -207,10 +345,15 @@ def kri(C):
     dosed = [sid for sid in C.pop if S[sid].get('fd')]
     pd = (C.pdd or {}).get('potential') or []
     ran = {r['id']: r.get('state') for r in (C.pdd or {}).get('rules') or []}
+    # V6（PM 审阅 2026-11-02）：容忍限度分子只计「事实已成立」的潜在偏离；文案本身写着请核实/待判定/需经治疗后仍超标
+    # 的（例外条款待查、删失值、待判定）单列为「待核实」，不进分子（RUX 入排 13.5% 三档全超，多数为待核实）
+    firm = [p for p in pd if _pd_firm(p)]
     by_rule = defaultdict(set)
-    for p in pd:
+    for p in firm:
         by_rule[p['rule']].add(p['sid'])
-    imp = {p['sid'] for p in pd if p.get('grade') == '重要'}
+    imp = {p['sid'] for p in firm if p.get('grade') == '重要'}
+    C.ops['kriPending'] = {'ipd': len({p['sid'] for p in pd if p.get('grade') == '重要'} - imp),
+                           'elig': len({p['sid'] for p in pd if str(p.get('rule', '')).startswith('ELIG')} - {p['sid'] for p in firm if str(p.get('rule', '')).startswith('ELIG')})}
     elig = set().union(*[v for k, v in by_rule.items() if k.startswith('ELIG')]) if by_rule else set()
     icf = set().union(*[v for k, v in by_rule.items() if k.startswith('ICF')]) if by_rule else set()
     ex = C.ops.get('ex') or {}
@@ -223,7 +366,10 @@ def kri(C):
         for r in list(C.efficacy) + list(C.findings):
             if ci.search(str(r.get('metric') or r.get('test') or '')) and (r.get('value') not in (None, '') or r.get('raw') not in (None, '')):
                 have[r['sid']].add(r.get('visit'))
-    crit_rows = [d for d in due if d[2] in cv and d[5]] if cv and ci and ci_hit else []   # ci_hit 空＝正则匹配失败，pem 分母必须归零（否则全为「无评估」→「n/n 全缺」误读；na 已提示原因）
+    crit_rows = [d for d in due if d[2] in cv and d[5]] if cv and ci and ci_hit else []
+    if C.cfg.get('dataStage') == 'daily' and is_full_date(cut):   # V6 R9：日常监查截止前 N 天内才完成的关键访视可能尚未录入，不计缺失
+        grace = int(C.A.get('entryGraceDays', 14))
+        crit_rows = [d for d in crit_rows if not is_full_date(d[5]) or days(cut, d[5]) > grace]   # ci_hit 空＝正则匹配失败，pem 分母必须归零（否则全为「无评估」→「n/n 全缺」误读；na 已提示原因）
     fu = C.ops.get('fu') or {}
     te = [a for a in C.aes if a['sid'] in C.pop and a.get('te') and not a.get('dup')]   # F-D：完全重复记录（第 2 份起）不计数
     nnum = Counter(S[f['sid']]['site'] for f in C.findings if f['sid'] in S and isinstance(f.get('value'), (int, float))
@@ -240,8 +386,12 @@ def kri(C):
         na['icf'] = '知情同意核查未执行'
     if ran.get('SAFE-02') != 'ran':
         na['late'] = 'AE 表无获知/报告日期'
+    if ran.get('IP-03') != 'ran' and not any('miss' in x for x in ex.values()):
+        na['comp'] = '依从性无法测算（方案无依从性公式、给药记录也无漏服/剂量字段）'   # V6（PM）：不再显示 0% 限度内
     if not (C.A.get('visitWindows')):
         na['ovd'] = na['oow'] = '方案访视窗未配置'
+    elif not due and C.ops.get('visitUnmapped'):
+        na['ovd'] = na['oow'] = f"方案访视（{'、'.join(C.ops['visitUnmapped'][:6])}）在数据中找不到对应访视代码"
 
     def calc(ids):
         ids = set(ids)
@@ -252,7 +402,7 @@ def kri(C):
         fud = sum(fu.get(x, 0) for x in ds)
         te_ = [a for a in te if a['sid'] in ids]
         ssa = [a for a in te_ if a.get('sae') or a.get('aesi')]
-        wd = [x for x in ds if S[x]['status'] == '提前退出' or (S[x].get('eot_d') and S[x]['status'] != '完成试验' and S[x].get('eot_why'))]
+        wd = [x for x in ds if _early_wd(S[x])]
         site_set = {S[x]['site'] for x in ids}
         return {
             'sf': [sum(S[x]['status'] == '筛选失败' for x in ids), len(ids)],
@@ -439,6 +589,21 @@ def lab_shift(C, add_other):
 _META_RX = re.compile(r'页面号|访视号|访视OID|表单OID|页码|行号|记录号|序号|数据页|Instance|_UNIT$', re.I)
 
 
+def stable_metrics(C, share=0.6):
+    """V6 R12（审阅者 2026-11-02，构建 Agent 复盘：身高在 SAR 产生假「全程不变」）：按数据形态、不列名单——
+    vs/pe 数值指标中，≥2 次测量的受试者里有 ≥60% 全程取值相同（且 ≥5 人可评）→ 该指标本身在受试者内稳定，
+    「全程不变」不是可疑信号。"""
+    tot, same = Counter(), Counter()
+    for (sid, mid), rows in C.F.items():
+        if mid.split(':')[0] not in ('vs', 'pe'):
+            continue
+        vals = [r['value'] for r in rows if isinstance(r.get('value'), (int, float))]
+        if len(vals) >= 2:
+            tot[mid] += 1
+            same[mid] += len(set(vals)) == 1
+    return {m for m, n in tot.items() if n >= 5 and same[m] / n >= share}
+
+
 def cred(C):
     """中心层面数据可信度信号（建议核对，不作结论）。→ {sites:{site:{dig,flat,shift,dup}}, flat:[…], dup:[…], shiftTop:{site:[…]}}
     用户 2026-11-01 裁定：按域动态选，不预设指标名单——vs＋pe 域（语义＝人工/设备直接测量）的全部数值型指标；
@@ -449,12 +614,15 @@ def cred(C):
     flat_e, flat_n, flat_items = Counter(), Counter(), []
     trip = defaultdict(dict)                                   # (site, date) → {sid: {mid: value}}
     base = defaultdict(dict)                                   # mid → {sid: 基线值}
+    stable = stable_metrics(C)
     for (sid, mid), rows in C.F.items():
         if sid not in S:
             continue
         site, label, dom = S[sid]['site'], C.metric[mid]['label'], mid.split(':')[0]
         if dom not in ('vs', 'pe') or _META_RX.search(label):
             continue                                           # 检验多为各中心本地实验室，方法/单位差异天然存在；EDC 元数据列（页面号等）不是测量指标
+        if mid in stable:
+            continue                                           # V6 R12：受试者内天然不变的指标（如成人身高）不作「全程不变/同日相同」信号
         num = [r for r in rows if isinstance(r.get('value'), (int, float))]
         for r in num:
             raw = str(r.get('raw') if r.get('raw') is not None else '').strip()
@@ -520,6 +688,7 @@ def finalize(C):
     """build_ops 之后调用：补齐 ops（due/upcoming/fresh/fu/planned）、KRI、CtQ、数据可信度。"""
     cut = C.ops.get('cutoff') or ''
     C.ops['due'], C.ops['upcoming'] = visit_due(C, cut)
+    C.ops['visitAlias'], C.ops['visitUnmapped'] = getattr(C, '_visit_alias', {}), getattr(C, '_visit_unmapped', [])
     C.ops['fresh'] = freshness(C, cut)
     C.ops['fu'] = followup(C, cut)
     C.ops['planned'] = C.ops.get('planned') or planned_n(C)

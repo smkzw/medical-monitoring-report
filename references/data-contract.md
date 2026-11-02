@@ -56,3 +56,13 @@ labrows `pts` 行：`[visit,date,raw,unit,grade,clin,pct,sheet,row,desc,dev,wb]`
 - 检验风险行、专项信号、疑似录入错误、潜在 PD 可带 `ctq`（关键数据原因：关键访视 / 关键评估 / 停药相关指标）。检验与录入错误只按指标判定，访视只用于方案偏离与访视类信号。
 - 新专项类别：`范围内明显变化`、`持续变化趋势`（pr＝2，不发质疑），归入领域「检验变化预警」。
 - 工作台系统层（`window.KZS`，可无）：`sigstate{键:{s,r,n,rk,by,at}}`（处置状态）、`history[{bid,snap,cutoff,n{lab,oth,pd,ent,q},rd{new,worse,resolved},kri,sites}]`（跨上传，旧→新，≤12）、`timeliness{basis,snaps,sites{site:{n,med,p90,gt14,mod:[修改删除数,当前记录数],lastNew}}}`；汇总失败时 `trendError`。
+
+### V6 追加（2026-11-02）
+- **原始数据层**（`raw_export.py`）：`data/rawidx.js` → `window.KZRI={sheets:{<表单id>:{name,wb,mapped,domain,cols,const,hl,n,nsub}},subs:{sid:[表单id…]},dropped:[隐私列名…]}`；`data/r/<sid>.js` → `KZ_RAW(sid,{<表单id>:[[原始行号,…值]]})`。覆盖全部工作簿中含受试者列的表单（含未映射表单）；剔除姓名/缩写/身份证/电话/住址类列；全导出行同值的列上提为 `const`；差异导出中标记删除的行不导出。表单 id 与 `_source.json.sheets` 同口径，证据 `[sh,row]` 可直接定位。
+- `_source.json`：`sheets.<id>.domain`（映射域）、`unmapped`（未映射表名，终点无数据时给候选来源表）。
+- `KZ.ops`：`visitAlias{方案访视键:数据代码}`、`visitUnmapped[…]`、`kriPending{ipd,elig}`（待核实未计入容忍限度分子的受试者数）；访视推算 `due` 的研究日按锚点（首剂 D1 记法；末次给药/随机/知情/前一访视为「锚点后第 t 天」）。
+- `KZ.bind.notes[]`：规则指标正则零命中时的重绑说明、有效性终点 src 名称核心对齐说明（研究依据页显示）。
+- `KZ.eff.missing[].cands[]`：可能的来源表（未映射）。
+- `KZ.qx[]`（工作台回写）：AI 来源质疑（ai_csb/ai_review），`kz.js` 载入时按 qkey 并入 `KZ.queries`。
+- `analysis.consMinDiff`（默认 0.05）：判定一致性「更差方」须多偏离参考边界的相对幅度；0＝无最小差（2026-10-30 旧口径）。
+- 页面：参与者资料空间新增 `raw.html`（原始数据浏览）；个例页新增「原始数据」页签、受试者旅程图、异常指标热力图；中心页新增受试者风险构成图；行动项按「受试者×日期×类别×表单」聚合。

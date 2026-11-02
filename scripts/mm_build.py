@@ -18,10 +18,12 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 import ctcae
+import bind
 import ext_rules
 import monitor_v5
+import raw_export
 import pd_rules
-from common import days, dshow, dump_json, fmt, is_full_date, load_json, move_word, open_workbook_lenient, quantile, study_day, zero_dose
+from common import days, dshow, dump_json, fmt, is_full_date, load_json, move_word, open_workbook_lenient, quantile, study_day, yes, zero_dose
 
 AGG_EXCL = set()
 
@@ -188,6 +190,8 @@ def align_visit_codes(C):
             return c
         k = _vkey(c)
         hit = by.get(k) or {v for kk, vs in by.items() if k and k < kk for v in vs}   # 精确同组，其次唯一的超集（V9/W18 ↔ W18/D127V9）
+        if k and not hit:                                 # V6：再其次唯一的子集（方案「V5/W2/D15」↔ 数据只写「W2」；D002 616/616 假逾期）
+            hit = {v for kk, vs in by.items() if kk and kk < k for v in vs}
         if k and len(hit) == 1:
             amap[c] = next(iter(hit))
             return amap[c]
@@ -218,6 +222,15 @@ def align_visit_codes(C):
             o['visits'] = [m(x) for x in o['visits']]
     for x in (P.get('sample') or {}).get('windows') or []:
         x['visit'] = m(x.get('visit'))
+    for e in C.A.get('efficacy') or []:                   # V6：有效性终点的访视（基线/关键访视/限定访视）同样改写——D002 8 项终点全空的根因
+        for k in ('baseVisit', 'keyVisit'):
+            if e.get(k):
+                e[k] = m(e[k])
+        if isinstance(e.get('visits'), list):
+            e['visits'] = [m(x) for x in e['visits']]
+    for R in C.A.get('effRules') or []:
+        if isinstance(R.get('visits'), list):
+            R['visits'] = [m(x) for x in R['visits']]
     C.visitAlias = amap
 
 
@@ -280,7 +293,48 @@ def is_post(C, sid, date, tpt=None):
 
 
 # ----------------------------------------------------------------------------- AE / MH / CM
+_UNK = r'(?:UK|UN|NK|NA|XX|\?\?|00|未知)'
+
+
+def partial_date(s):
+    """部分日期归一到已知精度：「2025-01-UK」→「2025-01」，「2025-UK-UK」→「2025」，完整日期原样；不可解析 → ''。"""
+    m = re.match(rf'^\s*(\d{{4}})(?:[-/.](\d{{1,2}}|{_UNK}))?(?:[-/.](\d{{1,2}}|{_UNK}))?\s*$', str(s or ''), re.I)
+    if not m:
+        return ''
+    y, mo, d = m.group(1), m.group(2), m.group(3)
+    if not mo or not mo.isdigit() or mo == '00':
+        return y
+    if not d or not d.isdigit() or d == '00':
+        return f'{y}-{int(mo):02d}'
+    return f'{y}-{int(mo):02d}-{int(d):02d}'
+
+
+def _pre_dose(start, fd):
+    """V6 R13：首剂前判定按开始日期的实际精度比较（2025-03 vs 首剂 2025-04-02 → 首剂前；同月/同年 → 不能判首剂前，按 TEAE）。
+    审阅修正（CRA）：「2025-01-UK」类写法先归一到已知精度再比。"""
+    st = partial_date(start)
+    if not fd or not st:
+        return False
+    return st < str(fd)[:len(st)]
+
+
+def no_usable(recs):
+    """V6：记录编号列可用＝同一受试者内基本不重复（RUX「记录号」多为 0 是重复记录序号，不是 AE 编号；D002「记录号」才是）。
+    重复率 >20% → 不用，回落按受试者内顺序编号。"""
+    seen, dup, n = set(), 0, 0
+    for r in recs:
+        no = r.get('no')
+        if no in (None, ''):
+            continue
+        n += 1
+        k = (r.get('sid'), str(no))
+        dup += k in seen
+        seen.add(k)
+    return n > 0 and dup / n <= 0.2
+
+
 def build_events(C):
+    use_ae_no, use_mh_no = no_usable(C.ae), no_usable(C.mh)
     relre = rx(C.A.get('relatedRe', r'肯定|很可能|^可能有关|可能相关|related'))
     unrel = rx(C.A.get('unrelatedRe', r'无关|不相关|可能无关|unrelated'))
     catmap = [(re.compile(a), b) for a, b in C.A.get('aeCatMap', [])]
@@ -307,20 +361,24 @@ def build_events(C):
                     if gi >= d.get('minGrade', 0)]
         rel = a.get('rel') or ''
         related = bool(relre and relre.search(rel)) and not (unrel and unrel.search(rel))
-        rec = {'n': a.get('no') or len(C.ae_by[sid]) + 1, 't': term, 'c': cat, 's': a.get('start') or '', 'e': a.get('end') or '',
+        rec = {'n': (a.get('no') if use_ae_no else None) or len(C.ae_by[sid]) + 1, 't': term, 'c': cat, 's': a.get('start') or '', 'e': a.get('end') or '',
                'g': gtxt(a.get('grade')), 'sae': bool(a.get('serious')), 'aesi': bool(a.get('aesi')),
-               'dili': bool(a.get('dili')), 'rel': rel or '—', 'act': a.get('action') or '—', 'out': a.get('outcome') or '—',
+               'dili': yes(a.get('dili')) if isinstance(a.get('dili'), str) else bool(a.get('dili')), 'rel': rel or '—', 'act': a.get('action') or '—', 'out': a.get('outcome') or '—',
                'cm': a.get('cm') or '', 'wd': a.get('withdraw') or '', 'row': a['row'], 'sh': a['sheet'], 'wb': a.get('wb') or '', 'sid': sid, 'site': s['site'], 'fd': s['fd'] or '',
-               'pre': bool(s['fd'] and is_full_date(a.get('start')) and a['start'] < s['fd']), '_rel': related,
+               'pre': _pre_dose(a.get('start'), s['fd']), '_rel': related,
                '_aesi_term': bool(aesi_hit), '_aesi_def': aesi_hit, 'pt': a.get('pt') or '', 'soc': a.get('soc') or '',
                'rpt': a.get('rpt') or '', 'aware': a.get('aware') or '', 'sae_crit': a.get('sae_crit') or ''}
         rec['te'] = (not rec['pre']) and bool(s['fd']) and (not C.teEnd.get(sid) or not is_full_date(rec['s']) or rec['s'] <= C.teEnd[sid])
+        # V6 R13：开始日期缺失/无法解析（如 D002「是」）→ TEAE 判定待定：暂按 TEAE 计（不漏报，常见 SAP 最坏情形口径），并发日期核对
+        _ps = partial_date(rec['s'])
+        # 待定＝开始日期不可解析，或只知道与首剂同月/同年（无法判先后）；月份晚于首剂月等可判的不算待定（CRA 审阅：20/23 实可判）
+        rec['te_pending'] = bool(s['fd']) and (not _ps or (len(_ps) < 10 and str(s['fd'])[:len(_ps)] == _ps))
         rec['ib'] = ib_match(C, rec)
         C.ae_by[sid].append(rec)
         C.aes.append(rec)
     C.mh_by = defaultdict(list)
     for m in C.mh:
-        C.mh_by[m['sid']].append({'n': m.get('no') or len(C.mh_by[m['sid']]) + 1, 't': m.get('term') or '', 's': m.get('start') or '',
+        C.mh_by[m['sid']].append({'n': (m.get('no') if use_mh_no else None) or len(C.mh_by[m['sid']]) + 1, 't': m.get('term') or '', 's': m.get('start') or '',
                                   'e': m.get('end') or '', 'ong': '是' if m.get('ongoing') else '否', 'row': m['row'], 'sh': m['sheet'], 'wb': m.get('wb') or ''})
     C.cm_by = defaultdict(list)
     for c in C.cm:
@@ -650,7 +708,8 @@ def resolve_links(C, sid, links):
     for kind, term, _, no in links:
         pool = C.ae_by[sid] if kind == 'AE' else C.mh_by[sid]
         ev = next((x for x in pool if str(x['n']) == str(no)), None)
-        if ev is None and no is None and (term or '').strip():
+        # V6（审阅者 2026-11-02，D002 34/34 假「关联不对应」）：编号对不上（导出编号口径与记录序号不同）但术语能唯一回溯 → 按术语认关联
+        if ev is None and (term or '').strip():
             # F02 词目型（说明列「与XX有关/XX既往史」）：按术语回溯到具体记录并回填编号；对不上保持未关联
             t = re.sub(r'[（(].*$', '', term.strip())
 
@@ -658,7 +717,7 @@ def resolve_links(C, sid, links):
                 xt = (xt or '').strip()
                 return bool(t and xt and min(len(t), len(xt)) >= 2 and (t in xt or xt in t))
             ev = next((x for x in pool if _same(x.get('t'))), None)
-            no = ev['n'] if ev is not None else None
+            no = ev['n'] if ev is not None else no            # 术语也回溯不到：保留研究者填的编号（交 LINK 核对）
         out.append([kind, term or (ev or {}).get('t', ''), (ev or {}).get('s', ''), no, bool(ev)])
     return out
 
@@ -838,7 +897,7 @@ def build_labrows(C):
         if anycs and dis_only:
             # 用户 2026-10-27：归因研究疾病不算「未关联」；只有较基线明显加重、且未记录「研究疾病加重」类 AE 才作为风险
             t_base = float(C.cfg['thresholds'].get('base', 0.3))
-            wf = (next((w for w in (worse_vs_base(r, b, t_base) for r in cs_pts if r['post']) if w), None) if b else None) or \
+            wf = (next((w for w in (worse_vs_base(r, b, t_base, disease=True) for r in cs_pts if r['post']) if w), None) if b else None) or \
                 next((w for w in map(ext_rules.stated_worse, cs_pts) if w), None)      # 研究者备注写明加重：研究者判定优先
             dae = disease_ae(sid, mid, cs_pts) if wf else []
             risk = 'DISW' if wf and not dae else 'DIS'
@@ -865,7 +924,7 @@ def build_labrows(C):
                 if b is None:
                     ctx.append(f'研究疾病表现（{nm}）；基线缺失，无法判断是否较基线加重')
                 else:
-                    wf = next((w for w in (worse_vs_base(r, b, float(C.cfg['thresholds'].get('base', 0.3))) for r in cs_pts if r['post']) if w), None)
+                    wf = next((w for w in (worse_vs_base(r, b, float(C.cfg['thresholds'].get('base', 0.3)), disease=True) for r in cs_pts if r['post']) if w), None)
                     dae = disease_ae(sid, mid, cs_pts) if wf else []
                     if wf and dae:
                         risk = 'DIS'
@@ -1083,16 +1142,33 @@ def _thr_hit(C, r, sig):
     return False
 
 
+_LOSS_RX = re.compile(r'丢失|下降|减少|降低|减低|loss|decrease', re.I)
+_SCORE_RX = re.compile(r'Z\s*值|T\s*值|Z-?score|T-?score|SDS', re.I)
+
+
+def pct_rule_norm(R):
+    """V6（审阅者 2026-11-02，D002「骨密度丢失 >5%」把 Z 值 0.1→0.5 当丢失 400%：250 条假阳性）：
+    较基线百分比规则的语义归一——标签写「丢失/下降/减少」而阈值写成正数 → 按下降判（pct ≤ −v）。返回 (op, v)。"""
+    op, v = R.get('op', '>='), R['v']
+    if R.get('on') in ('pct', 'chg') and _LOSS_RX.search(str(R.get('label') or R.get('expectAE') or '')) and op in ('>', '>=', '≥') and v > 0:
+        return ('<' if op == '>' else '<='), -v
+    return op, v
+
+
 def threshold_rules(C):
-    """analysis.thresholdRules: protocol-defined numeric triggers (AESI/AE/stopping/eligibility-like) evaluated per finding."""
+    """analysis.thresholdRules: protocol-defined numeric triggers (AESI/AE/stopping/eligibility-like) evaluated per finding.
+    不同阈值（3×ULN 报告、5×ULN 停药）是不同判据，各自出信号（mm5 审阅修正口径，V6 不改）；只修文案里漏出的正则写法。"""
     for R in C.A.get('thresholdRules', []):
         mre = re.compile(R['metric'])
+        r_op, r_v = pct_rule_norm(R)
         are = rx(R.get('expectAE'))
         vis = set(R.get('visits') or [])
         seen = set()
         for (sid, mid), rows in C.F.items():
             if sid not in C.pop or not mre.search(mid):
                 continue
+            if R.get('on') == 'pct' and _SCORE_RX.search(C.metric[mid]['label']):
+                continue                                 # Z/T 值可正可负、近 0，百分比变化无意义（骨密度规则只看 g/cm² 等测量值）
             for r in rows:
                 if R.get('post', True) and not r['post']:
                     continue
@@ -1103,8 +1179,10 @@ def threshold_rules(C):
                      'uln': (r['value'] / r['hi']) if r.get('value') is not None and r.get('hi') else None,
                      'lln': (r['value'] / r['lo']) if r.get('value') is not None and r.get('lo') else None,
                      'grade': r.get('grade')}.get(on)                    # mm4：方案按 CTCAE 级别定义的阈值（如 3 级血细胞减少）
-                if not cmp(R.get('op', '>='), x, R['v']):
+                if not cmp(r_op, x, r_v):
                     continue
+                if on == 'pct' and not ((r.get('base') or {}).get('value') or 0) > 0:
+                    continue                             # 基线 ≤0 时百分比变化无定义
                 if R.get('once') and (sid, R['id']) in seen:
                     continue
                 seen.add((sid, R['id']))
@@ -1122,12 +1200,13 @@ def threshold_rules(C):
                             pr = min(pr, 2)
                     else:
                         ctx.append('未见对应 AE 记录')
+                thr_l = str(R.get('label', f"{R.get('op', '>=')}{R['v']}")).replace('|', '/')   # 不让正则写法「ALT|AST」漏进文案
                 b = r.get('base') or {}
                 summ = fill(R.get('sum', '{test} {value} {unit}（{visit} {date}）达到方案阈值 {thr}'), test=C.metric[mid]['label'], value=r.get('raw'),
-                            unit=r.get('unit') or '', visit=r.get('visit'), date=dshow(r.get('date')), thr=R.get('label', f"{R.get('op', '>=')}{R['v']}"),
+                            unit=r.get('unit') or '', visit=r.get('visit'), date=dshow(r.get('date')), thr=thr_l,
                             base=b.get('raw'), chg=r.get('chg'), pct=None if r.get('pct') is None else round(r['pct'], 1), uln=r.get('hi'), lln=r.get('lo'))
                 add_other(C, sid, R['cat'], pr, summ, r.get('visit'), r.get('date'), r['sheet'], r['row'], C.metric[mid]['label'], r.get('clin'), rel, ctx, risk, R,
-                          R.get('lane'), R.get('level'), bkey=f"{C.metric[mid]['label']}|{r.get('visit') or ''}|{r.get('date') or ''}", wb=r.get('wb') or '')
+                                                                R.get('lane'), R.get('level'), bkey=f"{C.metric[mid]['label']}|{r.get('visit') or ''}|{r.get('date') or ''}", wb=r.get('wb') or '')
 
 
 def combo_rules(C):
@@ -1183,6 +1262,27 @@ def combo_rules(C):
                         break
 
 
+_GEN_BG = {'升高', '降低', '增高', '减少', '异常', '增加', '下降', '检查', '计数', '水平', '指标', '数值'}
+
+
+def _bigrams(s):
+    s = re.sub(r'[（(].*?[)）]|\s', '', str(s or ''))
+    return {s[i:i + 2] for i in range(len(s) - 1)} - _GEN_BG
+
+
+def ae_lab_same(C, a, r):
+    """AE 与检验是否同一事件：项目 aeMatch（指标正则→AE 术语正则）命中，或 CTCAE 条目名/指标名与 AE 术语有共同实义双字。"""
+    mid = r.get('mid') or ''
+    for x in C.A.get('aeMatch') or []:
+        try:
+            if re.search(x[0], mid) and re.search(x[1], a.get('t') or ''):
+                return True
+        except re.error:
+            continue
+    at = _bigrams(a.get('t')) | _bigrams(a.get('pt'))
+    return bool(at & (_bigrams(r.get('gterm')) | _bigrams(r.get('test'))))
+
+
 def ae_checks(C):
     on = set(C.A.get('aeChecks', ['predose_related', 'grade_vs_lab', 'cm_flag', 'cm_missing', 'aesi_terms', 'aesi_unmatched',
                                   'duplicate', 'severity_logic', 'grade_floor']))
@@ -1200,7 +1300,8 @@ def ae_checks(C):
             add_other(C, sid, 'AE给药前事件相关性核对', 3, f"AE「{a['t']}」开始于首剂（{a['fd']}）前 {a['s']}，相关性记为「{a['rel']}」", None, a['s'], a['sh'], a['row'], a['t'],
                       rel=[['AE', a['t'], a['s'], a['n']]], risk='AE', wb=a.get('wb') or '')
         if 'grade_vs_lab' in on:
-            rs = [r for r in lab_by_ae[(sid, str(a['n']))] if r.get('grade')]
+            # V6（MM 审阅：「肝酶升高」AE 拿去比中性粒细胞等级）：只比与该 AE 同一事件的检验（aeMatch 命中或 CTCAE 条目/指标名与 AE 术语同词）
+            rs = [r for r in lab_by_ae[(sid, str(a['n']))] if r.get('grade') and ae_lab_same(C, a, r)]
             gi = grade_int(a['g']) or 0
             mx = max(rs, key=lambda r: r['grade']) if rs else None
             if mx and mx['grade'] > gi:
@@ -1223,11 +1324,21 @@ def ae_checks(C):
         if 'severity_logic' in on:
             # F-E（IMP-04）：高级别（默认 ≥3 级）AE 未按 SAE 且 SAE 标准全未勾选 → 内部矛盾，请核实严重性判定
             #（不作 SAE 违规断言——是否构成 SAE 由研究者/方案定义；已停药/暂停者在文案中带出）。
+            # V6 R5（审阅者 2026-11-02）：严重程度（分级）≠ 严重性（seriousness，ICH E2A）——3 级本身不构成 SAE。
+            # 只在有矛盾证据时提示：≥4 级（危及生命属严重性标准）；或 3 级且结局/处理/原文含 住院/死亡/危及生命。
+            # 实验室定义的事件（SOC 为各类检查、或术语为「XX 升高/降低」）不按此规则（3–4 级化验异常常不构成 SAE）。
             gi2 = grade_int(a['g']) or 0
-            if gi2 >= int(C.A.get('severeGradeNosae', 3)) and not a['sae'] and not str(a.get('sae_crit') or '').strip():
+            ev = ' '.join(str(a.get(k) or '') for k in ('out', 'act', 't', 'sae_crit'))
+            lab_ev = bool(re.search(r'各类检查|Investigations', str(a.get('soc') or ''), re.I)
+                          or re.search(r'(升高|降低|增高|减少|下降|异常|增加)$', str(a['t'] or '')))
+            hosp = bool(re.search(r'住院|死亡|致死|危及生命', ev))
+            floor = int(C.A.get('severeGradeNosae', 4))
+            if (not lab_ev and (gi2 >= floor or (gi2 == floor - 1 and hosp)) and not a['sae']
+                    and not str(a.get('sae_crit') or '').strip()):
                 stopw = '，且对研究用药已停药/暂停' if re.search(r'停|暂停|终止', str(a.get('act') or '')) else ''
+                why = '有住院/死亡相关记录' if hosp and gi2 < floor else f'记 {a["g"]}（达危及生命级别）'
                 add_other(C, sid, 'AE严重性逻辑核对', 3,
-                          f"AE「{a['t']}」记 {a['g']}，但未按 SAE（SAE 标准如住院/致死/致残等均未勾选）{stopw}——高级别事件的严重性判定请核实",
+                          f"AE「{a['t']}」{why}，但未按 SAE（SAE 标准均未勾选）{stopw}——请核实严重性判定",
                           None, a['s'], a['sh'], a['row'], a['t'], rel=[['AE', a['t'], a['s'], a['n']]], risk='AE', wb=a.get('wb') or '')
         if 'grade_floor' in on:
             # F-E（IMP-04）：gradeFloor（配置驱动，如分级标准中「X 衰竭」类术语最低 2 级）——低于下限疑编码/分级错误。
@@ -1304,6 +1415,23 @@ def _ae_similar(a, b):
     return bool(x and y and min(len(x), len(y)) >= 2 and (x in y or y in x))
 
 
+def _corroborated(C, sid, r):
+    """尖峰有旁证＝同日同表单另有 ≥2 项超出参考范围，或该日处于某条 AE 的持续期内 → 不按录入错误提示。"""
+    d, sh = r.get('date'), r.get('sheet')
+    if not is_full_date(d):
+        return False
+    n = 0
+    for (s2, _m), rows in C.F.items():
+        if s2 != sid:
+            continue
+        for x in rows:
+            if x is not r and x.get('date') == d and x.get('sheet') == sh and finding_abn(x):
+                n += 1
+                if n >= 2:
+                    return True
+    return any(ext_rules.ae_covers(a, d) for a in (getattr(C, 'ae_by', None) or {}).get(sid, []))
+
+
 def entry_errors(C):
     """mm5 疑似录入错误（用户 2026-10-31：某指标多次都在 50 上下、突然一次 500 多 → 很可能小数点/单位录错）。
     只看检验/生命体征/心电图数值（有效性另有「有效性数据量级异常」）。判据（同受试者同指标、该指标 ≥4 个数值）：
@@ -1341,6 +1469,8 @@ def entry_errors(C):
                     elif isolated and (ratio >= 20 or ratio <= 1 / 20):
                         why = (f"为本人其余结果中位数（{fmt(med)}）的 {fmt(ratio, 0)} 倍" if ratio >= 1 else
                                f"仅为本人其余结果中位数（{fmt(med)}）的 1/{fmt(1 / ratio, 0)}") + "，疑似录入或单位错误"
+            if why and '单位' not in why and _corroborated(C, sid, r):
+                why = ''                                 # V6（MM 审阅：CK 14.5×ULN 同日 AST 升高、同期 AE → 更像真实损伤，不当录入错误）
             if not why and mn >= 3 and ucanon(r.get('unit')) and ucanon(r['unit']) != mu:
                 mu_raw = next((str(x.get('unit')) for x in num if ucanon(x.get('unit')) == mu), mu)
                 why = f"单位「{r['unit']}」与本人其余记录（「{mu_raw}」）不同，请核对单位与数值"
@@ -1392,7 +1522,7 @@ def build_ops(C):
 
 def range_checks(C):
     """mm4：参考范围缺失——同一实验室指标多数记录有参考范围，而该记录数值存在但上下限均缺失（无法判异常与分级）。
-    受试者×指标一条（首条为证据，其余访视进上下文）；同一中心同一指标 ≥3 例缺失 → 中心系统性问题，转中心沟通提示（pr2，不逐例发 query）。"""
+    V6：受试者×表单×日期一条（同页各指标进上下文）；同一中心同一表单 ≥3 例缺失 → 中心系统性问题，转中心沟通提示（pr2，不逐例发 query）。"""
     if C.A.get('rangeCheck') is False:
         return
     miss = defaultdict(list)                    # (sid, mid) -> rows
@@ -1410,18 +1540,31 @@ def range_checks(C):
         for r in rows:
             if r.get('lo') is None and r.get('hi') is None:
                 miss[(r['sid'], mid)].append(r)
-    site_n = Counter((C.subj[sid]['site'], mid) for (sid, mid) in miss)
-    for (sid, mid), rows in sorted(miss.items()):
-        r, m = rows[0], C.metric[mid]
-        systemic = site_n[(C.subj[sid]['site'], mid)] >= 3
-        ctx = [f"另有 {len(rows) - 1} 次未填：" + '、'.join(str(x.get('visit')) for x in rows[1:5])] if len(rows) > 1 else []
+    # V6 R4（审阅者 2026-11-02，四项目复盘：同一张化验单漏填范围被按指标拆成十几条 query）：
+    # 按（受试者，表单，日期）合并为一条——CRC 是按一张化验单补范围的；同中心同表单 ≥3 例 → 中心系统性问题
+    page = defaultdict(list)
+    for (sid, mid), rows in miss.items():
+        for r in rows:
+            page[(sid, r['sheet'], r.get('date') or '')].append((mid, r))
+    site_n = Counter()
+    for sh_site in {(C.subj[sid]['site'], sh, sid) for (sid, sh, _) in page}:
+        site_n[sh_site[:2]] += 1
+    for (sid, sh, d), items in sorted(page.items()):
+        items.sort(key=lambda x: x[1].get('row') or 0)
+        r = items[0][1]
+        labs = list(dict.fromkeys(C.metric[mid]['label'] for mid, _ in items))
+        n_site = site_n[(C.subj[sid]['site'], sh)]
+        systemic = n_site >= 3
+        ctx = [f"同页未填范围的指标：{'、'.join(labs[:12])}{'…' if len(labs) > 12 else ''}"] if len(labs) > 1 else []
         if systemic:
-            ctx.append(f"中心系统性未填（本中心 {site_n[(C.subj[sid]['site'], mid)]} 例）：建议中心层面沟通，不逐例发 query")
+            ctx.append(f"中心系统性未填（本中心本表单 {n_site} 例）：建议中心层面沟通，不逐例发 query")
+        mid0 = items[0][0]
         add_other(C, sid, '参考范围缺失核对', 2 if systemic else 3,
-                  f"{r.get('visit')}（{dshow(r.get('date'))}）{m['label']} {r.get('raw')} {r.get('unit') or ''} 未填写参考范围（同指标 {stats[mid][0]}/{stats[mid][1]} 条记录有范围）",
-                  r.get('visit'), r.get('date'), r['sheet'], r['row'], m['label'], r.get('clin'), ctx=ctx,
-                  rule={'ask': '请补充该结果的参考范围（上下限），并据此核对临床意义评价。'},
-                  bkey=f"{m['label']}|range", wb=r.get('wb') or '')
+                  f"{r.get('visit')}（{dshow(r.get('date'))}）{sh} 有 {len(labs)} 项结果未填写参考范围"
+                  f"（如 {C.metric[mid0]['label']} {r.get('raw')} {r.get('unit') or ''}；同指标 {stats[mid0][0]}/{stats[mid0][1]} 条记录有范围）",
+                  r.get('visit'), r.get('date'), r['sheet'], r['row'], '、'.join(labs[:3]), r.get('clin'), ctx=ctx,
+                  rule={'ask': '请补充该页检验结果的参考范围（上下限），并据此核对临床意义评价。'},
+                  bkey=f"{sh}|{d}|range", wb=r.get('wb') or '')
 
 
 def overlap(c, a, b):
@@ -1548,7 +1691,7 @@ def _near_val(C, sid, mre, r):
     if not is_full_date(d0):
         return None
     cand = [x for (s2, mid), rows in C.F.items() if s2 == sid and mre.search(mid) for x in rows
-            if isinstance(x.get('value'), (int, float)) and is_full_date(x.get('date'))]
+            if (isinstance(x.get('value'), (int, float)) or censored(x.get('raw'))) and is_full_date(x.get('date'))]
     if not cand:
         return None
     same = [x for x in cand if x.get('sheet') == r.get('sheet')]
@@ -1563,7 +1706,30 @@ def _gate_ok(C, sid, G, r):
     if G.get('re'):
         t = str(x.get('raw') or '')
         return bool(re.search(G['re'], t, re.I)) and not re.search(r'阴性|negative|未检出', t, re.I)
+    c = censored(x.get('raw')) if not isinstance(x.get('value'), (int, float)) else None
+    if c is not None and G.get('v') is not None:
+        # V6（MM 审阅 2026-11-02：RUX HBcAb 阳性 14 条 pr4，13 条已有「<1.00E+02 / 低于检测下限」的 HBV-DNA）：删失值按上界判
+        op, ub = G.get('op', '>='), c
+        if op in ('>=', '>', '≥'):
+            return False if ub is not None and ub <= float(G['v']) else None
+        if op in ('<=', '<', '≤'):
+            return True if ub is not None and ub <= float(G['v']) else None
+        return None
     return cmp(G.get('op', '>='), x.get('value'), G.get('v'))
+
+
+def censored(raw):
+    """删失结果的上界：「<1.00E+02」→100.0；「低于检测下限/未检出/<LLOQ」→0.0（视为低于任何正阈值）；不是删失 → None。"""
+    s = str(raw or '').strip().replace('＜', '<').replace(' ', '')
+    m = re.match(r'^(<|≤|<=)([0-9.]+(?:[eE][+-]?\d+)?)', s)
+    if m:
+        try:
+            return float(m.group(2))
+        except ValueError:
+            return None
+    if re.search(r'低于(检测|定量)?下限|未检出|<LLOQ|<LOD|ND$|BLQ|TND|不可测', s, re.I):
+        return 0.0
+    return None
 
 
 def eligibility_checks(C):
@@ -1644,11 +1810,17 @@ def eligibility_checks(C):
 
 def visit_window_checks(C):
     W = C.A.get('visitWindows', {})  # {"W2": [15, 3, 3]}  target study day, minus, plus
+    # V6（CRA 审阅：D002 别名对齐后的 17 条超窗没进信号层）：数据访视代码经 visit_alias 唯一对应到方案键时按方案窗判
+    alias, _um = monitor_v5.visit_alias(C, W) if W else ({}, [])
+    inv = defaultdict(list)
+    for k_, c_ in alias.items():
+        inv[c_].append(k_)
     for v in C.visits:
         sid = v['sid']
-        if sid not in C.pop or v.get('visit') not in W:
+        key = v.get('visit') if v.get('visit') in W else (inv[v.get('visit')][0] if len(inv.get(v.get('visit')) or []) == 1 else None)
+        if sid not in C.pop or key is None:
             continue
-        spec = W[v['visit']]
+        spec = W[key]
         if isinstance(spec, dict):
             t, mi, pl, anc = spec.get('target'), spec.get('minus', 0), spec.get('plus', 0), spec.get('anchor', 'fd')
         else:
@@ -1658,7 +1830,8 @@ def visit_window_checks(C):
             sd, lab = study_day(v.get('date'), s['fd']), 'D'
         else:  # days since anchor (rand / icf / another visit's actual date), anchor = day 0
             ad = s.get({'rand': 'rand_d', 'icf': 'icf', 'ld': 'ld'}.get(anc, '')) if anc in ('rand', 'icf', 'ld') else next((x.get('date') for x in C.visits if x['sid'] == sid and x.get('visit') == anc), None)
-            sd, lab = (days(v.get('date'), ad) if is_full_date(ad) and is_full_date(v.get('date')) else None), f'{anc}+'
+            sd, lab = (days(v.get('date'), ad) if is_full_date(ad) and is_full_date(v.get('date')) else None), \
+                {'ld': '末次给药后第', 'rand': '随机后第', 'icf': '知情后第'}.get(anc, f'{anc} 后第')
         if sd is not None and (sd < t - mi or sd > t + pl):
             add_other(C, sid, '访视超窗核对', 2, f"{v['visit']} 实际 {v['date']}（{lab}{sd}），方案窗 {lab}{t}{'−%d' % mi}/+{pl}", v['visit'], v['date'], v['sheet'], v['row'], wb=v.get('wb') or '')
 
@@ -1933,7 +2106,7 @@ def build_cons(C):
     for (scope, skey, mid, unit, lo, hi, d, post), rs in sorted(groups.items(), key=lambda kv: tuple(str(x) for x in kv[0])):
         cs = [r for r in rs if r['clin'] == 2]
         ncs = [r for r in rs if r['clin'] == 1]
-        for a, b, equal in ext_rules.cons_witnesses(cs, ncs, d, cross_subject=scope == 'center'):
+        for a, b, equal in ext_rules.cons_witnesses(cs, ncs, d, cross_subject=scope == 'center', min_diff=float(C.A.get('consMinDiff', 0.05))):
             emit(scope, skey if scope == 'center' else C.subj[skey]['site'], skey, mid, 'judg', d, a, b, equal)
         for a, b in ext_rules.cons_attribution(cs, cross_subject=scope == 'center'):
             emit(scope, skey if scope == 'center' else C.subj[skey]['site'], skey, mid, 'att', d, a, b, False)
@@ -2106,7 +2279,8 @@ def build_eff(C):
     data = {}
     by = defaultdict(list)  # (sid, src) -> [(visit,date,value,raw)]
     for e in C.efficacy:
-        by[(e['sid'], 'eff:' + str(e.get('metric')))].append((e.get('visit'), e.get('date'), eff_num(e.get('value')), e.get('value')))
+        val = e.get('value') if e.get('value') not in (None, '') else e.get('raw')   # V6：「3=中度」类编码量表（IGA）数值在 raw
+        by[(e['sid'], 'eff:' + str(e.get('metric')))].append((e.get('visit'), e.get('date'), eff_num(val), val))
     for (sid, mid), rs in C.F.items():
         for r in rs:
             by[(sid, mid)].append((r.get('visit'), r.get('date'), r.get('value'), r.get('raw')))
@@ -2165,8 +2339,29 @@ def build_eff(C):
                'notes': C.A.get('effNotes') or [],   # mm4：未生成/未对上的原因（宿主按方案终点×listing 生成）
                # F-J（IMP-06）：配置了的有效性终点指标在 listing 中完全无记录 → 显式行动项（不静默空页）
                'missing': [{'id': m['id'], 'label': m.get('label') or m['id'], 'src': m.get('src'),
-                            'note': '终点配置了该指标，但 listing 中无任何对应记录——请核查量表表是否已映射/指标名是否一致'}
+                            'note': '终点配置了该指标，但 listing 中无任何对应记录——请核查量表表是否已映射/指标名是否一致',
+                            'cands': eff_sheet_candidates(m.get('label') or m['id'], (getattr(C, 'src', None) or {}).get('unmapped') or [])}
                            for m in M if not any(m['id'] in (d.get('v') or {}) for d in data.values())]}
+
+
+_EFF_GENERIC_BIGRAM = {'评分', '量表', '情况', '检查', '指数', '总分', '变化', '基线', '记录', '评估', '程度', '问卷', '日记', '结果'}
+
+
+def eff_sheet_candidates(label, sheets, k=3):
+    """V6 B4（审阅者 2026-11-02，D002 主要终点 MBL 在「(51)月经周期及出血情况」表、未被映射 → 有效性页空）：
+    终点无数据时，在未映射的表名里找可能的来源（括注缩写命中，或去掉通用词后有共同的中文双字）。只作提示，不自动绑定。"""
+    lab = str(label or '')
+    abbr = [x.upper() for x in re.findall(r'[A-Za-z][A-Za-z0-9\-]{1,9}', lab)]
+    base = re.sub(r'[（(].*?[)）]', '', lab)
+    bg = {base[i:i + 2] for i in range(len(base) - 1)} - _EFF_GENERIC_BIGRAM
+    bg = {b for b in bg if re.fullmatch(r'[\u4e00-\u9fff]{2}', b)}
+    out = []
+    for s in sheets:
+        nm = re.sub(r'^[（(]\s*\d+\s*[)）]|^\d+[.、\-]', '', str(s)).strip()
+        sc = 2 * any(a in nm.upper() for a in abbr) + sum(b in nm for b in bg)
+        if sc:
+            out.append((sc, s))
+    return [s for _, s in sorted(out, key=lambda x: -x[0])[:k]]
 
 
 # ----------------------------------------------------------------------------- subject files
@@ -2553,6 +2748,7 @@ def analyze(C):
     ae_summary(C)
     micro_panel_mark(C)                                  # F-C＋第三轮：微生物培养/药敏先分域（build_findings 不收入 C.F）
     build_findings(C)
+    bind.rebind(C)                                       # V6：规则指标正则零命中 → 按括注缩写/域别名重绑（说明进 KZ.bind）
     _strip_disease_term_links(C)                         # F02 边界：研究疾病词目不作 MH 关联（先于一切关联消费方）
     annotate_links(C)                                    # 回溯后的关联类型（判定一致性归因维度用）
     build_labrows(C)
@@ -2566,6 +2762,7 @@ def analyze(C):
     eligibility_checks(C)
     range_checks(C)
     visit_window_checks(C)
+    monitor_v5.gap_check(C, add_other)                   # V6：在研受试者长时间无记录（失访/未录入）
     pd_reconcile(C)
     csb_candidates = ext_rules.run(C)                    # M13–M23 确定性＋日期序＋CSB 候选（PR-5）
     C.others.sort(key=lambda o: (-o['pr'], o['cat'], o['sid'], o['d']))
@@ -2608,7 +2805,7 @@ def analyze(C):
           'queries': [{k: v for k, v in q.items() if not k.startswith('_')} for q in C.queries], 'qcommon': C.qcommon,
           'cro': [[x.get('form') or '', x.get('row') or '', x.get('sid') or '', x.get('visit') or '', x.get('text') or ''] for x in C.extq],
           'cons': C.cons, 'rules': C.S.get('rules') or [], 'unres': C.S.get('unres') or [], 'methods': C.methods, 'eff': C.KZeff, 'effissues': [], 'v8': [],
-          'tgroup': {}, 'study': C.S.get('study') or {}, 'review': C.review, 'todo': C.todo, 'pd': C.pdd, 'ops': C.ops, 'kri': C.kri, 'cred': C.cred,
+          'tgroup': {}, 'study': C.S.get('study') or {}, 'review': C.review, 'todo': C.todo, 'pd': C.pdd, 'ops': C.ops, 'kri': C.kri, 'cred': C.cred, 'bind': {'notes': getattr(C, 'bind_notes', [])},
           # mm5 安全性概况（三级 Profile）：病史与合并用药明细（仅给药者；术语原文）
           'mhcm': {'mh': [[sid, m.get('t') or '', 1 if m.get('ong') == '是' else 0] for sid in sorted(C.pop) for m in C.mh_by[sid]],
                    'cm': [[sid, c.get('t') or '', c.get('s') or '', c.get('e') or '', 1 if c.get('ong') else 0, c.get('ind') or c.get('why') or '']
@@ -2631,6 +2828,7 @@ def write_outputs(C, KZ, X, csb_candidates, out, aud):
     js_write(out / 'grading.js', 'KZG', {'label': C.GL, 'system': C.G.t.get('system'), 'version': C.G.t.get('version'), 'source': C.G.t.get('source', ''),
                                          'items': {k: v for k, v in C.G.items.items() if k in set(C.cmap.values())}, 'map': C.cmap, 'fac': C.fac})
     build_subject_files(C, out)
+    raw_export.export_raw(C, out)                        # V6：原始数据层（data/r/<sid>.js＋rawidx.js，证据抽屉/原始数据页就地查看）
     dump_json(KZ['queries'], aud / 'queries.json')
     dump_json(query_cards(C), aud / 'query_cards.json')
     dump_json(KZ['labrows'], aud / 'labrows.json')

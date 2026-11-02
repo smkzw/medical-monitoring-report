@@ -27,13 +27,13 @@ DOMAIN_RE = [  # (domain, sheet-name/label regex)
     ('findings:ecg', r'^(EG|ECG|心电图|12导联)'),
     ('findings:img', r'^(IMG|MI|RAD|影像|超声|B超|彩超|ECHO|超声心动|CT|MRI|核磁|X线|胸片|内镜|胃镜|肠镜|PET)'),
     ('findings:pe', r'^(PE|体格检查|查体)'),
-    ('findings:exam', r'^(OE|OP|眼科|肺功能|PFT|妇科|乳腺|骨密度|DXA|Holter|动态心电|EEG|脑电|肌电|听力|皮肤科)'),
+    ('findings:exam', r'^(OE|OP|眼科|肺功能|PFT|妇科|乳腺|骨密度|DXA|Holter|动态心电|EEG|脑电|肌电|听力|皮肤科|活检|病理|内膜)|活检|病理'),
     # DA/DAH 由 refine_exposure 守卫改归 cm（滥用史不是研究药物给药；保留 DA 供给药记录表名命中）
     ('exposure', r'^(EC(?![GH])|EX|给药|研究药物|用药记录|服药|DA|药物发放)'),
-    ('ae', r'^(AE|不良事件)'), ('mh', r'^(MH|病史|既往史|现病史|个人史|月经史|孕产史)'), ('cm', r'^(CM|合并用药|既往(及)?合并用药|既往用药|伴随用药)'), ('proc', r'^(PR|手术|操作|非药物治疗|既往(及)?合并非药物治疗)'),
-    ('findings:lab', r'^(LB|血常规|血生化|生化|尿常规|凝血|实验室|甲功|血脂|肝功|肾功|电解质|妊娠|尿妊娠|HEMA|CHEM|URIN|COAG)'),
+    ('ae', r'^(AE|不良事件)'), ('mh', r'^(MH|病史|既往史|现病史|个人史|月经史|孕产史|过敏史|家族史|研究疾病诊断|疾病诊断)'), ('cm', r'^(CM|合并用药|既往(及)?合并用药|既往用药|伴随用药)'), ('proc', r'^(PR|手术|操作|非药物治疗|既往(及)?合并非药物治疗)'),
+    ('findings:lab', r'^(LB|血常规|血生化|生化|尿常规|凝血|实验室|甲功|血脂|肝功|肾功|电解质|妊娠|尿妊娠|HEMA|CHEM|URIN|COAG|传染病|血清学|病毒学|非梅毒|梅毒|螺旋体)'),
     ('findings:vs', r'^(VS|生命体征)'),
-    ('efficacy', r'^(QS|EFF|RS|TU|TR|量表|评分|疗效|有效性|问卷|日记)|量表|问卷|评定|生活质量|印象变化|PGI|NRS|VAS|QO-?L|评分|指数'), ('pd', r'^(DV|PD|方案偏离|偏离|违背)'), ('extq', r'(质疑|QUERY|Query|query|^CROQ|^DCF|^EDCQ)'),
+    ('efficacy', r'^(QS|EFF|RS|TU|TR|量表|评分|疗效|有效性|问卷|日记)|量表|问卷|评定|生活质量|印象变化|PGI|NRS|VAS|QO-?L|评分|指数|体表面积|BSA'), ('pd', r'^(DV|PD|方案偏离|偏离|违背)'), ('extq', r'(质疑|QUERY|Query|query|^CROQ|^DCF|^EDCQ)'),
     ('pk', r'^(PK|PC|药代|血药浓度|采样)'), ('ada', r'^(ADA|IS|免疫原性|抗药抗体)'),
 ]
 
@@ -79,13 +79,13 @@ FIELD_SYN = {  # normalized field → variable/label patterns (first match wins)
     # F-A：具体变量/事件名称列先于通用「名称$」——访视名称/页面名称是结构性元数据，不是事件术语
     #（RUX 实证：term 落到 VISIT 后 AE/CM/MH 全表「共同页」）；lookbehind 挡住 访视/页面/表单/中心/研究 名称。
     'term': [r'(AETERM|MHTERM|CMTRT|PRTRT|DVTERM|术语|事件名|药名|通用名|不良事件名称|事件名称|偏离描述|事件描述|详述$)',
-             r'(?<!访视)(?<!页面)(?<!表单)(?<!中心)(?<!研究)名称$'], 'start': [r'(STDAT|STDTC|开始日期|起始日期)'], 'end': [r'(ENDAT|ENDTC|结束日期|停止日期)'],
+             r'(?<!访视)(?<!页面)(?<!表单)(?<!中心)(?<!研究)名称$'], 'start': [r'(STDAT|STDTC|开始日期|起始日期|EXDAT$|(给药|用药|服药|注射|输注)日期)'], 'end': [r'(ENDAT|ENDTC|结束日期|停止日期)'],
     'ongoing': [r'(ONGO|是否持续|仍在)'], 'grade': [r'(TOXGR|SEV|严重程度|分级|CTCAE)'], 'serious': [r'^(AESERYN|是否SAE)$', r'^是否(为)?严重不良事件', r'^(AESER|严重不良事件)$', r'(AESER|是否SAE)'], 'fast': [r'(FAST$|是否.{0,4}空腹)'],
     'pt': [r'(AEDECOD|AEPT|首选术语|^PT(名称)?$)'], 'soc': [r'(AESOC|AEBODSYS|系统器官分类|^SOC)'], 'llt': [r'(AELLT|低位语|^LLT)'],
     'aware': [r'(AWARE|获知日期|知晓日期)'], 'rpt': [r'(RPTDAT|SAERPT|报告日期|上报日期)'], 'aesi': [r'(AESI|特别关注)'],
     'rel': [r'(AEREL|与研究药物.*关|相关性|因果)'], 'action': [r'(AEACN|采取.*措施|对研究药物.*措施)'], 'outcome': [r'(AEOUT|转归)'],
-    'dose_plan': [r'(PDOSE$|计划.{0,4}剂量)'], 'dose_act': [r'(ADOSE$|实际.{0,4}剂量)'], 'miss_qty': [r'(LMNUM$|漏服.{0,4}剂量)'],
-    'extra_qty': [r'(MMNUM$|多服.{0,4}剂量)'], 'dose': [r'(DOSE$|DOSTXT|剂量$|单次剂量)'], 'freq': [r'(FRQ|FREQ|频次|频率)'], 'route': [r'(ROUTE|途径)'], 'indication': [r'(INDC|用药原因|适应症)'],
+    'dose_plan': [r'(PDOSE$|(计划|理论).{0,4}(剂量|体积|用量))'], 'dose_act': [r'(ADOSE$|实际.{0,4}(剂量|体积|用量))'], 'miss_qty': [r'(LMNUM$|漏服.{0,4}剂量)'],
+    'extra_qty': [r'(MMNUM$|多服.{0,4}剂量)'], 'dose': [r'((?<!P)DOSE$|DOSTXT|剂量$|单次剂量)'], 'freq': [r'(FRQ|FREQ|频次|频率)'], 'route': [r'(ROUTE|途径)'], 'indication': [r'(INDC|用药原因|适应症)'],
     'test': [r'^(LBTEST|VSTEST|EGTEST|QSTEST|检查项(目)?|项目名称|指标|(实验室)?指标名称)$'], 'value': [r'(ORRES$|STRESN|结果$|测量值|检测值)'], 'unit': [r'(ORRESU|STRESU|单位)'],
     'lo': [r'(NRLO|下限)'], 'hi': [r'(NRHI|上限)'], 'clin': [r'(CLSIG|临床意义|临床评估)'], 'link': [r'(病史/不良事件|关联|LINK|^动态链接$)'], 'desc': [r'(异常描述|DESC)'],
     'link_mh': [r'(MHNO$|相关(既往)?病史)'], 'link_ae': [r'(AENO$|相关不良事件)'], 'reason_disease': [r'与研究疾病相关'],

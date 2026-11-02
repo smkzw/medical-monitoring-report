@@ -10,6 +10,7 @@
   "objective",
   "efficacy",
   "subjects",
+  "raw",
   "timeline",
   "queries",
   "study"
@@ -27,6 +28,8 @@
   "monitor.html#tab=cred",
   "monitor.html#tab=ent",
   "deviations.html#tab=sci",
-  "study.html#sys"
+  "study.html#sys",
+  "subjects.html#t=raw",
+  "subjects.html#t=lab"
  ]
 }

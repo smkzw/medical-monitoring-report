@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """mm4 通用能力回归（关联字段写法、同名列引用、CS 原因、入排判定值）。运行：python3 scripts/test_mm4.py"""
+import re
 import sys
+from collections import defaultdict
 import unittest
 from pathlib import Path
 
@@ -1247,14 +1249,14 @@ def _cons_row(sid, val, clin, *, hi=None, lo=None, post=True, visit='V2', date='
             'links': list(links), 'reason': reason}
 
 
-def _cons_C(rows, mid='lab:ALT', label='ALT'):
+def _cons_C(rows, mid='lab:ALT', label='ALT', A=None):
     """build_cons 最小夹具：单指标、同中心 01、全部计划内访视。"""
     from types import SimpleNamespace
     from mm_build import build_cons
     F = {}
     for r in rows:
         F.setdefault((r['sid'], mid), []).append(r)
-    C = SimpleNamespace(A={}, F=F, queries=[], isAgg=lambda v: True,
+    C = SimpleNamespace(A=A or {}, F=F, queries=[], isAgg=lambda v: True,
                         metric={mid: {'id': mid, 'label': label}},
                         subj={s: {'site': '01'} for s in {r['sid'] for r in rows}},
                         pop={r['sid'] for r in rows})
@@ -1289,8 +1291,11 @@ class ConsDirectionalRecore(unittest.TestCase):
         self.assertEqual(len([c for c in C.cons if c.get('kind') == 'judg']), 1)   # 数值相等判定不同 → 发
 
     def test_micro_gap_flagged_no_min_threshold(self):
+        # V6（MM 审阅＋用户 2026-11-02「没做的一并做了」）：默认最小差值 5 个百分点（analysis.consMinDiff），0＝10-30 旧口径
         C = self._C([self._r('S1', 40.3, 2, hi=40), self._r('S2', 40.55, 1, hi=40)])
-        self.assertEqual(len([c for c in C.cons if c.get('kind') == 'judg']), 1)   # 0.6% 量级微差也算更差
+        self.assertEqual([c for c in C.cons if c.get('kind') == 'judg'], [])        # 0.6% 量级微差默认不发
+        C = self._C([self._r('S1', 40.3, 2, hi=40), self._r('S2', 40.55, 1, hi=40)], A={'consMinDiff': 0})
+        self.assertEqual(len([c for c in C.cons if c.get('kind') == 'judg']), 1)   # 配置为 0 时恢复旧口径
 
     def test_far_gap_still_flagged_tolerance_gate_abolished(self):
         C = self._C([self._r('S1', 42, 2, hi=40), self._r('S2', 100, 1, hi=40)])   # 相差远超旧 ±5% 门槛
@@ -1380,6 +1385,13 @@ class ClinConsDirectionalQuery(unittest.TestCase):
         q = self._q(C)
         self.assertEqual(len(q), 1)
         self.assertIn('归因', q[0]['sum'])                           # 归因维度：AE vs MH
+
+    def test_mh_then_ae_attribution_not_inconsistent(self):
+        # V6 R7：先归因病史、后归因 AE（病史基础上加重记 AE）是正常记录方式
+        ae, mh = {'type': 'AE', 'no': 1, 'term': '虚构AE'}, {'type': 'MH', 'no': 2, 'term': '虚构病史'}
+        C = self._run([_cons_row('S1', 95, 2, hi=60, visit='V2', row=1, links=[mh], date='2026-04-01'),
+                       _cons_row('S1', 96, 2, hi=60, visit='V3', row=2, links=[ae], date='2026-05-01')])
+        self.assertEqual(self._q(C), [])
 
     def test_opposite_direction_no_query(self):
         C = self._run([_cons_row('S1', 120, 2, hi=60, visit='V2', row=1),
@@ -3005,12 +3017,22 @@ class HIFixSeverityLogic(unittest.TestCase):
                                pop={'S1'}, subj={'S1': {'site': '01'}}, others=[], src={'sheets': {}}, aesiDefs=[], F={}), aes
 
     def test_grade3_not_sae_flagged(self):
+        # V6 R5：严重程度≠严重性（ICH E2A）——单纯 3 级不提示；4 级、或 3 级且有住院/死亡记录才提示；化验定义事件不按此规则
         from mm_build import ae_checks
         C, _ = self._C()
         ae_checks(C)
-        hit = [o for o in C.others if o['cat'] == 'AE严重性逻辑核对']
-        self.assertEqual(len(hit), 1)
-        self.assertIn('呼吸衰竭', hit[0]['sum'])
+        self.assertEqual([o for o in C.others if o['cat'] == 'AE严重性逻辑核对'], [])
+        for upd in ({'g': '4级'}, {'out': '住院治疗中'}):
+            C, aes = self._C()
+            aes[0].update(upd)
+            ae_checks(C)
+            hit = [o for o in C.others if o['cat'] == 'AE严重性逻辑核对']
+            self.assertEqual(len(hit), 1, upd)
+            self.assertIn('呼吸衰竭', hit[0]['sum'])
+        C, aes = self._C()
+        aes[0].update(g='4级', t='中性粒细胞计数降低')
+        ae_checks(C)
+        self.assertEqual([o for o in C.others if o['cat'] == 'AE严重性逻辑核对'], [])
 
     def test_sae_or_low_grade_not_flagged(self):
         from mm_build import ae_checks
@@ -3231,6 +3253,183 @@ class R2FixEligibilitySubjectTypeGuard(unittest.TestCase):
     def test_numeric_age_unchanged(self):
         self.assertEqual(self._run(47.0), [])     # 数值路径不回归
         self.assertEqual(len(self._run(16.0)), 1)
+
+
+class V6Generalization(unittest.TestCase):
+    """V6（审阅者 2026-11-02，四项目泛化复盘）：访视对齐、指标重绑、DILI 布尔、共用临床意义、参考范围按页合并、
+    妊娠规则、受试者内稳定指标、部分日期首剂前判定、严重性。夹具全虚构。"""
+
+    def _vis(self, W, visits, subj=None):
+        from types import SimpleNamespace
+        subj = subj or {f'S{i}': {'site': '01', 'fd': '2026-01-01', 'status': '已入组'} for i in range(1, 5)}
+        return SimpleNamespace(A={'visitWindows': W}, subj=subj, visits=visits, pop=set(subj), S={}, cfg={}, efficacy=[], findings=[])
+
+    def test_visit_alias_by_window_share(self):
+        from monitor_v5 import _add, visit_due
+        W = {'V5': [15, 3, 3], 'V6': [29, 3, 3], 'V9': [200, 5, 5]}
+        vs = [{'sid': f'S{i}', 'visit': c, 'date': _add('2026-01-01', d - 1)} for i in range(1, 5) for c, d in (('W2', 15), ('W4', 30))]
+        C = self._vis(W, vs)
+        due, _ = visit_due(C, '2026-12-31')
+        st = {(d[0], d[2]): d[6] for d in due}
+        self.assertEqual(C._visit_alias, {'V5': 'W2', 'V6': 'W4'})
+        self.assertEqual(C._visit_unmapped, ['V9'])               # 窗内没有任何数据代码 → 未映射，不推算逾期
+        self.assertEqual(st[('S1', 'V5')], 'ok')
+        self.assertEqual(st[('S1', 'V6')], 'ok')
+        self.assertNotIn(('S1', 'V9'), st)
+
+    def test_visit_alias_shared_code_assigns_nearest(self):
+        from monitor_v5 import _add, visit_due
+        W = {'V1': [1, 0, 0], 'V6': [60, 5, 5], 'V7': [90, 5, 5]}
+        vs = []
+        for i in range(1, 5):
+            vs += [{'sid': f'S{i}', 'visit': 'V1', 'date': '2026-01-01'},
+                   {'sid': f'S{i}', 'visit': 'FU', 'date': _add('2026-01-01', 59)},
+                   {'sid': f'S{i}', 'visit': 'FU', 'date': _add('2026-01-01', 91)}]
+        C = self._vis(W, vs)
+        due, _ = visit_due(C, '2026-12-31')
+        st = {(d[0], d[2]): (d[6], d[5]) for d in due}
+        self.assertEqual(C._visit_alias.get('V6'), 'FU')
+        self.assertEqual(st[('S1', 'V6')], ('ok', _add('2026-01-01', 59)))
+        self.assertEqual(st[('S1', 'V7')][0], 'ok')               # 同一 FU 代码的第二条配给 V7，不判逾期
+        self.assertEqual(st[('S1', 'V7')][1], _add('2026-01-01', 91))
+
+    def test_zero_record_without_mismatch_still_overdue(self):
+        from monitor_v5 import visit_due
+        C = self._vis({'W2': [15, 3, 3], 'W8': [57, 3, 3]},
+                      [{'sid': f'S{i}', 'visit': 'W2', 'date': '2026-01-15'} for i in range(1, 5)])
+        due, _ = visit_due(C, '2026-06-01')
+        self.assertEqual(C._visit_unmapped, [])
+        self.assertTrue(any(d[2] == 'W8' and d[6] == 'overdue' for d in due))
+
+    def test_rebind_bracket_abbreviation(self):
+        import bind
+        metrics = {'lab:丙氨酸基转移酶（ALT）': {'label': '丙氨酸基转移酶（ALT）'}, 'lab:AST/ALT比值': {'label': 'AST/ALT比值'}}
+        new, hits = bind.rebind_one(r'^lab:(?:丙氨酸氨基转移酶|(ALT|SGPT|GPT)\b)', metrics)
+        self.assertEqual(hits, ['lab:丙氨酸基转移酶（ALT）'])
+        self.assertTrue(re.search(new, 'lab:丙氨酸基转移酶（ALT）'))
+        self.assertEqual(bind.rebind_one(r'^lab:AST', metrics), (None, []))   # 原正则有命中 → 不动
+        new, hits = bind.rebind_one(r'^vs:收缩压', {'lab:收缩压': {'label': '收缩压'}})
+        self.assertEqual(hits, ['lab:收缩压'])
+
+    def test_rebind_eff_by_name_core(self):
+        from types import SimpleNamespace
+        import bind
+        C = SimpleNamespace(A={'efficacy': [{'id': 'p', 'label': 'PGI-C总分', 'src': 'eff:PGI-C总分'},
+                                            {'id': 'h', 'label': 'Hb', 'src': 'lab:血红蛋白'}]},
+                            efficacy=[{'metric': 'PGI-C量表总得分'}, {'metric': 'NRS量表总得分'}],
+                            metric={'lab:血红蛋白（Hb）': {'label': '血红蛋白（Hb）'}, 'lab:平均红细胞血红蛋白含量（MCH）': {}})
+        notes = []
+        bind.rebind_eff(C, notes)
+        self.assertEqual(C.A['efficacy'][0]['src'], 'eff:PGI-C量表总得分')
+        self.assertEqual(C.A['efficacy'][1]['src'], 'lab:血红蛋白（Hb）')
+        self.assertEqual(len(notes), 2)
+
+    def test_pct_loss_rule_direction(self):
+        from mm_build import pct_rule_norm
+        self.assertEqual(pct_rule_norm({'on': 'pct', 'op': '>', 'v': 5.0, 'label': '骨密度丢失 > 5'}), ('<', -5.0))
+        self.assertEqual(pct_rule_norm({'on': 'pct', 'op': '>', 'v': 20.0, 'label': '体重增加 > 20'}), ('>', 20.0))
+        self.assertEqual(pct_rule_norm({'on': 'pct', 'op': '<', 'v': -5.0, 'label': '骨密度丢失'}), ('<', -5.0))   # 已编译为负值不再翻转
+
+    def test_dili_yes_parsing(self):
+        from common import yes
+        self.assertFalse(yes('否'))
+        self.assertTrue(yes('是'))
+
+    def test_shared_clin_becomes_record_level(self):
+        from normalize_listing import _record_level_clin
+        items = [{'test': '心率', 'value': '72', 'clin': 2, '_clin_col': 'c', 'link': 'AE1'},
+                 {'test': 'QTcF', 'value': '480', 'hi': '450', 'clin': 2, '_clin_col': 'c', 'link': 'AE1'},
+                 {'test': 'PR', 'value': '160', 'clin': 2, '_clin_col': 'c'}]
+        out = _record_level_clin(items, {'sheet': 'ECG'})
+        by = {x['test']: x for x in out}
+        self.assertEqual(by['QTcF']['clin'], 2)                   # 超范围的参数承载判定
+        self.assertIsNone(by['心率']['clin'])
+        self.assertIsNone(by['PR']['clin'])
+        self.assertNotIn('link', by['心率'])
+        items = [{'test': '心率', 'value': '72', 'clin': 2, '_clin_col': 'c'}, {'test': 'PR', 'value': '160', 'clin': 2, '_clin_col': 'c'}]
+        out = _record_level_clin(items, {'sheet': 'ECG', 'group': '12导联心电图'})
+        rec = [x for x in out if x['test'].endswith('总体评价')]
+        self.assertEqual(len(rec), 1)                             # 无参数可判异常 → 一条总体评价
+        self.assertEqual(rec[0]['clin'], 2)
+        self.assertTrue(all('_clin_col' not in x for x in out))
+
+    def _C(self, F=None, metric=None, subj=None):
+        from types import SimpleNamespace
+        subj = subj or {'S1': {'site': '01', 'fd': '2026-02-01'}}
+        return SimpleNamespace(A={}, cfg={'thresholds': {'dev': 0.3, 'base': 0.3}}, F=F or {}, metric=metric or {}, pop=set(subj),
+                               subj=subj, others=[], src={'sheets': {}}, aes=[], ae_by={}, aesiDefs=[], tl=defaultdict(dict))
+
+    def test_range_missing_merged_per_page(self):
+        from mm_build import range_checks
+        F, metric = {}, {}
+        for k in range(3):
+            mid = f'lab:T{k}'
+            metric[mid] = {'domain': 'lab', 'label': f'T{k}'}
+            F[('S1', mid)] = [{'sid': 'S1', 'value': 1.0, 'raw': '1', 'lo': None, 'hi': None, 'sheet': 'LB', 'row': 2, 'date': '2026-03-01', 'visit': 'V2'}]
+            for j in range(2, 8):
+                F[(f'S{j}', mid)] = [{'sid': f'S{j}', 'value': 1.0, 'raw': '1', 'lo': 0, 'hi': 2, 'sheet': 'LB', 'row': 2, 'date': '2026-03-01'}]
+        subj = {f'S{j}': {'site': '01', 'fd': '2026-02-01'} for j in range(1, 8)}
+        C = self._C(F, metric, subj)
+        range_checks(C)
+        hit = [o for o in C.others if o['cat'] == '参考范围缺失核对']
+        self.assertEqual(len(hit), 1)                             # 同一张化验单 3 项 → 一条
+        self.assertIn('3 项', hit[0]['sum'])
+
+    def test_pregnancy_range_text_and_pre_dose(self):
+        import ext_rules
+        metric = {'lab:尿妊娠试验': {'label': '尿妊娠试验'}, 'lab:hCG参考区间': {'label': 'hCG参考区间'}}
+        row = lambda **k: {'sheet': 'LB', 'row': 2, 'visit': 'V1', **k}
+        F = {('S1', 'lab:hCG参考区间'): [row(raw='非孕期<5；早孕期 1000-50000', date='2026-03-01')],
+             ('S1', 'lab:尿妊娠试验'): [row(raw='阳性', date='2026-01-20'), row(raw='阴性', date='2026-03-01')]}
+        C = self._C(F, metric)
+        ext_rules.m18_preg(C)
+        cats = [o['cat'] for o in C.others]
+        self.assertNotIn('妊娠暴露核查', cats)                      # 参考区间文本、首剂前阳性都不是研究期间妊娠暴露
+        self.assertEqual(cats, ['入排标准核对'])
+        F[('S1', 'lab:尿妊娠试验')].append(row(raw='阳性', date='2026-04-01'))
+        C = self._C(F, metric)
+        ext_rules.m18_preg(C)
+        o = next(o for o in C.others if o['cat'] == '妊娠暴露核查')
+        self.assertEqual(o.get('_preg_pos'), '2026-04-01')        # 结构化阳性才供 IP-02 级联
+
+    def test_stable_metric_excluded_from_cred(self):
+        from monitor_v5 import stable_metrics
+        F = {}
+        for i in range(6):
+            F[(f'S{i}', 'vs:身高')] = [{'value': 170.0}, {'value': 170.0}, {'value': 170.0}]
+            F[(f'S{i}', 'vs:收缩压')] = [{'value': 120.0 + i}, {'value': 118.0}, {'value': 125.0}]
+        from types import SimpleNamespace
+        self.assertEqual(stable_metrics(SimpleNamespace(F=F)), {'vs:身高'})
+
+    def test_eff_sheet_candidates(self):
+        from mm_build import eff_sheet_candidates
+        self.assertEqual(eff_sheet_candidates('月经失血量（MBL）', ['(51)月经周期及出血情况', '(12)生命体征']), ['(51)月经周期及出血情况'])
+        self.assertEqual(eff_sheet_candidates('总分', ['量表总分', '评分记录']), [])     # 只有通用词 → 不给候选
+
+    def test_qualitative_merged_per_metric(self):
+        import ext_rules
+        rows = [{'raw': '阴性', 'post': False, 'value': None, 'sheet': 'U', 'row': 1, 'visit': 'V1', 'date': '2026-02-01'}] + \
+               [{'raw': '++', 'post': True, 'value': None, 'sheet': 'U', 'row': k, 'visit': f'V{k}', 'date': f'2026-0{k}-01'} for k in (3, 4, 5)]
+        C = self._C({('S1', 'lab:尿蛋白'): rows}, {'lab:尿蛋白': {'label': '尿蛋白'}})
+        ext_rules.m16_qual(C)
+        hit = [o for o in C.others if o['cat'] == '定性结果核对']
+        self.assertEqual(len(hit), 1)                             # 三个访视 → 一条
+        self.assertIn('共 3 次', hit[0]['sum'])
+
+    def test_disease_worsening_abs_floor(self):
+        from ext_rules import worse_vs_base
+        r = {'value': 0.65, 'hi': 0.5, 'unit': '×10^9/L', 'mid': 'lab:嗜酸性粒细胞计数'}
+        b = {'value': 0.4}
+        self.assertIsNotNone(worse_vs_base(r, b, 0.3))           # 一般口径：相对 62%
+        self.assertIsNone(worse_vs_base(r, b, 0.3, disease=True)) # 研究疾病表现：绝对变化 0.25 < 0.3 不算明显加重
+        self.assertIsNotNone(worse_vs_base(dict(r, value=0.8), b, 0.3, disease=True))
+
+    def test_partial_start_pre_dose(self):
+        from mm_build import _pre_dose
+        self.assertTrue(_pre_dose('2026-01', '2026-02-03'))
+        self.assertFalse(_pre_dose('2026-02', '2026-02-03'))      # 同月不能判首剂前 → 按 TEAE（最坏情形）
+        self.assertFalse(_pre_dose('是', '2026-02-03'))
+        self.assertTrue(_pre_dose('2026-01-30', '2026-02-03'))
 
 
 if __name__ == '__main__':

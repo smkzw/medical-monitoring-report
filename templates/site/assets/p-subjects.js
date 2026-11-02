@@ -34,7 +34,7 @@ function list(){
   if(!cur&&r.length)show(r[0].id);
 }
 list();
-if(cur)show(cur);
+if(H.s)show(cur);   /* 无 #s 时 list() 已打开首例；旧版这里再调一次，两次异步载入竞争会丢掉 #t 指定的页签 */
 /* ---------------- profile */
 const SHEET=CF.labGroups||{};
 const SHO=Object.keys(SHEET);
@@ -62,13 +62,15 @@ async function show(id){
    </div>
    <div class="flex wrap mt" style="margin-top:10px;gap:6px">${[['AE',d.ae.length,d.ae.some(a=>a.sae)?'SAE':''],['MH',d.mh.length],['合并用药',d.cm.length,iron.length?HL.label+iron.length:''],['检验异常行',lr.length],['专项核查',ot.length],['质疑',qs.length],[EXS+'意见',cro.length]].map(([a,b,c])=>`<span class="chip" style="cursor:default">${a} <b>${b}</b>${c?` <span class="xs" style="color:var(--risk)">${c}</span>`:''}</span>`).join('')}</div>
    ${risks.length?`<div class="flex wrap" style="margin-top:8px;gap:4px"><span class="xs muted" style="margin-right:4px">风险提示</span>${risks.map(([t,c,k])=>`<span class="p ${c} click" data-go="${k}">${K.esc(t)}</span>`).join('')}</div>`:''}
+   ${d.fd?`<div class="jr-wrap"><div class="xs muted" style="margin:10px 0 2px">受试者旅程 · 给药、访视、AE、合并用药、检验异常与质疑同一时间轴（点任一元素查看证据与原始数据）</div><div id="jr" class="chart" style="height:${K.journeyH(d)}px"></div></div>`:''}
   </div>
   <div class="tabs" id="ptabs"></div><div id="pp"></div>`;
   const dayOf=x=>K.studyDay(x,d.fd);
   const dt=x=>x?`${x}${d.fd?` <span class="xs faint">${dayOf(x.slice(0,10))}</span>`:''}`:'';
-  const T=[...(d.fd&&K.profile?[['ov','概况']]:[]),['ae','AE',d.ae.length],['mh','病史/手术',d.mh.length+d.sur.length],['cm','合并用药',d.cm.length],['lab','检验矩阵',Object.keys(d.labs).length],...(Object.keys(d.vs||{}).length||Object.keys(d.ecg||{}).length?[['vs',Object.keys(d.vs||{}).length?(Object.keys(d.ecg||{}).length?'生命体征/心电图':'生命体征'):'心电图',null]]:[]),...((d.ext||[]).length?[['img',CF.extTab||'专项检查',d.ext.length]]:[]),['eff','有效性',Object.values(d.eff||{}).reduce((a,x)=>a+x.length,0)],['q','质疑/'+EXS,qs.length+cro.length]];
+  const T=[...(d.fd&&K.profile?[['ov','概况']]:[]),['ae','AE',d.ae.length],['mh','病史/手术',d.mh.length+d.sur.length],['cm','合并用药',d.cm.length],['lab','检验矩阵',Object.keys(d.labs).length],...(Object.keys(d.vs||{}).length||Object.keys(d.ecg||{}).length?[['vs',Object.keys(d.vs||{}).length?(Object.keys(d.ecg||{}).length?'生命体征/心电图':'生命体征'):'心电图',null]]:[]),...((d.ext||[]).length?[['img',CF.extTab||'专项检查',d.ext.length]]:[]),['eff','有效性',Object.values(d.eff||{}).reduce((a,x)=>a+x.length,0)],['q','质疑/'+EXS,qs.length+cro.length],['raw','原始数据',null]];
   const pp=document.getElementById('pp');
-  const R={ov:()=>K.profile(pp,{sid:id}),ae:tAE,mh:tMH,cm:tCM,lab:tLab,vs:tVS,img:tImg,eff:tEff,q:tQ};
+  const R={ov:()=>K.profile(pp,{sid:id}),ae:tAE,mh:tMH,cm:tCM,lab:tLab,vs:tVS,img:tImg,eff:tEff,q:tQ,raw:()=>K.rawBrowser(pp,id,K.subjEvidence(id))};
+  if(d.fd)K.journey(document.getElementById('jr'),d,{lr,ot,qs});
   let t0=H.t&&R[H.t]?H.t:(d.fd&&K.profile?'ov':'ae');H.t=null;   /* mm5：已给药受试者默认先看概况（对照所在中心与整体） */
   const tb=K.tabs(document.getElementById('ptabs'),T,t0,x=>{K.setHash({s:id,c:st.c,t:x});R[x]()});
   m.querySelectorAll('[data-go]').forEach(e=>e.onclick=()=>{const [k,val]=e.dataset.go.split(':');if(k==='lab'){tb.set('lab');setTimeout(()=>labChart(val),50)}else{tb.set('ae');setTimeout(()=>{const o=D.others[+val];drawOt(o)},50)}});
@@ -114,11 +116,13 @@ async function show(id){
     el.querySelectorAll('tr[data-t]').forEach(tr=>tr.onclick=()=>labChart(tr.dataset.t,obj));
   }
   function tLab(){
-    pp.innerHTML=`<div class="card"><div class="tbar"><label class="chip"><input type="checkbox" id="abn"> 仅异常项目</label><span class="sp"></span><span class="vchip cs">CS</span><span class="vchip ncs">NCS</span><span class="xs muted">橙色下划线 = 方案定义的基线（${K.esc(BL.labLabel||BL.lab||'首次给药前最近一次有效值')}；缺失时用首次给药前最近一次有效值替代，多次均值时全部标记）· 点击行看趋势</span></div><div id="lm"></div></div>`;
+    pp.innerHTML=`<div class="card mb"><div class="sec-t" style="margin-top:0"><h2>异常指标热力图</h2><span class="muted small">曾超出参考范围或判 CS 的指标 × 访视；颜色＝偏离参考范围的相对幅度，「CS」＝研究者判有临床意义；点格查看全程与原始行</span></div><div id="lhm" class="chart"></div></div><div class="card"><div class="tbar"><label class="chip"><input type="checkbox" id="abn"> 仅异常项目</label><span class="sp"></span><span class="vchip cs">CS</span><span class="vchip ncs">NCS</span><span class="xs muted">橙色下划线 = 方案定义的基线（${K.esc(BL.labLabel||BL.lab||'首次给药前最近一次有效值')}；缺失时用首次给药前最近一次有效值替代，多次均值时全部标记）· 点击行看趋势</span></div><div id="lm"></div></div>`;
     const by={};Object.entries(d.labs).forEach(([t,rows])=>{const sh=rows[0][9];(by[sh]=by[sh]||[]).push(t)});
     const groups=Object.keys(by).sort((a,b)=>SHO.indexOf(a)-SHO.indexOf(b)).map(sh=>[SHEET[sh]||sh,by[sh]]);
     const draw=()=>mx(document.getElementById('lm'),groups,d.labs,{abn:document.getElementById('abn').checked});
     document.getElementById('abn').onchange=draw;draw();
+    if(K.labHeat&&!K.labHeat(document.getElementById('lhm'),d.labs,{onPick:t=>{const g=lr.find(x=>x.test===t);g?K.showLabG(g):K.drawer(`${id} · ${K.esc(t)}`,'<div id="sp"></div>').querySelector('#sp')&&K.seriesPanel(document.querySelector('.dr #sp'),{sid:id,tests:[t],hl:(d.labs[t]||[]).filter(r=>r[7]===2).map(r=>[r[9],r[10]])})}}))
+      document.getElementById('lhm').closest('.card').style.display='none';
   }
   function tVS(){
     pp.innerHTML=`${Object.keys(d.ecg||{}).length?`<div class="card mb"><div class="sec-t" style="margin-top:0"><h2>心电图</h2><span class="muted small">${K.esc(CF.ecgNote||'')}</span></div><div id="em"></div></div>`:''}${Object.keys(d.vs||{}).length?`<div class="card"><div class="sec-t" style="margin-top:0"><h2>生命体征</h2><span class="muted small">${K.esc(CF.vsNote||'')}</span></div><div id="vm"></div></div>`:''}`;
