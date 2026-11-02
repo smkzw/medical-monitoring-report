@@ -49,6 +49,11 @@ K.profile=async(el,sc)=>{
   const th=groups.map(g=>`<th>${g[0]}${sub&&g[0]==='本例'?'':`<span class="xs faint"> n=${g[1].length}</span>`}</th>`).join('');
   const tbl=(rows)=>`<table class="t"><thead><tr><th></th>${th}</tr></thead><tbody>${rows.map(([l,cells])=>`<tr><td class="nowrap">${l}</td>${cells.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
   const subAE=sub?D.aes.filter(a=>a.sid===sub.id):[];
+  /* ---------- 微生物培养与药敏（第三轮：判读型结果分域呈现，不进检验异常/质疑链；KZ.micro=[sid,日期,访视,项目,结果,判读,C|S]） ---------- */
+  const MI=D.micro||[];
+  const miCell=g=>{const I=ids(g),xs=MI.filter(r=>I.has(r[0])),nc=xs.filter(r=>r[6]==='C').length,ns=new Set(xs.map(r=>r[0])).size;return sub&&g[0]==='本例'?`<b>${nc}</b> 份培养 · ${xs.length-nc} 项药敏`:`<b>${ns}</b> 例（${pct(ns,g[1].length)}）· ${nc} 份培养`};
+  const miList=rows=>`<table class="t"><tbody>${rows.map(r=>`<tr><td>${r[6]==='C'?'<b>'+K.esc(r[3])+'</b>':K.esc(r[3])}</td><td class="nowrap">${K.p(r[2],'blu')} ${K.esc(r[1])}</td><td>${K.esc(r[4])}</td><td class="small">${K.esc(r[5])}</td></tr>`).join('')||'<tr><td class="empty">无</td></tr>'}</tbody></table>`;
+  const microCard=MI.length?`<div class="card mb"><div class="sec-t" style="margin-top:0"><h2>微生物培养与药敏</h2><span class="muted small">判读型结果（培养/涂片/药敏 MIC）单独呈现，不进入检验异常与质疑链</span></div>${tbl([['有培养/药敏记录',groups.map(miCell)]])}${sub?miList(MI.filter(r=>r[0]===sub.id)):''}</div>`:'';
   el.innerHTML=`<div class="card mb"><div class="hd"><h2>安全性概览 · ${title}</h2><span class="sub">${refNote}</span>${sub?`<span class="sp"></span><a class="small" href="subjects.html#s=${sub.id}">参与者资料 ›</a>　<a class="small" href="timeline.html#s=${sub.id}">时间线 ›</a>`:site?`<span class="sp"></span><a class="small" href="subjects.html#c=${site}">本中心受试者 ›</a>　<a class="small" href="safety.html#tab=ov">中心总览 ›</a>`:''}</div>
    <div class="grid g2"><div><div class="sec-t" style="margin-top:0"><h2>不良事件</h2><span class="muted small">给药后（TEAE）</span></div>${tbl(aeRows.map(([l,f])=>[l,groups.map(g=>aeCell(g,f))]))}</div>
    <div><div class="sec-t" style="margin-top:0"><h2>AE 类别</h2><span class="muted small">${sub?'本例发生的类别 · 所在中心与整体的发生率（受试者%）':'发生率（受试者%）· 前 '+cats.length+' 类'}</span></div><div class="chart" id="pf-aec" style="height:${Math.max(160,cats.length*24+40)}px"></div></div></div>
@@ -57,6 +62,7 @@ K.profile=async(el,sc)=>{
    <div class="card"><div class="sec-t" style="margin-top:0"><h2>病史（MH）</h2><span class="muted small">${sub?'本例全部':'最常见 10 项 · 例数（%）'}</span></div>${sub?mhList(MC.mh.filter(r=>r[0]===sub.id)):tbl(topTerms(MC.mh,1).map(t=>[K.esc(t),groups.map(g=>termPct(MC.mh,1,t,g))]))}</div>
    <div class="card"><div class="sec-t" style="margin-top:0"><h2>合并用药（CM）</h2><span class="muted small">${sub?'本例全部':'最常见 10 种 · 例数（%）'}</span></div>
     ${tbl([['给药后新开始的用药',groups.map(cmNew)]])}${sub?cmList(MC.cm.filter(r=>r[0]===sub.id),fdOf[sub.id]):tbl(topTerms(MC.cm,1).map(t=>[K.esc(t),groups.map(g=>termPct(MC.cm,1,t,g))]))}</div></div>
+  ${microCard}
   <div class="card mb"><div class="sec-t" style="margin-top:0"><h2>检验异常</h2><span class="muted small">风险层（受试者×指标，按当前阈值）· 基线→基线后最差（参考范围）</span><span class="sp"></span><a class="small" href="safety.html#tab=lab${site&&!sub?'&c='+site:''}">检验异常明细 ›</a></div>
    <div class="grid g2"><div>${tbl(LAY.filter(([k])=>K.lab.some(x=>x.risk===k)).map(([k,l])=>[`<a href="safety.html#tab=lab&risk=${k}">${l}</a>`,groups.map(g=>layCell(g,k))]))}</div>
    <div>${tbl([['基线正常 → 基线后异常（新发）',groups.map(g=>sub&&g[0]==='本例'?`<b>${shiftN(g,'new')}</b> 项指标`:`<b>${shiftN(g,'new')}</b> <span class="xs muted">（每例 ${(shiftN(g,'new')/(g[1].length||1)).toFixed(2)}）</span>`)],

@@ -23,6 +23,7 @@
 | `kri` | dict | V5：`defs[{k,l,g,u,dir,qtl:[严格,标准,宽松]|null,note}]`、`tiers`、`tierDefault`、`study{k:[分子,分母]}`、`sites{site:{k:[分子,分母]}}`、`na{k:原因}`、`pem{visits,items}`、`source`；随阈值档位（TIER_KEYS） |
 | `cred` | dict | V5 数据可信度：`sites{site:{dig:[n,末位0/5数,p,q], flat:[可判组数,完全相同组数,p,q], shift:[检验数,偏离数,[[指标,z,n,中心均值,整体均值]]], dup:[组数]}}`、`flat[[sid,site,指标,值,次数]]`、`dup[[site,日期,[sid],值]]`、`digAll`、`flatRate`、`note` |
 | `mhcm` | dict | mm5 安全性概况：`mh[[sid,术语,持续0/1]]`、`cm[[sid,药名,开始,结束,持续0/1,用药原因]]`（仅给药者） |
+| `micro` | list | 微生物培养/药敏分域（判读型结果，不进检验异常/CS/阈值/PD/风险链；`micro_panel_mark` 先于 `build_findings`，带 `_micro` 的行不进 C.F/C.metric）：`[[sid,日期,访视,项目,结果原文,判读/说明,C\|S,sheet,row]]`（仅给药者；同受试者同日培养行 C 在药敏行 S 之前）。受试者文件 `ext` 同步追加「微生物培养与药敏」组 |
 | `basis` | dict | mm4 研究依据页只读视图（visitWindows/eligibility*/prohibited/washout/aesi/reportRules/thresholdRules/comboRules/indicationBackground/cmProtocolRequired/pd/effRulesText） |
 
 `qkey`（labrows / others / queries 各自带，PR-2）：跨快照稳定的业务键，格式 `lab|<sid>|<risk>|<wb>:<sheet>|<mid>|<主访视>`、

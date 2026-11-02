@@ -128,6 +128,18 @@ SYS_META = {'项目编号': None, '表单编号': None, '姓名缩写': None, '�
             '页面名称': None, '记录号': None, '研究中心': 'center', '中心编号': 'site', 'Flag': None, 'MM comment': None}
 LABEL_VAR = re.compile(r'(.+?)\s*[（(]([A-Z][A-Z0-9_]{1,19})[)）]')
 
+# 结构性元数据列的可判定形式（第三轮 E2E，RUX 复审）：访视/页面/表单/中心/受试者状态/OID/序号——EDC 每张表都带，
+# 绝不是事件术语。F-A 只守了草稿层 guess()；已确认落位的 mapping（陈旧/误确认件）里 term=VISIT 仍被 normalize
+# 盲信 → ae/cm/mh/proc 四域 term 全表「共同页」。normalize 构建层用本判定守卫 term 列，命中即按 guess() 重找。
+_STRUCT_LABEL_RX = re.compile(r'^(访视|页面|表单|数据节|数据页|数据块|研究中心|试验中心|中心(编号|名称|号)|受试者状态|记录号|行号|页码|Instance|Block)')
+_STRUCT_VAR_RX = re.compile(r'(VISIT\w*|FOLDER\w*|FORM(NM|OID|REP|NAME)?|VIST(OID|REP)|SITE(ID|NM|NAME|NO)|SUBJSTA|RECREP|PAGE\w*|INSTANCE\w*)', re.I)
+
+
+def is_struct_col(label, var=''):
+    """该列是否为结构性元数据列（访视名称/页面名称/研究中心/受试者状态/OID/序号…）——绝不能作事件术语。"""
+    lab, v = str(label or '').strip(), str(var or '').strip()
+    return lab in SYS_META or bool(_STRUCT_LABEL_RX.search(lab)) or bool(_STRUCT_VAR_RX.fullmatch(v))
+
 # exposure 候选校正（SAR 深审 F3）：药物滥用史表与背景治疗日志不是研究药物给药——吞进 exposure 会虚增
 # 安全集（dosed）、首剂/给药日期可能取自背景治疗行。背景判定仅在无未编号研究药物列时收窄。
 _ABUSE_RX = re.compile(r'滥用史|[Aa]buse')

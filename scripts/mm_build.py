@@ -524,8 +524,12 @@ def build_findings(C):
     qualre = rx(C.A.get('qualTestRe'))
     C.F = defaultdict(list)  # (sid, mid) -> rows
     C.metric = {}
+    C.micro = []             # 第三轮：微生物培养/药敏行（micro_panel_mark 已标 _micro）分域——不进 C.F/C.metric，单独呈现
     for f in C.findings:
         if f['sid'] not in C.subj:
+            continue
+        if f.get('_micro'):
+            C.micro.append(f)
             continue
         mid = f"{f['domain']}:{f['test']}"
         f['mid'] = mid
@@ -726,16 +730,22 @@ _MICRO_TEST_RX = re.compile(r'培养|涂片|镜检|染色|鉴定')
 _MICRO_INTERP_RX = re.compile(r'敏感|耐药|中介|抑菌圈', re.I)
 _MICRO_MIC_RX = re.compile(r'^\s*[<>=≤≥]\s*\d+(?:\.\d+)?(?:\s*/\s*\d+(?:\.\d+)?)?\s*$')   # <=0.25 / >=8 / <=0.5/9.5
 _MICRO_BREAK_RX = re.compile(r'^\s*[SIR]\s*[<>=≤≥]\s*\d', re.I)                          # 高/低值列写断点文本 R>=4
+# 第三轮 E2E（RUX 复审）：微生物专表的命名形态（表名/组名）——整表分域，不依赖同面板出现培养行。
+_MICRO_SHEET_RX = re.compile(r'微生物|培养|药敏|药物敏感|细菌学|真菌学|Microbio|Culture|Suscept|(?<![A-Za-z])MICRO?(?![A-Za-z])', re.I)
 
 
 def micro_panel_mark(C):
     """F-C（IMP-02）：微生物培养＋药敏面板识别（同一受试者·同表单·同日期的组合）。
     培养类检查行（检查名 培养/涂片/镜检/染色/鉴定）标 _micro='C'；同面板内满足药敏形态的行标 _micro='S'：
     ① MIC 比较值（<=0.25、>=8、<=0.5/9.5）且无单位，或 ② lo/hi 写 S/R 断点文本（R>=4），或 ③ 描述写敏感/耐药/中介。
-    药敏是判读型结果不是数值异常——不入检验异常核查（不发 CS 质疑、不计潜在 PD/风险）；药敏明细挂到培养行上下文。
-    纯数值且无判读/断点信号的行不判（如 CRP '<10' 带单位 mg/L、或裸数值 0.25——形态不自证，保守不剥离）。"""
+    第三轮：表名/组名命中微生物命名形态的专表整表分域（培养类名→C，其余→S）。
+    药敏是判读型结果不是数值异常——须先于 build_findings 调用：带 _micro 的行不进 C.F/C.metric（检验异常/CS/阈值/PD/
+    风险/趋势链天然看不到），收入 C.micro 单独呈现。纯数值且无判读/断点信号的行不判（如 CRP '<10' 带单位、裸数值 0.25）。"""
     panels = defaultdict(list)
     for f in C.findings:
+        if _MICRO_SHEET_RX.search(f"{f.get('sheet') or ''} {f.get('group') or ''}"):
+            f['_micro'] = 'C' if _MICRO_TEST_RX.search(str(f.get('test') or '')) else 'S'
+            continue
         panels[(f.get('sid'), f.get('sheet'), f.get('date'))].append(f)
     for rows in panels.values():
         if not any(_MICRO_TEST_RX.search(str(r.get('test') or '')) for r in rows):
@@ -755,6 +765,15 @@ def micro_panel_mark(C):
             for r in rows:
                 if r.get('_micro') == 'C':
                     r['_micro_sus'] = sus
+
+
+def micro_rows(C):
+    """KZ.micro（分域呈现，给药者）：[sid, 日期, 访视, 项目, 结果原文, 判读/说明, C|S, sheet, row]；同受试者同日培养行在前。"""
+    out = [[f['sid'], f.get('date') or '', f.get('visit') or '', f.get('test') or '', '' if f.get('raw') is None else str(f.get('raw')),
+            f.get('desc') or '', f.get('_micro'), f.get('sheet') or '', f.get('row')]
+           for f in getattr(C, 'micro', []) if f['sid'] in C.pop]
+    out.sort(key=lambda r: (r[0], r[1], 0 if r[6] == 'C' else 1, r[8] or 0))
+    return out
 
 
 def build_labrows(C):
@@ -2200,6 +2219,13 @@ def build_subject_files(C, out):
                              'rows': [[r['test'], [r.get('visit'), 'blu'], r.get('date'), f"{r.get('raw') or ''} {r.get('unit') or ''}".strip(), pc(r)] for r in rows],
                              'chart': {'x': vis, 'series': [{'name': t, 'data': [next((r.get('value') for r in rows if r['test'] == t and r.get('visit') == v), None) for v in vis]} for t in tests[:4]]}
                              if any(r.get('value') is not None for r in rows) else None})
+        mic = [r for r in getattr(C, 'micro', []) if r['sid'] == sid]     # 第三轮：微生物培养/药敏分域呈现（判读型，不进异常核查）
+        if mic:
+            mic.sort(key=lambda r: (r.get('date') or '', 0 if r.get('_micro') == 'C' else 1, r.get('row') or 0))
+            d['ext'].append({'title': '微生物培养与药敏', 'note': '判读型结果（培养/涂片/药敏 MIC），单独呈现，不进入检验异常与质疑链',
+                             'cols': ['项目', '访视', '日期', '结果', '判读/说明'], 'numFrom': 99,
+                             'rows': [[[r.get('test') or '', 'org'] if r.get('_micro') == 'C' else (r.get('test') or ''), [r.get('visit'), 'blu'], r.get('date'),
+                                       '' if r.get('raw') is None else str(r.get('raw')), r.get('desc') or ''] for r in mic], 'chart': None})
         Path(out, 's').mkdir(parents=True, exist_ok=True)
         Path(out, 's', f'{sid}.js').write_text('KZ_SUB(' + json.dumps(d, ensure_ascii=False, separators=(',', ':'), default=str) + ');', encoding='utf-8')
 
@@ -2525,10 +2551,10 @@ def analyze(C):
     build_subjects(C)
     build_events(C)
     ae_summary(C)
+    micro_panel_mark(C)                                  # F-C＋第三轮：微生物培养/药敏先分域（build_findings 不收入 C.F）
     build_findings(C)
     _strip_disease_term_links(C)                         # F02 边界：研究疾病词目不作 MH 关联（先于一切关联消费方）
     annotate_links(C)                                    # 回溯后的关联类型（判定一致性归因维度用）
-    micro_panel_mark(C)                                  # F-C（IMP-02）：微生物培养/药敏面板标记（药敏行不入异常核查）
     build_labrows(C)
     rel_candidates(C)
     entry_errors(C)                                      # mm5 疑似录入错误（数据质量提示，不发 query）
@@ -2587,6 +2613,8 @@ def analyze(C):
           'mhcm': {'mh': [[sid, m.get('t') or '', 1 if m.get('ong') == '是' else 0] for sid in sorted(C.pop) for m in C.mh_by[sid]],
                    'cm': [[sid, c.get('t') or '', c.get('s') or '', c.get('e') or '', 1 if c.get('ong') else 0, c.get('ind') or c.get('why') or '']
                           for sid in sorted(C.pop) for c in C.cm_by[sid]]},
+          # 第三轮：微生物培养/药敏分域（判读型结果，不进检验异常/CS/阈值链）——[sid, 日期, 访视, 项目, 结果, 判读/说明, C|S, sheet, row]
+          'micro': micro_rows(C),
           # mm4 研究依据页：方案规则的只读视图（编译后的可执行口径，供「监查规则」按领域展示；不含任何受试者数据）
           'basis': {k: C.A.get(k) for k in ('visitWindows', 'eligibility', 'eligibilitySubject', 'prohibited', 'washout', 'aesi', 'reportRules',
                                              'thresholdRules', 'comboRules', 'indicationBackground', 'cmProtocolRequired', 'pd', 'effRulesText') if C.A.get(k)}}

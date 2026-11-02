@@ -2680,6 +2680,76 @@ class HIFixTermMetaGuard(unittest.TestCase):
         self.assertIsNone(guess([('页面名称', 'FORMNM')], 'term'))
 
 
+class HIFixTermStructGuardNormalize(unittest.TestCase):
+    """第三轮 E2E（RUX 复审）：F-A 只守了映射草稿层——已确认落位的 mapping（陈旧/误确认件）里 term=VISIT 仍被
+    normalize 盲信 → ae/cm/mh/proc 四域 term 全表「共同页」/「筛选期（D-28至D-1）」（RUX f6f42a6 实证）。
+    修后：构建层对事件域 term 列做结构性元数据判定（与 F-A 同口径），命中则按 FIELD_SYN 重找真实术语列
+    （CMTRT/MHTERM/PRTRT/AETERM 及名称类标签），找不到则置空（无术语列的表不是事件记录）。夹具全虚构。"""
+
+    @staticmethod
+    def _run(labels, vars_, rows, term_ref, dom):
+        import tempfile
+        import openpyxl
+        from normalize_listing import Book, read_spec
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / 'x.xlsx'
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = 'T'
+            ws.append(labels)
+            ws.append(vars_)
+            for r in rows:
+                ws.append(r)
+            wb.save(p)
+            spec = {'wb': 'edc', 'sheet': 'T', 'cols': {'sid': 'SUBJID', 'term': term_ref, 'start': 'STDAT'}}
+            M = {'workbooks': {'edc': str(p)}, 'domains': {}}
+            return [rec for rec, *_ in read_spec(spec, {'edc': Book(str(p))}, M, dom)]
+
+    def test_is_struct_col(self):
+        from inspect_listing import is_struct_col
+        for lab, var in (('访视名称', 'VISIT'), ('页面名称', 'FORMNM'), ('研究中心', 'SITENM'), ('中心编号', 'SITEID'),
+                         ('受试者状态', 'SUBJSTA'), ('访视OID', 'VISTOID'), ('表单OID', 'FORMOID'), ('记录号', 'RECREP'),
+                         ('', 'VISIT'), ('访视', '')):
+            self.assertTrue(is_struct_col(lab, var), (lab, var))
+        for lab, var in (('不良事件名称', 'AETERM'), ('药物名称', 'CMTRT'), ('疾病名称', 'MHTERM'), ('治疗名称', 'PRTRT'),
+                         ('合并用药名称', ''), ('方案违背详述', ''), ('', 'AETERM')):
+            self.assertFalse(is_struct_col(lab, var), (lab, var))
+
+    def test_cm_mh_proc_term_visit_self_heals(self):
+        labels = ['研究中心', '中心编号', '受试者', '访视名称', '页面名称', 'X名称', '开始日期']
+        for dom, var, name in (('cm', 'CMTRT', '药物名称'), ('mh', 'MHTERM', '疾病名称'), ('proc', 'PRTRT', '治疗名称'),
+                               ('ae', 'AETERM', '不良事件名称')):
+            lb = list(labels)
+            lb[5] = name
+            vars_ = ['SITENM', 'SITEID', 'SUBJID', 'VISIT', 'FORMNM', var, 'STDAT']
+            recs = self._run(lb, vars_, [['中心甲', '01', 'S1', '共同页', '既往用药 1', '虚构药甲', '2026-01-02'],
+                                         ['中心甲', '01', 'S2', '筛选期', '既往用药 2', '虚构药乙', '2026-01-03']], 'VISIT', dom)
+            self.assertEqual([r['term'] for r in recs], ['虚构药甲', '虚构药乙'], dom)   # 修前：['共同页', '筛选期']
+
+    def test_label_only_term_ref_self_heals(self):
+        """mapping 以中文标签引用（term=访视名称），无变量行 → 同样自愈到名称类术语列。"""
+        labels = ['受试者编号', '访视名称', '合并用药名称', '开始日期']
+        recs = self._run(labels, ['SUBJID', '', '', 'STDAT'],
+                         [['S1', '共同页', '虚构药丙', '2026-02-01']], '访视名称', 'cm')
+        self.assertEqual([r['term'] for r in recs], ['虚构药丙'])
+
+    def test_no_real_term_column_blanks_term(self):
+        """诊断勾选专表（无术语列）：term 不得退回结构性列——置空，由 main() 的空术语规则不纳入。"""
+        labels = ['受试者', '访视名称', '页面名称', '是否符合诊断标准', '瘙痒症', '开始日期']
+        vars_ = ['SUBJID', 'VISIT', 'FORMNM', 'MHTYN', 'MHTMACH1', 'STDAT']
+        recs = self._run(labels, vars_, [['S1', '筛选期', '诊断', '是', '1', '2016-07-02']], 'VISIT', 'mh')
+        self.assertEqual([r.get('term') for r in recs], [None])
+
+    def test_non_event_domain_untouched(self):
+        """非事件域（findings/subjects）不套该守卫：visit 列照常。"""
+        from inspect_listing import is_struct_col
+        self.assertTrue(is_struct_col('访视名称', 'VISIT'))
+        labels = ['受试者', '访视名称', '检查项', '结果', '开始日期']
+        vars_ = ['SUBJID', 'VISIT', 'LBTEST', 'LBORRES', 'STDAT']
+        recs = self._run(labels, vars_, [['S1', '共同页', '白细胞', '5.1', '2026-01-01']], 'VISIT', None)
+        self.assertEqual([r['term'] for r in recs], ['共同页'])     # dom=None：spec 原样
+
+
 class HIFixEfficacySheetDomain(unittest.TestCase):
     """F-B（IMP-06/CRUX-02/EFF-RES-MAP）：量表/评分/指数类 sheet 与「总分」表头须判 efficacy 域。
 
@@ -2791,6 +2861,92 @@ class HIFixMicroPanelSplit(unittest.TestCase):
         build_labrows(C)
         self.assertEqual(sorted(g['test'] for g in C.labrows), ['尿酸', '白细胞'])
         self.assertEqual([f for f in C.findings if f.get('_micro')], [])
+
+
+class HIFixMicroDomainSplit(unittest.TestCase):
+    """第三轮 E2E（RUX 复审）：F-C 只在 build_labrows 跳过 _micro='S'，而「CS未关联AE/MH」质疑另走 ext_rules.m23_csb
+    （直接遍历 C.F 全部 clin=2 行，不看 _micro）→ 十余项药敏 MIC 仍逐条发质疑并把受试者顶上风险榜首（RUX f6f42a6
+    Q164–Q172 实证：一般细菌培养＋万古霉素/克林霉素/利奈唑胺/庆大霉素…）。修后在源头分域：micro_panel_mark 先于
+    build_findings，培养＋药敏行不进 C.F/C.metric（检验异常/CS/阈值/PD/风险/趋势链天然看不到），收入 C.micro 单独呈现；
+    并补表名/组名命名形态判据（微生物/培养/药敏专表整表分域，不依赖同面板出现培养行）。夹具全虚构。"""
+
+    @staticmethod
+    def _row(i, test, raw, desc='', sheet='LBO', group='其他实验室检查', unit='', date='2026-05-01', clin=2):
+        try:
+            val = float(raw)
+        except (TypeError, ValueError):
+            val = None
+        return {'sid': 'S1', 'sheet': sheet, 'group': group, 'domain': 'lab', 'test': test, 'value': val, 'raw': raw,
+                'unit': unit, 'lo': None, 'hi': None, 'clin': clin, 'desc': desc, 'visit': 'USV', 'date': date,
+                'row': 100 + i, 'wb': 'w', 'links': [], 'reason': None}
+
+    def _C(self, findings):
+        import ctcae
+        from types import SimpleNamespace
+        G = ctcae.load({'grading': {'version': '5.0'}})
+        return SimpleNamespace(findings=findings, subj={'S1': {'site': '01', 'fd': '2026-01-01', 'ld': None}}, pop={'S1'},
+                               A={}, cfg={'thresholds': {'dev': 0.3, 'base': 0.3}}, G=G, GL=G.label, UNS=set(), vi=lambda v: 0)
+
+    def _panel(self):
+        return [self._row(0, '一般细菌培养', '金黄色葡萄球菌', '与感染AE相关'),
+                self._row(1, '药物甲', '<=0.25', '敏感；与感染AE相关'),
+                self._row(2, '药物乙', '0.25', '耐药；与感染AE相关'),
+                self._row(3, '药物丙', '2', '敏感；与感染AE相关'),
+                self._row(4, '白细胞', '8.91', 'NA', unit='×10^9/L', clin=0),
+                self._row(5, '尿酸', '516', '', unit='µmol/L')]
+
+    def test_micro_rows_not_in_F_but_in_micro(self):
+        from mm_build import build_findings, micro_panel_mark
+        C = self._C(self._panel())
+        micro_panel_mark(C)
+        build_findings(C)
+        mids = sorted(mid for _, mid in C.F)
+        self.assertEqual(mids, ['lab:尿酸', 'lab:白细胞'])                # 培养与药敏都不进 C.F / C.metric
+        self.assertNotIn('lab:药物甲', C.metric)
+        self.assertEqual(sorted(f['test'] for f in C.micro), ['一般细菌培养', '药物丙', '药物乙', '药物甲'])
+        self.assertEqual([f['_micro'] for f in C.micro if f['test'] == '一般细菌培养'], ['C'])
+
+    def test_csb_sees_no_micro_rows(self):
+        """m23_csb 只读 C.F —— 分域后对药敏/培养零发声（修前：每条 MIC 一条 CSX）。"""
+        import ext_rules
+        from mm_build import build_findings, micro_panel_mark
+        C = self._C(self._panel())
+        micro_panel_mark(C)
+        build_findings(C)
+        C.others, C.labrows, C.src, C.S, C.mhMatch, C.indBg, C.aeEnd = [], [], {'sheets': {}}, {'study': {}}, [], [], {}
+        C.ae_by, C.mh_by = {'S1': []}, {'S1': []}
+        ext_rules.m23_csb(C)
+        self.assertEqual([o for o in C.others if o.get('test') in ('药物甲', '药物乙', '药物丙', '一般细菌培养')], [])
+
+    def test_sheet_name_criterion_marks_whole_sheet(self):
+        """微生物专表（表名/组名命名形态）整表分域——不依赖同面板出现「培养」行。"""
+        from mm_build import micro_panel_mark
+        rows = [self._row(0, '药物甲', '<=0.25', '敏感', sheet='LBMB', group='LBMB--微生物检查'),
+                self._row(1, '药物乙', '4', '', sheet='LBMB', group='LBMB--微生物检查'),
+                self._row(2, '涂片镜检', '见革兰阳性球菌', '', sheet='LBMB', group='LBMB--微生物检查'),
+                self._row(3, '尿酸', '516', '', sheet='LBO', group='LBO--其他实验室检查')]
+        C = self._C(rows)
+        micro_panel_mark(C)
+        self.assertEqual([f.get('_micro') for f in rows], ['S', 'S', 'C', None])
+        for name in ('培养及药敏', 'MICRO', 'LB-Culture', '药物敏感试验'):
+            C2 = self._C([self._row(0, '药物甲', '4', '', sheet=name, group=name)])
+            micro_panel_mark(C2)
+            self.assertEqual(C2.findings[0].get('_micro'), 'S', name)
+        C3 = self._C([self._row(0, '尿酸', '516', '', sheet='LBCH', group='LBCH--血生化')])
+        micro_panel_mark(C3)
+        self.assertIsNone(C3.findings[0].get('_micro'))
+
+    def test_kz_micro_and_subject_ext(self):
+        """分域呈现：KZ.micro 紧凑行（受试者页/概况页用）＋受试者文件 ext 组「微生物培养与药敏」。"""
+        from mm_build import micro_rows
+        C = self._C(self._panel())
+        from mm_build import build_findings, micro_panel_mark
+        micro_panel_mark(C)
+        build_findings(C)
+        rows = micro_rows(C)
+        self.assertEqual(len(rows), 4)
+        self.assertEqual(rows[0][:4], ['S1', '2026-05-01', 'USV', '一般细菌培养'])        # 培养行先于药敏
+        self.assertEqual({r[6] for r in rows}, {'C', 'S'})
 
 
 class HIFixAeDuplicateCounts(unittest.TestCase):

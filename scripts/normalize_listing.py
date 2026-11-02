@@ -30,10 +30,12 @@ from pathlib import Path
 import openpyxl
 
 from common import clin_code, dump_json, load_json, norm_date, open_workbook_lenient, parse_desc_links, parse_links, parse_typed_links, to_num, yes
+from inspect_listing import guess, is_struct_col
 
 DATE_FIELDS = {'date', 'start', 'end', 'icf', 'eot_d', 'eos_d', 'rand_d', 'fd', 'ld', 'aware', 'rpt'}
 NUM_FIELDS = {'age', 'bmi', 'ht', 'wt', 'lo', 'hi'}
 BOOL_FIELDS = {'serious', 'aesi', 'ongoing_b'}
+EVENT_DOMS = ('ae', 'mh', 'cm', 'proc', 'pd')      # 带 term 的事件型域
 SHEETS = {}
 
 # F01①（RUX 深审）：完成标志类布尔列不作指标值——值域⊂{0,1,是,否} 勾选形态，且列名含 是否/完成/勾选、
@@ -132,6 +134,23 @@ def reason_code(v, patterns=None):
     return 'other'
 
 
+def _term_guard(sheet, ti, labels, vars_):
+    """第三轮 E2E（RUX 复审）：事件域 term 列落在结构性元数据列（访视名称/页面名称/研究中心…，陈旧或误确认的 mapping）
+    → 按 FIELD_SYN（F-A 判据：CMTRT/MHTERM/PRTRT/AETERM 具体列优先、名称$ 不吃访视/页面/表单/中心）重找真实术语列；
+    找不到置空（无术语列的表不是事件记录，与映射层「没有术语列不纳入」同口径）。日志可见，不静默。"""
+    lab = labels[ti] if ti < len(labels) else ''
+    var = vars_[ti] if ti < len(vars_) else ''
+    if not is_struct_col(lab, var):
+        return ti
+    fix = guess([(l, vars_[i] if i < len(vars_) else '') for i, l in enumerate(labels)], 'term')
+    j = col_index(fix, labels, vars_) if fix else None
+    if j == ti:
+        j = None
+    print(f"  ! {sheet}: term 列「{lab or var}」是结构性元数据列（访视/页面/表单/中心），"
+          + (f"改用「{labels[j] or vars_[j]}」" if j is not None else '表内无术语列，事件记录不纳入'))
+    return j
+
+
 def map_visit(v, vm):
     if v is None:
         return None
@@ -173,6 +192,8 @@ def read_spec(spec, books, M, dom=None):
         return []
     labels, vars_, data = book.sheet(spec['sheet'], lr, vr, ds)
     cols = {k: col_index(c, labels, vars_) for k, c in spec.get('cols', {}).items()}
+    if dom in EVENT_DOMS and cols.get('term') is not None:
+        cols['term'] = _term_guard(spec['sheet'], cols['term'], labels, vars_)
     hlk = ('value', 'clin', 'desc', 'link', 'grade', 'rel', 'term', 'aesi', 'serious', 'action', 'indication', 'start', 'end', 'date')
     # PR-8: SHEETS keyed by per-workbook unique id "wb:sheet" — same-name sheets in different
     # workbooks no longer collapse into one meta entry (each keeps its own highlight columns / sid label).
