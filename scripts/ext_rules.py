@@ -644,10 +644,16 @@ def qual_worse(r, b):
     return f"定性结果 {b.get('raw')}→{r.get('raw')}" if lv is not None and bl is not None and lv > bl else None
 
 
+_IND_QUAL = re.compile(r'^(?:季节性|常年性|持续性|间歇性|复发性|难治性|慢性|急性|原发性|继发性)+')
+
+
 def _indication_names(C):
-    ind = next((f[1] for f in ((C.S.get('study') or {}).get('design') or {}).get('facts') or [] if f[0] == '适应症'), '')
-    return [p for p in re.split(r'[^\u4e00-\u9fff]+', re.sub(r'中度至重度|轻度|中度|重度|中重度|患者|伴有|成人|儿童|青少年|的|和|及', ' ', str(ind)))
-            if len(p) >= 3]
+    ind = next((f[1] for f in ((C.S.get('study') or {}).get('design') or {}).get('facts') or [] if f[0] == '适应症'), '') \
+        or (C.A.get('indication') or '')
+    names = [p for p in re.split(r'[^\u4e00-\u9fff]+', re.sub(r'中度至重度|轻度|中度|重度|中重度|患者|伴有|成人|儿童|青少年|的|和|及', ' ', str(ind)))
+             if len(p) >= 3]
+    # V6（E2E 第 4 轮 SAR）：适应症写「季节性过敏性鼻炎」，研究者备注写「与过敏性鼻炎相关」——去掉病程/时相限定词的核心病名同样算研究疾病
+    return names + [q for q in (_IND_QUAL.sub('', n) for n in names) if len(q) >= 3 and q not in names]
 
 
 def disease_kw(C):

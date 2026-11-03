@@ -143,6 +143,13 @@ class DiseaseRelatedCS(unittest.TestCase):
         self.assertTrue(disease_attr(C, {'reason': 'disease'}))
         self.assertFalse(disease_attr(C, {'desc': '急性上呼吸道感染相关'}))
         self.assertFalse(disease_attr(C, {'desc': 'ADHD'}))
+        # V6（E2E 第 4 轮 SAR）：适应症带病程限定词，备注写核心病名 / 英文缩写在全称之后
+        C2 = SimpleNamespace(A={'diseaseTerms': ['SAR']}, S={'study': {'design': {'facts': [['适应症', '季节性过敏性鼻炎（Seasonal Allergic Rhinitis，SAR）患者']]}}})
+        self.assertTrue(disease_attr(C2, {'desc': '双侧鼻腔黏膜苍白水肿（CS,与过敏性鼻炎相关）'}))
+        self.assertTrue(disease_attr(C2, {'desc': '眼部发红，流泪CS，与SAR相关'}))
+        self.assertFalse(disease_attr(C2, {'desc': '急性鼻窦炎相关'}))
+        C3 = SimpleNamespace(A={'indication': '慢性荨麻疹'}, S={})              # 设计要点缺失时用 analysis.indication
+        self.assertTrue(disease_attr(C3, {'desc': '与荨麻疹相关'}))
         self.assertTrue(stated_worse({'desc': 'AD加重相关'}))
         self.assertTrue(stated_worse({'reason_raw': '与研究疾病加重有关'}))
         self.assertIsNone(stated_worse({'desc': '皮损未见加重'}))
