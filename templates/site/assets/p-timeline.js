@@ -79,7 +79,7 @@ async function one(id){
     if(/AST|ALT/.test(t)&&hi)ml.push({yAxis:hi*3,label:{formatter:'3×ULN'},lineStyle:{color:'#8B0000'}});
     const z=((ch.getOption()||{}).dataZoom||[{}])[0];
     const c2=K.chart('#tr',{grid:{left:172,right:20,top:16,bottom:26},tooltip:{trigger:'axis'},xAxis:{type:'time',min:tmin,max:tmax,...K.axis,axisLabel:{color:'#64676B',formatter:v=>{const x=Math.round((v-fd)/864e5);return x>=0?'D'+(x+1):'D'+x}}},yAxis:{type:'value',scale:true,name:rows[0][4],...K.axis},dataZoom:[{type:'inside',filterMode:'none',start:z.start,end:z.end}],
-     series:[{type:'line',name:t,data:rows.map(r=>({value:[T(r[0])+(K.hhmm(r[12])?(+r[12].slice(0,2))*36e5:0),r[2]],itemStyle:{color:r[7]===2?'#8B0000':r[7]===1?'#E8C300':'#FF9900'}})),symbolSize:8,lineStyle:{color:'#FF9900'},markLine:{symbol:'none',silent:true,lineStyle:{color:'#9A9DA3',type:'dashed'},label:{fontSize:10,position:'insideEndTop'},data:[...ml,{xAxis:fd,lineStyle:{color:'#407AAA',type:'solid'},label:{formatter:'D1',color:'#407AAA'}}]}}]});
+     series:[{type:'line',name:t,data:rows.map(r=>({value:[T(r[0])+(K.hhmm(r[12])?parseInt(r[12],10)*36e5:0),r[2]],itemStyle:{color:r[7]===2?'#8B0000':r[7]===1?'#E8C300':'#FF9900'}})),symbolSize:8,lineStyle:{color:'#FF9900'},markLine:{symbol:'none',silent:true,lineStyle:{color:'#9A9DA3',type:'dashed'},label:{fontSize:10,position:'insideEndTop'},data:[...ml,{xAxis:fd,lineStyle:{color:'#407AAA',type:'solid'},label:{formatter:'D1',color:'#407AAA'}}]}}]});
     ch.off('datazoom');ch.on('datazoom',()=>{const z=((ch.getOption()||{}).dataZoom||[{}])[0];c2.dispatchAction({type:'dataZoom',start:z.start,end:z.end})});
   }
   trend();

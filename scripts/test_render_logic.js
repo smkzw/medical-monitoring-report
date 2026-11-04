@@ -157,6 +157,9 @@ if (typeof K.chartGuard === 'function') {
   K.chartGuard(o6);
   ok(!o6.series[0].markArea && o6.series[1].markArea.data.length === 1, 'markArea：端点缺失整块撤除、完整区间保留（V6 抽屉图空白）');
   ok(K.dt('2026-01-02', '2025-01-27 10:23:11') === '2026-01-02' && K.dt('2026-01-02', '9:05') === '2026-01-02T09:05', 'K.dt：只接受时:分');
+  ok(K.cmpTxt('2025-01-03', '2025-02-01') < 0 && K.cmpTxt('2025-03-01 09:00', '2025-03-01 10:00') < 0, 'K.cmpTxt：日期按字符串比（不只比年份）');
+  ok(K.cmpTxt('10', '9') > 0 && K.cmpTxt('0.53 ×10^9/L', '1.2') < 0 && K.cmpTxt('甲', '乙') !== 0, 'K.cmpTxt：数值与文字');
+  ok(K.dt('2026-01-02', '9:30:00') === '2026-01-02T09:30:00', 'K.dt：单位数小时补零（含秒）');
   const o5 = { series: [{ type: 'line', markLine: { data: [] } }] };
   K.chartGuard(o5);
   ok(!o5.series[0].markLine, '空 data 数组的 marker 撤除');

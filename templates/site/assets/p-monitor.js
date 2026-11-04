@@ -117,7 +117,7 @@ function kri(){
   pane.innerHTML=`<div class="card"><div class="hd"><h2>研究层面容忍限度</h2><span class="sub">关键质量因素的研究层面指标（ICH E6(R3) §3.10.1.3：申办方预设可接受范围）；默认档为经验值，需研究团队确认</span></div><div id="qtl"></div></div>
    <div class="card mt"><div class="hd"><h2>各中心 KRI</h2><span class="sub">红框＝超出研究层面限度（分母 ≥5）；底色＝与其他中心相比偏高（橙）或偏低（蓝），校正多重比较；点中心进入画像</span></div>
     <div style="overflow-x:auto"><table class="t heat"><thead><tr><th>中心</th>${defs.map(d=>`<th class="h" title="${K.esc(d.note)}">${K.esc(d.l)}<div class="xs faint" style="font-weight:400">${d.u}${d.qtl?' · 限 '+K.qtlLim(d.k):''}</div></th>`).join('')}</tr></thead><tbody>
-    <tr style="background:#FAFAFB"><td><b>研究整体</b></td>${defs.map(d=>`<td class="num"><b>${(KR.na||{})[d.k]?'—':K.kriFmt(d.k,K.kriV(d.k,st[d.k]))}</b></td>`).join('')}</tr>
+    <tr class="pin" style="background:#FAFAFB"><td><b>研究整体</b></td>${defs.map(d=>`<td class="num"><b>${(KR.na||{})[d.k]?'—':K.kriFmt(d.k,K.kriV(d.k,st[d.k]))}</b></td>`).join('')}</tr>
     ${sites.map((si,i)=>`<tr class="click" data-site="${si}"><td class="nowrap">${cname(si)}</td>${defs.map(d=>{const nd=(KR.sites[si]||{})[d.k],v=K.kriV(d.k,nd),q=d.qtl&&nd&&nd[1]>=5?K.qtlState(d.k,nd):{};
       return `<td class="num" style="${flags[d.k][i]}${q.st==='exceed'?';outline:2px solid #8B0000;outline-offset:-2px':''}" title="${nd?K.esc(nd[0]+' / '+nd[1]):''}">${(KR.na||{})[d.k]||v==null?'<span class="faint">·</span>':K.kriFmt(d.k,v)}</td>`}).join('')}</tr>`).join('')}</tbody></table></div>
     ${Object.keys(KR.na||{}).length?`<div class="xs muted mt">未计算：${Object.entries(KR.na).map(([k,v])=>`${K.esc((K.kriDef(k)||{}).l||k)}（${K.esc(v)}）`).join('；')}</div>`:''}

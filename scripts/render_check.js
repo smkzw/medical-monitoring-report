@@ -36,6 +36,8 @@ const PL = JSON.parse(fs.readFileSync(path.join(__dirname, 'pages.json'), 'utf8'
       const empty = [...document.querySelectorAll('[id]')].filter(e => /^(DIV|SECTION|TBODY)$/.test(e.tagName) && !e.children.length && !e.textContent.trim() && e.offsetParent !== null && !e.hasAttribute('_echarts_instance_')).map(e => e.id).slice(0, 12);
       return { title: document.title, charts, empty, h: document.body.scrollHeight, text: document.body.innerText.length };
     });
+    await page.evaluate(() => { if (window.K && K.flushCharts) K.flushCharts(); });   // V6：首次进入视野才渲染的图在整页截图前画完
+    await page.waitForTimeout(800);
     await page.screenshot({ path: path.join(shots, `${name}.png`), fullPage: true });
     // click through every tab group (.tabs button) so lazily rendered panels are exercised too
     const ntab = await page.evaluate(() => document.querySelectorAll('.tabs button').length);

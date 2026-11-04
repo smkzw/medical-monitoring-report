@@ -22,6 +22,8 @@ await page.cdp('Network.setCacheDisabled', { cacheDisabled: true });
 const fileUrl = rel => url.pathToFileURL(path.join(dir, rel.split('#')[0])).href + (rel.includes('#') ? '#' + rel.split('#')[1] : '');
 const open = async rel => { await page.goto('about:blank'); await page.goto(fileUrl(rel)); await page.waitForTimeout(rel.startsWith('profile') || rel.startsWith('subjects') ? 3000 : 1800); };
 const shot = async name => {
+  await page.evaluate(() => { if (window.K && K.flushCharts) K.flushCharts(); });   // V6：首次进入视野才渲染的图在整页截图前画完
+  await page.waitForTimeout(800);
   try {
     const r = await page.cdp('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
     fs.writeFileSync(path.join(shots, name + '.png'), Buffer.from(r.data, 'base64'));

@@ -26,7 +26,7 @@ K.vi=v=>{const i=K.VIS.indexOf(v);return i<0?99:i};
 K.days=(a,b)=>{if(!a||!b||a.length<10||b.length<10)return null;return Math.round((new Date(a)-new Date(b))/864e5)};
 /* V6（用户审阅 RUX 第 19 条）：检验时间字段只接受时:分（此前「页面最近修改时间」被映射成采样时间，拼出非法时间戳，抽屉图整张空白） */
 K.hhmm=t=>/^\d{1,2}:\d{2}(:\d{2})?$/.test(String(t||'').trim());
-K.dt=(d,t)=>{d=String(d||'').slice(0,10);return K.hhmm(t)?d+'T'+String(t).trim().padStart(5,'0'):d};
+K.dt=(d,t)=>{d=String(d||'').slice(0,10);return K.hhmm(t)?d+'T'+String(t).trim().replace(/^(\d):/,'0$1:'):d};
 K.studyDay=(d,fd)=>{const x=K.days(d,fd);return x==null?'':(x>=0?'D'+(x+1):'D'+x)};
 K.clin=c=>c===2?K.p('CS','red'):c===1?K.p('NCS','yel'):c===0?K.p('正常','grn'):'';
 /* 钻取行「判定与关联」列（用户 2026-10-30 裁定：参与者资料页 CS 项点开必须有链接信息）。
@@ -202,24 +202,28 @@ K.sub=id=>new Promise(res=>{if(K._cache[id])return res(K._cache[id]);(K._wait[id
  * 不折行：列标题含受试者/访视/日期/分级/等级/中心/编号/排名/优先级等，或 c.nw=true；c.nw=false 可关闭。 */
 K.NWT=/受试者|访视|日期|时间|分级|等级|级别|中心|编号|排名|优先级|^风险$|状态|方案窗|目标日|实际/;
 K.cellTxt=h=>String(h==null?'':h).replace(/<[^>]+>/g,' ').replace(/&nbsp;|&amp;|&lt;|&gt;|&quot;/g,m=>({'&nbsp;':' ','&amp;':'&','&lt;':'<','&gt;':'>','&quot;':'"'}[m])).replace(/\s+/g,' ').trim();
-K.cmpTxt=(x,y)=>{const a=parseFloat(x),b=parseFloat(y);if(x!==''&&y!==''&&!isNaN(a)&&!isNaN(b)&&/^[\s+\-−]?\d/.test(x)&&/^[\s+\-−]?\d/.test(y))return a-b;return String(x).localeCompare(String(y),'zh')};
+/* 日期/日期时间（2025-01-03、2025-01-03 10:20）按字符串比（parseFloat 只读到年份）；其余以数字开头的按数值，否则按文字 */
+K._DTRX=/^\s*\d{4}-\d{1,2}(-\d{1,2})?/;
+K.cmpTxt=(x,y)=>{x=String(x??'');y=String(y??'');if(K._DTRX.test(x)&&K._DTRX.test(y))return x.trim().localeCompare(y.trim());const a=parseFloat(x.replace('−','-')),b=parseFloat(y.replace('−','-'));
+  if(x!==''&&y!==''&&!isNaN(a)&&!isNaN(b)&&/^[\s+\-−]?\d/.test(x)&&/^[\s+\-−]?\d/.test(y))return a-b;return x.localeCompare(y,'zh')};
 K.table=(el,cfg)=>{
   const st={sort:cfg.sort||null,dir:cfg.dir||-1,page:0,q:'',f:{}};const ps=cfg.pageSize||60;
   const tx=(c,r)=>c.fv?String(c.fv(r)??''):c.f?K.cellTxt(c.f(r)):String(r[c.k]??'');
-  const sv=(c,r)=>c.s?c.s(r):(c.k in r&&r[c.k]!=null&&typeof r[c.k]!=='object')?r[c.k]:tx(c,r);
+  const sv=(c,r)=>c.s?c.s(r):c.k in r&&r[c.k]==null&&!c.f?null:(c.k in r&&r[c.k]!=null&&typeof r[c.k]!=='object')?r[c.k]:tx(c,r);
   const nw=c=>c.nw!=null?c.nw:K.NWT.test(K.cellTxt(c.t));
   let fcols=[];
   function prep(){fcols=[];if(cfg.filter===false||cfg.rows.length<=8)return;
     cfg.cols.forEach((c,i)=>{if(c.nf)return;const m=new Map();for(const r of cfg.rows){const v=tx(c,r);if(v&&v.length<=24)m.set(v,(m.get(v)||0)+1);if(m.size>25)return}
       if(m.size>=2&&m.size<=25)fcols.push([i,[...m.entries()].sort((a,b)=>K.cmpTxt(a[0],b[0]))])});
     fcols=fcols.sort((a,b)=>a[1].length-b[1].length).slice(0,4).sort((a,b)=>a[0]-b[0])}
+  function prune(){Object.keys(st.f).forEach(i=>{const fc=fcols.find(x=>x[0]===+i);if(!fc||!fc[1].some(([v])=>v===st.f[i]))delete st.f[i]})}   /* 选项已不存在的列筛选作废，避免看不见的筛选继续吞行 */
   function view(){let rows=cfg.rows;const q=st.q.toLowerCase(),fs=Object.entries(st.f).filter(([,v])=>v!=='');
     if(q||fs.length)rows=rows.filter(r=>fs.every(([i,v])=>tx(cfg.cols[+i],r)===v)&&(!q||cfg.cols.some(c=>tx(c,r).toLowerCase().includes(q))));
     rows=rows.slice();
     if(st.sort){const c=cfg.cols.find(c=>c.k===st.sort);if(c)rows.sort((a,b)=>{const x=sv(c,a),y=sv(c,b);if((x==null||x==='')&&(y==null||y===''))return 0;if(x==null||x==='')return 1;if(y==null||y==='')return -1;
       return (typeof x==='number'&&typeof y==='number'?x-y:K.cmpTxt(String(x),String(y)))*st.dir})}
     return rows}
-  function bar(){if(!fcols.length&&cfg.rows.length<=8)return '';
+  function bar(){if(!fcols.length&&cfg.rows.length<=8&&!st.q)return '';
     return `<div class="tflt"><input class="s" data-tq placeholder="在表内搜索" value="${K.esc(st.q)}">${fcols.map(([i,vs])=>`<select class="s" data-tf="${i}"><option value="">${K.esc(K.cellTxt(cfg.cols[i].t))}：全部</option>${vs.map(([v,n])=>`<option value="${K.esc(v)}"${st.f[i]===v?' selected':''}>${K.esc(v)}（${n}）</option>`).join('')}</select>`).join('')}${st.q||Object.values(st.f).some(Boolean)?'<a class="small" data-tc href="javascript:void 0">清除筛选</a>':''}</div>`}
   function draw(){
     const rows=view();
@@ -232,25 +236,29 @@ K.table=(el,cfg)=>{
       (cfg.noPage||pages<=1?`<div class="pager">${n} 行${filt}</div>`:`<div class="pager">${n} 行${filt} · 第 ${st.page+1}/${pages} 页 <button data-p="-1" ${st.page?'':'disabled'}>‹</button><button data-p="1" ${st.page<pages-1?'':'disabled'}>›</button></div>`);
     el.querySelectorAll('th.s').forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(st.sort===k)st.dir*=-1;else{st.sort=k;st.dir=-1}draw()});
     el.querySelectorAll('.pager button').forEach(b=>b.onclick=()=>{st.page+=+b.dataset.p;draw()});
-    const qi=el.querySelector('[data-tq]');if(qi)qi.oninput=()=>{st.q=qi.value.trim();st.page=0;const pos=qi.selectionStart;draw();const n2=el.querySelector('[data-tq]');n2.focus();try{n2.setSelectionRange(pos,pos)}catch(e){}};
+    const qi=el.querySelector('[data-tq]');if(qi){const go=()=>{st.q=qi.value.trim();st.page=0;const pos=qi.selectionStart;draw();const n2=el.querySelector('[data-tq]');if(n2){n2.focus();try{n2.setSelectionRange(pos,pos)}catch(e){}}};
+      qi.oninput=e=>{if(e.isComposing)return;go()};qi.addEventListener('compositionend',go)}   /* 拼音输入法组字期间不重绘（否则无法输入中文） */
     el.querySelectorAll('[data-tf]').forEach(sl=>sl.onchange=()=>{st.f[sl.dataset.tf]=sl.value;st.page=0;draw()});
     const tc=el.querySelector('[data-tc]');if(tc)tc.onclick=()=>{st.q='';st.f={};draw()};
     if(cfg.onRow)el.querySelectorAll('tbody tr[data-i]').forEach(tr=>tr.onclick=e=>{if(e.target.closest('a'))return;cfg.onRow(cfg.rows[+tr.dataset.i],e)});
     cfg.after&&cfg.after(el);
   }
-  prep();draw();return {set(rows){cfg.rows=rows;st.page=0;prep();draw()},draw};
+  prep();draw();return {set(rows){cfg.rows=rows;st.page=0;prep();prune();draw()},draw};
 };
 /* 手写表格（页面直接拼的 table.t）：单行表头、无分组/合并单元格的表加列排序；≥8 行加表内搜索；不折行列同 K.NWT。
  * 无表头的键值明细表不处理（用户裁定 5：无表头明细表豁免）。新插入的表（抽屉等）由 MutationObserver 自动处理。 */
-K.enhance=root=>{(root||document).querySelectorAll('table.t:not([data-kz])').forEach(t=>{t.dataset.kz='1';const th=t.tHead,tb=t.tBodies[0];
+K.enhance=root=>{(root||document).querySelectorAll('table.t:not([data-kz])').forEach(t=>{t.dataset.kz='1';const th=t.tHead,tb=t.tBodies[0];if(t.hasAttribute('data-nosort'))return;
   if(!th||th.rows.length!==1||!tb||tb.rows.length<2||tb.querySelector('tr.grp,td[rowspan],td[colspan],th[rowspan]')||th.querySelector('[colspan]'))return;
   const hs=[...th.rows[0].cells];hs.forEach((h,i)=>{if(K.NWT.test(h.textContent))[...tb.rows].forEach(r=>r.cells[i]&&r.cells[i].classList.add('nw'))});
   let si=-1,dir=1;hs.forEach((h,i)=>{h.classList.add('s');h.onclick=()=>{dir=si===i?-dir:1;si=i;const rows=[...tb.rows];
-    rows.sort((a,b)=>K.cmpTxt((a.cells[i]||{}).textContent?.trim()||'',(b.cells[i]||{}).textContent?.trim()||'')*dir).forEach(r=>tb.appendChild(r));
+    /* tr.pin（如「研究整体」参照行）固定在顶；tr.dx（展开的明细行）跟随其上方的主行一起移动 */
+    const units=[];rows.forEach(r=>{if(r.classList.contains('dx')&&units.length)units[units.length-1].push(r);else units.push([r])});
+    const pin=units.filter(u=>u[0].classList.contains('pin')),rest=units.filter(u=>!u[0].classList.contains('pin'));
+    rest.sort((a,b)=>K.cmpTxt((a[0].cells[i]||{}).textContent?.trim()||'',(b[0].cells[i]||{}).textContent?.trim()||'')*dir);[...pin,...rest].flat().forEach(r=>tb.appendChild(r));
     hs.forEach(x=>{const ar=x.querySelector('.ar');if(ar)ar.remove()});h.insertAdjacentHTML('beforeend',`<span class="ar">${dir>0?'▲':'▼'}</span>`)}});
   if(tb.rows.length>=8){const box=document.createElement('div');box.className='tflt';box.innerHTML='<input class="s" placeholder="在表内搜索">';
     const host=t.closest('.tw')||t;host.parentNode.insertBefore(box,host);
-    box.firstChild.oninput=e=>{const q=e.target.value.trim().toLowerCase();[...tb.rows].forEach(r=>{r.style.display=!q||r.textContent.toLowerCase().includes(q)?'':'none'})}}})};
+    box.firstChild.oninput=e=>{const q=e.target.value.trim().toLowerCase();let show=true;[...tb.rows].forEach(r=>{if(r.classList.contains('dx')){r.style.display=show?'':'none';return}show=!q||r.classList.contains('pin')||r.textContent.toLowerCase().includes(q);r.style.display=show?'':'none'})}}})};
 if(typeof MutationObserver==='function'&&typeof document.body!=='undefined'){let tm=null;const mo=new MutationObserver(()=>{clearTimeout(tm);tm=setTimeout(()=>K.enhance(document),80)});
   document.addEventListener('DOMContentLoaded',()=>{mo.observe(document.body,{childList:true,subtree:true});K.enhance(document)})}
 /* chips filter: opts [[value,label,count]] multi=false */
@@ -279,6 +287,10 @@ K.chartGuard=opt=>{(opt&&opt.series||[]).forEach(s=>{if(!s)return;for(const mk o
   if(!m||!Array.isArray(m.data))continue;m.data=m.data.filter(K._markerItemOk);if(!m.data.length)delete s[mk]}});return opt};
 /* V6（用户审阅 RUX 第 17 条、裁定 14）：生长动效只在图第一次进入视野时播放——此前图在页面下方/隐藏页签里初始化，
  * 动画在用户看见之前就放完了。不在视野内的新图先挂起配置，进入视野（IntersectionObserver）再渲染；同一张图之后的更新不再动画。 */
+K._waitQ=new Set();
+/* 打印/导出 PDF 与整页截图（render_check）时把仍在等进入视野的图一次画完 */
+K.flushCharts=()=>{K._waitQ.forEach(c=>{const o=c._kzWait;c._kzWait=null;if(o&&!c.isDisposed())c.setOption(o,true)});K._waitQ.clear()};
+if(typeof window.addEventListener==='function')window.addEventListener('beforeprint',()=>K.flushCharts());
 K._inView=el=>{const r=el.getBoundingClientRect();return r.width>0&&r.height>0&&r.bottom>0&&r.right>0&&r.top<(window.innerHeight||0)&&r.left<(window.innerWidth||0)};
 K.chart=(el,opt)=>{if(typeof el==='string')el=document.querySelector(el);let c=echarts.getInstanceByDom(el);const first=!c;
   if(!c){c=echarts.init(el,null,{renderer:'canvas'});new ResizeObserver(()=>c.resize()).observe(el)}
@@ -286,8 +298,8 @@ K.chart=(el,opt)=>{if(typeof el==='string')el=document.querySelector(el);let c=e
   opt=Object.assign({color:K.COL,textStyle:{fontFamily:'Microsoft YaHei, PingFang SC, Noto Sans CJK SC, Arial',fontSize:12,color:'#404040'},
     animationDuration:K.RM?0:700,animationEasing:'cubicOut',animationDurationUpdate:0},K.chartGuard(opt));
   if(c._kzWait){c._kzWait=opt;return c}                                   /* 仍在等进入视野：只换成最新配置 */
-  if(first&&!K.RM&&typeof IntersectionObserver==='function'&&!K._inView(el)){c._kzWait=opt;
-    const io=new IntersectionObserver(es=>{if(!es.some(e=>e.isIntersecting))return;io.disconnect();const o=c._kzWait;c._kzWait=null;if(o&&!c.isDisposed())c.setOption(o,true)},{threshold:.12});
+  if(first&&!K.RM&&typeof IntersectionObserver==='function'&&!K._inView(el)){c._kzWait=opt;K._waitQ.add(c);
+    const io=new IntersectionObserver(es=>{if(!es.some(e=>e.isIntersecting))return;io.disconnect();K._waitQ.delete(c);const o=c._kzWait;c._kzWait=null;if(o&&!c.isDisposed())c.setOption(o,true)},{threshold:.12});
     io.observe(el);return c}
   if(!first)opt.animation=false;
   c.setOption(opt,true);return c};
