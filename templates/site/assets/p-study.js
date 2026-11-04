@@ -26,7 +26,10 @@ ${(DS.facts||[]).length||(ST.endpoints||[]).length?`<div class="card mt"><div cl
 <div class="sec-t"><h2>监查规则</h2><span class="muted small">按监查领域：方案/IB 原文 → 用数据核对什么 → 结果在哪一页</span></div>
 <div class="tabs" id="rtab"></div><div id="rpane"></div>
 <div class="sec-t"><h2>方案 / IB 规则库</h2><span class="muted small" id="rn"></span><span class="sp"></span><input class="s" id="rs" placeholder="搜索 规则文字"></div>
-<div class="chips mb" id="rd"></div><div id="rules"></div>`;
+<div class="chips mb" id="rd"></div><div id="rules"></div>
+<div class="card mt" id="sysnote"><div class="hd"><h2>系统提示</h2><span class="sub">构建与审阅过程中需要人处理的事项（映射、词表、AI 审阅、CS 解释待确认等），不属于数据风险</span></div><div id="todo"></div></div>`;
+/* V6（用户审阅 RUX 裁定 2）：系统提示从总览移到研究依据页底部；工作台系统层（kz-sys.js）向 #todo 追加 CS 解释待确认等行 */
+{const T=(D.todo||[]);document.getElementById('todo').innerHTML=T.length?`<table class="t"><tbody>${T.map(t=>`<tr class="click" onclick="location.href='${t[3]}'"><td style="width:90px">${K.p(t[0],t[1])}</td><td>${t[2]}</td><td class="faint">›</td></tr>`).join('')}</tbody></table>`:'<table class="t"><tbody></tbody></table><div class="empty small">无</div>'}
 /* ---------- 关键口径 ---------- */
 const CST={'方案规定':'grn','口径裁定':'org','待确认':'red','项目配置':'blu','默认采用':'line'};
 /* mm4：知识层状态卡置顶（KZ.knowledge＝study analysis.knowledge；绿＝可用，红＝MedDRA 不可用降级；无键＝旧构建不显示） */

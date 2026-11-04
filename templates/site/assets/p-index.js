@@ -1,5 +1,5 @@
-/* 总览及行动项（V5，用户 2026-10-31 晚）：一、综合数据（研究进展与数据状态）→ 二、风险数据（容忍限度、医学风险、方案偏离、中心）
- * → 三、需要干什么（按角色汇总的行动项：今日优先 / 处理中 / 暂缓 / 已处理，状态跨上传保留）。 */
+/* 总览：一、综合数据（研究进展与数据状态）→ 二、风险数据（容忍限度、医学风险、方案偏离、中心）
+ * → 三、风险排名（V6 用户审阅 RUX 第 1/5 条：报告只做报告，按角色过滤＋加权排序、可按中心筛选；系统提示移到研究依据页底部）。 */
 K.init(()=>{
 const CF=K.cfg(),SD=CF.study||{},QC=CF.query||{};const D=KZ,app=document.getElementById('app'),S=K.subs(),m=D.meta,O=D.ops||{};
 const dosed=S.filter(s=>s.fd),ae=dosed.reduce((a,s)=>a+s.nae,0),st=m.status;
@@ -18,10 +18,10 @@ const sec=(n,t,s)=>`<div class="sec-h"><span class="n">${n}</span><b>${t}</b><sp
 app.innerHTML=`${K.knBar(D.knowledge)}
 ${sec('一','综合数据',`研究进展与数据状态 · 数据截止 ${K.esc(cut)}${O.stage==='daily'?' · 日常监查，数据仍在录入':''}`)}
 ${(()=>{/* V6 首屏吸收：打开即见的关键事实条（结构不变，只把最需要先知道的四件事放在第一屏） */
-  const qx=K.qtlRows?K.qtlRows().filter(r=>r.st==='exceed'):[],open=K.actFor?K.actFor('all').filter(a=>a.sig.s==='open'):[],
-    now=open.filter(a=>a.score>=80).length,sae=S.reduce((a,s)=>a+s.sae,0),preg=oth.filter(o=>o.cat==='妊娠暴露核查').length,gap=oth.filter(o=>o.cat==='访视中断核对').length;
+  const qx=K.qtlRows?K.qtlRows().filter(r=>r.st==='exceed'):[],hi=K.riskFor?K.riskFor('all').filter(a=>a.score>=80).length:0,
+    sae=S.reduce((a,s)=>a+s.sae,0),preg=oth.filter(o=>o.cat==='妊娠暴露核查').length,gap=oth.filter(o=>o.cat==='访视中断核对').length;
   const f=(lab,v,u,href,risk)=>`<span class="f${risk?' risk':''}">${href?`<a href="${href}">`:''}${lab} <b>${v}</b> ${u}${href?'</a>':''}</span>`;
-  return `<div class="facts">${f('容忍限度超限',qx.length,'项','monitor.html#tab=kri',qx.length>0)}${f('今日必须处理',now,'项','#act',now>0)}${f('待处理行动项',open.length,'项','#act')}${f('SAE',sae,'例次','profile.html',sae>0)}${preg?f('妊娠暴露待追踪',preg,'例','safety.html#tab=oth',true):''}${gap?f('访视中断',gap,'例','safety.html#tab=oth',true):''}</div>`})()}
+  return `<div class="facts">${f('容忍限度超限',qx.length,'项','monitor.html#tab=kri',qx.length>0)}${f('高风险项',hi,'项','#rank',hi>0)}${f('SAE',sae,'例次','profile.html',sae>0)}${preg?f('妊娠暴露待追踪',preg,'例','safety.html#tab=oth',true):''}${gap?f('访视中断',gap,'例','safety.html#tab=oth',true):''}</div>`})()}
 <div class="kpis">
  ${kpi('筛选 / 随机并给药',`${m.n}<small>/ ${m.dosed} 例</small>`,Object.entries(st).map(([k,v])=>K.p(k+' '+v,K.STC[k]??'')).join(''),'monitor.html#tab=enr')}
  ${kpi('入组进度',planned?`${(dosed.length/planned*100).toFixed(0)}<small>% · ${dosed.length}/${planned}</small>`:`${dosed.length}<small>例给药</small>`,planned?(dosed.length>=planned?K.p('已达计划例数','grn'):proj?K.p('按近 90 天速率预计 '+proj+' 达成','line'):K.p('近 90 天入组不足 3 例，无法预测','line')):'<span class="xs faint">方案未给计划例数</span>','monitor.html#tab=enr','blu')}
@@ -44,9 +44,8 @@ ${sec('二','风险数据','研究层面容忍限度 · 医学风险分层 · �
  <div class="card"><div class="hd"><h2>需关注中心</h2><span class="sub">风险类别高于按${K.esc(K.centerRisk().unit)}推算的期望（校正多重比较后），或 AE 报告偏少、数据长期未更新</span><span class="sp"></span><a class="small" href="safety.html#tab=ov">中心总览热力图 ›</a></div><div id="ctr"></div></div>
  <div class="card"><div class="hd"><h2>AE 谱 × IB / 类效应</h2><span class="sub">${(CF.blind||{}).on?'盲态合并 · ':''}给药后 · 点击条形进入明细</span></div><div id="aech" class="chart" style="height:280px"></div></div>
 </div>
-${sec('三','需要干什么','按角色汇总的行动项 · 点行打开证据并处置，状态跨上传保留，处置后加重会重新打开')}
-<div class="card"><div class="tbar"><span class="seg" id="role"></span><span class="sp"></span><span id="actn" class="small muted"></span></div><div id="act"></div></div>
-<div class="card mt"><div class="hd"><h2>系统提示</h2><span class="sub">构建与审阅过程中的提示（词表、AI 审阅、数据变化等）</span></div><div id="todo"></div></div>`;
+${sec('三','风险排名','按角色筛选并加权排序（医学监查侧重检验与安全性，临床监查侧重访视、录入与执行偏离）· 可按中心筛选 · 点行查看证据与原始数据')}
+<div class="card" id="rank"><div class="tbar"><span class="seg" id="role"></span><select class="s" id="rsite"></select><span class="sp"></span><span id="rankn" class="small muted"></span></div><div id="rkt"></div></div>`;
 /* ---------- 一、综合数据 ---------- */
 {const pts=fds.map((d,i)=>[d,i+1]),ser=[{type:'line',step:'end',data:pts,symbol:'none',lineStyle:{color:'#FF9900',width:2},areaStyle:{color:'rgba(255,153,0,.12)'},
    markLine:planned?{symbol:'none',data:[{yAxis:planned,label:{formatter:'计划 '+planned,color:'#64676B'},lineStyle:{color:'#C9CCD1',type:'dashed'}}]}:undefined}];
@@ -90,34 +89,10 @@ if(PD){const TX=K.pdTax(),G=[['重要','#8B0000'],['待判定','#E8C300'],['一�
  K.chart('#aech',{grid:{left:120,right:120,top:6,bottom:20},tooltip:{trigger:'axis',axisPointer:{type:'shadow'},formatter:p=>{const c=cats[p[0].name];return `<b>${p[0].name}</b><br>${c.n} 例次 / ${c.s} 例<br>≥2级 ${c.g2} · 相关 ${c.rel} · AESI ${c.aesi}<br>${(D.ibtag[p[0].name]||[]).join(' · ')}<br><span style="color:#999">术语 ${c.terms.length} 种：${c.terms.slice(0,6).join('、')}</span>`}},
   xAxis:{type:'value',...K.axis},yAxis:{type:'category',data:order,...K.axis,axisLabel:{color:'#404040',fontSize:11}},
   series:[{type:'bar',stack:'a',name:'1级',data:order.map(k=>cats[k].n-cats[k].g2),itemStyle:{color:'#FFCC80'},barWidth:12},{type:'bar',stack:'a',name:'≥2级',data:order.map(k=>({value:cats[k].g2,itemStyle:{color:'#E67E00'}})),label:{show:true,position:'right',formatter:p=>{const c=cats[p.name];const t=(D.ibtag[p.name]||[])[0];return c.n+(t?'  '+t:'')},color:'#64676B',fontSize:10.5}}]}).on('click',p=>location.href='safety.html#tab=ae&c='+encodeURIComponent(p.name))}
-/* ---------- 三、需要干什么 ---------- */
-let role=K.role(),showAll=false;
-K.seg(document.getElementById('role'),K.ROLES,role,v=>{role=v;K.setRole(v);showAll=false;drawAct()});
-const QB=[['doing','处理中'],['done','已处理'],['fp','无问题']];
-function row(a,i){const t=K.SIGST[a.sig.s]||K.SIGST.open;
-  return `<tr class="click${a.sig.s==='done'||a.sig.s==='fp'?' done':''}" data-i="${i}"><td class="sc" style="width:28px">${a.score}</td>
-   <td style="width:150px">${K.p(a.tag[0],a.tag[1])}${a.tags.map(t=>K.p(t[0],t[1],t[2])).join('')}</td>
-   <td><b style="color:var(--ink)">${K.esc(a.title)}</b><div class="xs muted" style="margin-top:2px;line-height:1.5">${K.esc(String(a.why||'').slice(0,140))}</div></td>
-   <td class="nowrap" style="width:120px">${a.sid?K.sid(a.sid):''} ${a.site?`<a class="xs" href="center.html#c=${a.site}">${K.esc(a.site)}</a>`:''}</td>
-   <td style="width:72px">${a.sig.s==='open'&&!a.sig.re?'':K.sigPill(a.kind,a.x)||K.p(t[0],t[1])}</td>
-   <td style="width:150px"><span class="qb">${QB.filter(([s])=>s!==a.sig.s).map(([s,l])=>`<button data-s="${s}" data-i="${i}">${l}</button>`).join('')}</span></td></tr>`}
-function drawAct(){const A=K.actFor(role),g=s=>A.filter(a=>a.sig.s===s);
-  const open=g('open'),doing=g('doing'),hold=g('hold'),done=A.filter(a=>a.sig.s==='done'||a.sig.s==='fp');
-  const top=showAll?open:open.slice(0,12),idx=new Map();const L=[];const push=a=>{L.push(a);return L.length-1};
-  const tbl=(rows)=>`<table class="t actq"><tbody>${rows.map(a=>row(a,push(a))).join('')}</tbody></table>`;
-  document.getElementById('actn').innerHTML=`待处理 <b>${open.length}</b> · 处理中 <b>${doing.length}</b> · 暂缓 <b>${hold.length}</b> · 已处理 <b>${done.length}</b>`;
-  /* V6：待处理按紧急度分三组——今日必须处理（分值≥80：CS 未关联、超限、关键数据/本次新增加重等）、本周处理（40–79）、跟踪观察（<40） */
-  const G=[['now','今日必须处理',open.filter(a=>a.score>=80),'严重程度最高或本次新增/加重、关键数据'],['week','本周处理',open.filter(a=>a.score>=40&&a.score<80),'需核实的专项与偏离'],['watch','跟踪观察',open.filter(a=>a.score<40),'提示类，可随下次数据更新复核']];
-  const lim=showAll?1e9:8;
-  document.getElementById('act').innerHTML=(open.length?`<div class="actg">${G.filter(g=>g[2].length).map(([k,t,rows,d])=>`<div class="gh ${k}"><b>${t}</b><span class="c">${rows.length}</span><span class="muted small">${d}</span></div>${tbl(rows.slice(0,lim))}${rows.length>lim?`<div class="xs muted">另有 ${rows.length-lim} 项</div>`:''}`).join('')}</div>${open.some(()=>true)&&G.some(g=>g[2].length>8)?`<div class="mt"><a class="small" href="javascript:void 0" id="more">${showAll?'每组只看前 8 项':'显示全部'}</a></div>`:''}`:'<div class="empty">没有待处理项</div>')
-   +(doing.length?`<div class="sec-t"><h2>处理中</h2><span class="muted small">${doing.length} 项</span></div>${tbl(doing)}`:'')
-   +(hold.length?`<details class="fold"><summary>暂缓 ${hold.length} 项</summary><div class="fold-b">${tbl(hold)}</div></details>`:'')
-   +(done.length?`<details class="fold"><summary>已处理 / 核实无问题 ${done.length} 项</summary><div class="fold-b">${tbl(done)}</div></details>`:'');
-  const el=document.getElementById('act');
-  el.querySelectorAll('tr[data-i]').forEach(tr=>tr.onclick=e=>{if(e.target.closest('a,button'))return;L[+tr.dataset.i].open()});
-  el.querySelectorAll('.qb button').forEach(b=>b.onclick=e=>{e.stopPropagation();const a=L[+b.dataset.i],s=b.dataset.s;(a.group||[a]).forEach(m=>K.sigSet(m.kind,m.x,s,(K.SIGR[s]||[])[0]||''))});
-  const mo=document.getElementById('more');if(mo)mo.onclick=()=>{showAll=!showAll;drawAct()}}
-drawAct();document.addEventListener('kz-sig',()=>drawAct());
-{const todo=(D.todo&&D.todo.length?D.todo:[]).map(t=>[K.p(t[0],t[1]),t[2],t[3]]);
- document.getElementById('todo').innerHTML=todo.length?`<table class="t"><tbody>${todo.map(t=>`<tr class="click" onclick="location.href='${t[2]}'"><td style="width:90px">${t[0]}</td><td>${t[1]}</td><td class="faint">›</td></tr>`).join('')}</tbody></table>`:'<div class="empty">无</div>'}
+/* ---------- 三、风险排名 ---------- */
+{let role=K.role(),site='';const rs=document.getElementById('rsite');
+ rs.innerHTML='<option value="">全部中心</option>'+D.centers.filter(c=>c.n).map(c=>`<option value="${K.esc(c.site)}">${K.esc(c.site)} ${K.esc(c.name.length>12?c.name.slice(0,12)+'…':c.name)}</option>`).join('');
+ const draw=()=>{const L=K.riskFor(role,site);document.getElementById('rankn').innerHTML=`共 <b>${L.length}</b> 项 · 高 <b>${L.filter(a=>a.score>=80).length}</b> · 中 <b>${L.filter(a=>a.score>=40&&a.score<80).length}</b> · 低 <b>${L.filter(a=>a.score<40).length}</b>`;
+   K.riskTable(document.getElementById('rkt'),L)};
+ K.seg(document.getElementById('role'),K.ROLES,role,v=>{role=v;K.setRole(v);draw()});rs.onchange=()=>{site=rs.value;draw()};draw()}
 });

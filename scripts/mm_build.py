@@ -3043,26 +3043,14 @@ def defaults(C):
                              'ab': {'个体': [[a, 'org', f"{n} 条"] for a, n in Counter(x['k'] for x in C.KZeff['anomalies']).items()]}, 'ex': [], 'm': ['M12'], 'r': [], 'todo': [],
                              'go': [['efficacy.html', '有效性趋势']]})
     if not C.S.get('todo'):
-        C.todo = [['CS·未关联', 'solid-red', f"{sum(g['risk'] == 'CSX' for g in C.labrows)} 行判CS但未关联AE/MH", 'safety.html#tab=lab&risk=CSX'],
-                  ['优先核实', 'red', f"{sum(o['pr'] == 4 for o in C.others)} 条专项信号优先核实", 'safety.html#tab=oth'],
-                  ['AESI', 'red', f"{sum(a['aesi'] for a in C.aes if not a['pre'] and not a.get('dup'))} 例次 AESI", 'safety.html#tab=ae&aesi=1'],
-                  ['一致性', 'yel' if any(c['st'] == '需核实' for c in C.cons) else 'grn', f"判定一致性 {len(C.cons)} 组（同中心 {sum(1 for c in C.cons if c['scope'] == 'center')} · 同受试者 {sum(1 for c in C.cons if c['scope'] == 'subject')}）：需核实 {sum(c['st'] == '需核实' for c in C.cons)}", 'safety.html#tab=cons'],
-                  ['质疑', 'org', f"{len(C.queries)} 条医学质疑已写入交付表格", 'queries.html']]
-        an = Counter(x['k'] for x in C.KZeff['anomalies'])
-        if an:
-            C.todo.insert(4, ['有效性', 'blu', '；'.join(f'{k} {v}' for k, v in an.most_common(2)), 'efficacy.html'])
+        # V6（用户审阅 RUX 第 1 条、裁定 2）：报告不再有「待办」——风险计数已在总览风险数据与风险排名里；
+        # 这里只留系统提示（构建/映射/词表这类需要人处理配置的事），显示在研究依据页底部
+        C.todo = []
         miss_eff = (C.KZeff or {}).get('missing') or []
         if miss_eff:
-            C.todo.insert(1, ['终点缺失', 'solid-red',
-                              f"{len(miss_eff)} 项终点指标无数据：{'、'.join(x['label'] for x in miss_eff[:3])}"
-                              f"{'…' if len(miss_eff) > 3 else ''}（核查量表映射/指标名）", 'efficacy.html'])
-        if any(o.get('cat') == '妊娠暴露核查' for o in C.others):
-            C.todo.insert(1, ['妊娠暴露', 'solid-red',
-                              f"{sum(1 for o in C.others if o.get('cat') == '妊娠暴露核查')} 例妊娠暴露待优先追踪（结局随访、避孕依从核查）",
-                              'safety.html#tab=oth'])
-        pot = (C.pdd or {}).get('potential') or []
-        if pot:
-            C.todo.insert(1, ['方案偏离', 'red', f"潜在 PD {len(pot)} 条：重要 {sum(1 for x in pot if x['grade'] == '重要')}，未见记录 {sum(1 for x in pot if x['status'] == '未见记录')}", 'deviations.html'])
+            C.todo.append(['终点缺失', 'solid-red',
+                           f"{len(miss_eff)} 项终点指标无数据：{'、'.join(x['label'] for x in miss_eff[:3])}"
+                           f"{'…' if len(miss_eff) > 3 else ''}（核查量表映射/指标名）", 'efficacy.html'])
     else:
         C.todo = C.S['todo']
     if getattr(C, 'todo_hint', ''):                 # 扩展规则词表缺失 → 待办区提示（D-P5-2 fail-visible，不覆盖默认）

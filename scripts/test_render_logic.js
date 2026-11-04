@@ -11,7 +11,8 @@
 const path = require('path');
 const dir = process.argv[process.argv.length - 1];
 global.window = {};
-global.K = global.window.K = {};   // kz.js IIFE 后的顶层语句用裸 K（浏览器解析为 window.K）
+global.window.K = {};
+Object.defineProperty(global, 'K', { get: () => global.window.K, configurable: true });   // kz.js IIFE 后的顶层语句用裸 K（浏览器解析为 window.K，IIFE 内会重建 window.K）
 global.document = { addEventListener() {}, querySelector() { return null; }, createElement() { return { style: {} }; } };
 global.ResizeObserver = class { observe() {} };
 require(path.resolve(dir, 'kz.js'));
@@ -93,7 +94,7 @@ ok(jNone.includes('未关联'), 'CS 行全空应显示「未关联」灰字');
 const jPlain = K.judgeCell(drow(0, '', '', ''), 'S1');
 ok(jPlain === '' || !jPlain.includes('未关联'), '正常行不显示「未关联」（仅 CS 行）');
 
-/* ---- V5：校正与尾概率、null 安全比较、处置后加重重开、研究层面容忍限度 ---- */
+/* ---- V5：校正与尾概率、null 安全比较、研究层面容忍限度 ---- */
 global.localStorage = (() => { const m = new Map(); return { getItem: k => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)) }; })();
 global.CustomEvent = class { constructor(n, o) { this.type = n; this.detail = (o || {}).detail; } };
 global.document.dispatchEvent = () => {};
@@ -104,26 +105,10 @@ ok(K.qlt(null, 0.1) === false && K.qlt(0.05, 0.1) === true, 'K.qlt：null 不得
 ok(Math.abs(K.poisUp(1, 1) - (1 - Math.exp(-1))) < 1e-6, 'K.poisUp 精确尾概率');
 ok(K.poisUp(200, 100) < 1e-6 && K.poisLo(50, 100) < 1e-4, '期望 >60 用正态近似仍给出极小尾概率');
 ok(K.qStyle(null, null) === '' && K.qStyle(0.2, null) === '', '不显著不着色');
-const sg = { sid: 'S1', test: 'ALT', risk: 'MH', mg: 1 };
-K.sigSet('lab', sg, 'done', '已发质疑');
-ok(K.sigGet('lab', sg).s === 'done', '处置状态保存');
-sg.risk = 'CSX';
-ok(K.sigGet('lab', sg).re === true && K.sigGet('lab', sg).s === 'open', '处置后加重（MH→CSX）自动重新打开');
 window.KZ = { cfg: { study: { code: 'T' } }, kri: { defs: [{ k: 'wd', l: '提前退出率', u: '%', dir: 'high', qtl: [10, 15, 20] }], tiers: [['strict', '严格'], ['std', '标准'], ['loose', '宽松']], tierDefault: 'std', study: { wd: [16, 100] }, sites: {}, na: {} } };
 const qs = K.qtlState('wd', [16, 100]);
 ok(qs.st === 'exceed' && Math.abs(qs.v - 16) < 1e-9 && qs.lim === 15, '容忍限度：标准档 16% > 15% → 超出');
 ok(K.qtlState('wd', [13, 100]).st === 'warn', '超过限度的 80% → 接近限度');
-
-/* ---- V5 修复波⑤：oth 处置键双前缀去重（others.qkey 已带 oth|，sigKey 再拼一次得 oth|oth|…）----
- * 归一后与工作台 stable_id 同写法（oth|<sid>|…）；旧键（localStorage/工作台 sigstate）读取时迁移别名，处置状态不丢。 */
-ok(K.sigKey.oth({ qkey: 'oth|S1|PR-2|wb:LB|k' }) === 'oth|S1|PR-2|wb:LB|k', 'oth qkey 已带前缀不再重复拼接');
-ok(K.sigKey.oth({ qkey: 'lab|S1|MHX-T|w:s|v' }) === 'oth|lab|S1|MHX-T|w:s|v', '不带前缀的 qkey（MHX-T 通道）补 oth| 类别前缀');
-window.KZS = { sigstate: { 'oth|oth|S1|PR-2|wb:LB|k': { s: 'done', r: '已发质疑', at: '2026-11-01 10:00', rk: 0 } } };
-K._sigM = null;
-const mig = K.sigAll();
-ok(mig['oth|S1|PR-2|wb:LB|k'] && mig['oth|S1|PR-2|wb:LB|k'].s === 'done', '旧双前缀键应迁移出单前缀别名');
-const gotMig = K.sigGet('oth', { qkey: 'oth|S1|PR-2|wb:LB|k' });
-ok(gotMig.s === 'done', 'sigGet 用归一后的键应命中迁移来的处置状态');
 
 /* ---- V5 修复波④：热力图小中心「个案驱动」标注（不改判定，只改呈现）----
  * 分母极小（随访人日 <200；无 fu 时给药人数 ≤3）且校正后偏高（q<0.10）的格子 → cased 判定＋标注文案。 */
@@ -184,5 +169,20 @@ require(path.resolve(dir, 'kz6.js'));
   ok(grp && grp.group.length === 2 && /2 项/.test(grp.title) && grp.why === 'MCH、MCV', 'groupSig：合并卡标题计数、列出指标');
 }
 
+/* ---- V6（用户审阅 RUX 第 1/5 条）：风险排名——角色过滤（roles）＋加权（ROLEW）、中心筛选、按分值降序；无处置状态 ---- */
+{
+  window.KZ = { cfg: {}, meta: {}, centers: [], subs: [], aes: [], queries: [], cro: [], labrows: [], pd: { potential: [] },
+    others: [{ sid: 'S1', site: '01', cat: '入排标准核对', pr: 4, sum: 'a', d: '2026-01-01', sh: 'IE', row: 1, ctx: [] },
+             { sid: 'S2', site: '02', cat: '访视超窗核对', pr: 3, sum: 'b', d: '2026-01-02', sh: 'SV', row: 2, ctx: [] }],
+    ops: { entry: [{ sid: 'S3', site: '01', test: 'ALT', visit: 'W2', raw: '1', unit: 'U/L', why: 'x' }] } };
+  K._cr = null; K._risk = null; K._subs = []; K._subsBy = {}; K.lab = [];
+  ok(K.riskFor('all').length === 3, '风险排名：全部角色含专项与录入错误');
+  ok(K.riskFor('cra').length === 1 && K.riskFor('cra')[0].kind === 'ent', '风险排名：临床监查只取其角色项');
+  ok(K.riskFor('all', '01').length === 2, '风险排名：中心筛选');
+  const pm = K.riskFor('pm'); ok(pm.length === 0, '风险排名：项目经理无对应项');
+  const mm = K.riskFor('mm'); ok(mm.length === 2 && mm[0].score >= mm[1].score && mm[0].sig === undefined, '风险排名：按分值降序且无处置状态');
+  ok(typeof K.sigSet === 'undefined' && typeof K.sigPill === 'undefined', '处置状态接口已删除');
+}
+
 if (fails) { console.error(`${fails} 处断言失败`); process.exit(1); }
-console.log('render logic ok: knCard/knBar/knHint/ptCons/judgeCell/bh/poisUp/qlt/sig/qtl/sigKey/heatCase/chartGuard/groupSig');
+console.log('render logic ok: knCard/knBar/knHint/ptCons/judgeCell/bh/poisUp/qlt/qtl/heatCase/chartGuard/groupSig/riskFor');

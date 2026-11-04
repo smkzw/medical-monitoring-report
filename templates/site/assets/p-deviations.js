@@ -50,15 +50,14 @@ function potList(rows,title){
  K.chips(pane.querySelector('#fs'),['未见记录','已记录'].map(s=>[s,s,rows.filter(x=>x.status===s).length]).filter(x=>x[2]),v=>{F.st=v;draw()},{all:'全部比对',value:F.st});
  pane.querySelector('#fc').onchange=e=>{F.cat=e.target.value||null;drawMx();draw()};pane.querySelector('#fsi').onchange=e=>{F.site=e.target.value;draw()};pane.querySelector('#fq').oninput=e=>{F.s=e.target.value.trim();draw()};
  const tb=K.table(pane.querySelector('#tb'),{rows:[],pageSize:40,onRow:r=>{K.setHash({tab:F.tab,id:r.id});K.showPD(r.id)},cols:[
-  {k:'grade',t:'分级',f:r=>K.pdGrade(r.grade)+K.dpill('pd',r)+(r.ctq?K.p('关键','solid-red',r.ctq):'')+K.sigPill('pd',r),s:r=>G.indexOf(r.grade),w:'84px'},{k:'cat',t:'类别',f:r=>K.pdCat(r.cat),w:'118px'},
+  {k:'grade',t:'分级',f:r=>K.pdGrade(r.grade)+K.dpill('pd',r)+(r.ctq?K.p('关键','solid-red',r.ctq):''),s:r=>G.indexOf(r.grade),w:'84px'},{k:'cat',t:'类别',f:r=>K.pdCat(r.cat),w:'118px'},
   {k:'sid',t:'受试者',f:r=>`${K.sid(r.sid)} <span class="xs faint">${r.site}</span>`,w:'90px'},{k:'date',t:'访视 / 日期',f:r=>`${r.visit?K.p(r.visit,'blu'):''}<div class="xs muted nowrap">${r.date||''}</div>`,w:'96px'},
   {k:'fact',t:'偏离事实（数据推断）',ns:1,f:r=>`<b class="small" style="color:var(--ink)">${K.esc(r.title)}</b><div class="small" style="margin-top:2px;line-height:1.6">${K.hlNum(r.fact)}</div>`},
   {k:'status',t:'比对',f:r=>`${K.pdStatus(r.status)}${r.matched?`<div class="xs mono faint" style="margin-top:2px">${r.matched}</div>`:''}`,w:'84px'},
   {k:'action',t:'处理',f:r=>K.pdAct(r.action),w:'76px'},
   {k:'sig',t:'关联',ns:1,f:r=>{const s=r.sig?(r.sig[0]==='oth'?D.others[r.sig[1]]:D.labrows[r.sig[1]]):null;return s?(s.q||[]).map(K.qPill).join('')||`<span class="xs faint">${r.sig[0]==='lab'?'检验风险':'专项信号'}</span>`:''},w:'70px'}]});
- const cfP=K.chgBar(pane.querySelector('#chg-pd'),'pd',()=>draw(),'潜在 PD'),sgP=K.sigBar(pane.querySelector('#chg-pd'),()=>draw());
- document.addEventListener('kz-sig',()=>{if(pane.contains(tb&&pane.querySelector('#tb')))draw()});
- function draw(){const s=F.s.toLowerCase();tb.set(rows.filter(r=>cfP(r)&&sgP('pd',r)&&(!F.g.length||F.g.includes(r.grade))&&(!F.st||r.status===F.st)&&(!F.cat||r.cat===F.cat)&&(!F.site||r.site===F.site)&&(!s||(r.sid+r.fact+r.title).toLowerCase().includes(s))))}
+ const cfP=K.chgBar(pane.querySelector('#chg-pd'),'pd',()=>draw(),'潜在 PD');
+ function draw(){const s=F.s.toLowerCase();tb.set(rows.filter(r=>cfP(r)&&(!F.g.length||F.g.includes(r.grade))&&(!F.st||r.status===F.st)&&(!F.cat||r.cat===F.cat)&&(!F.site||r.site===F.site)&&(!s||(r.sid+r.fact+r.title).toLowerCase().includes(s))))}
  draw();
 }
 function confList(){

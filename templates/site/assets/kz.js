@@ -390,7 +390,7 @@ K.showPD=id=>{const it=K.pdBy(id);if(!it)return;const P=KZ.pd,X=window.KZX||{},c
   const ev=(X.pdex||{})[it.id];
   const refs=[...new Set(((sig&&sig.ctx)||[]).concat(it.ctx||[]).join(' ').match(/R-[A-Z]+-\d+/g)||[])];
   const related=conf?(P.potential||[]).filter(x=>x.matched===it.id):[];
-  K.drawer(`${it.id} · ${K.esc(conf?(it.rawCat||'已记录方案偏离'):it.title)}`,`${conf?'':'<div class="sigbox"></div>'}
+  K.drawer(`${it.id} · ${K.esc(conf?(it.rawCat||'已记录方案偏离'):it.title)}`,`
   <div class="flex wrap mb">${K.sid(it.sid)}${it.ctq?K.p('关键数据','solid-red',it.ctq):''}${K.p(K.center(it.site),'line')}${it.visit?K.p(it.visit,'blu'):''}${it.date?K.p(it.date,'line'):''}${K.pdGrade(it.grade)}${conf?(it.rawGrade?K.p('原文：'+it.rawGrade,'line'):''):K.pdStatus(it.status)}${conf?'':K.pdAct(it.action)}</div>
   <div class="box ${it.grade==='重要'?'red':'org'}" style="font-size:13px;line-height:1.7">${K.hlNum(conf?it.desc:it.fact)}</div>
   ${conf?'':`<div class="sec-t"><h2>分级与依据</h2></div><div class="flex small" style="align-items:flex-start;line-height:1.7">${K.pdGrade(it.grade)}<span>${K.esc(it.why)}</span></div>
@@ -403,7 +403,6 @@ K.showPD=id=>{const it=K.pdBy(id);if(!it)return;const P=KZ.pd,X=window.KZX||{},c
   <div class="sec-t"><h2>处理建议</h2>${K.pdAct(it.action)}</div><div class="small" style="line-height:1.7">${K.esc(K.PDACT[it.action]||'')}</div>${it.tip?`<div class="note small mt" style="line-height:1.7">${K.esc(it.tip)}</div>`:''}`}
   <div class="pd-series"></div>
   <div class="mt"><a class="small" href="timeline.html#s=${it.sid}">查看 ${it.sid} 时间线 ›</a>　<a class="small" href="deviations.html#id=${it.id}">在方案偏离页定位 ›</a></div>`,conf?K.pdCat(it.cat):`${K.pdCat(it.cat)}${K.p(it.layer+'层面','line')}`);
-  if(!conf&&K.sigCtl)K.sigCtl(document.querySelector('.dr .sigbox'),'pd',it);
   const hlr=(sig&&sig.pts||[]).map(p=>[p[7],p[8]]).concat((it.src||[]).map(s=>[s[0],s[1]])).filter(e=>e[0]&&e[1]!=null);
   if(hlr.length){const rb=document.querySelector('.dr .pd-raw');K.rawBox(rb,it.sid,hlr,{title:'源数据'}).then(()=>{if(rb.innerHTML.trim())document.querySelector('.dr .pd-src').style.display='none'})}   /* V6：就地原行 */
   const tests=[sig&&sig.test,...(it.src||[]).map(s=>s[2])].filter(Boolean);
