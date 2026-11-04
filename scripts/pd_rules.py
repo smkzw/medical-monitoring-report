@@ -20,7 +20,7 @@ from collections import Counter, defaultdict
 
 import ext_rules
 from monitor_v5 import crit_items
-from common import days, dshow, fmt, is_full_date, yes, zero_dose
+from common import days, dose_state, dshow, fmt, is_dosing, is_full_date, yes, zero_dose
 
 # (分类码, 名称, 层面, 说明, CDISC DVCAT（SDTM CT C225352；与 TransCelerate 7 类一一对应）)
 TAXONOMY = [
@@ -250,10 +250,12 @@ class _PD:
             if rule == 'CM-01' and any(rx.search(o.get('test') or '') for rx in imp_cm):
                 grade, why = '重要', '该禁用药类别被方案列为影响疗效评价或安全的药物（可构成主要终点伴发事件）'
             if rule.startswith('ELIG'):
+                st = o.get('_elig', 'violated')
+                if st in ('exception_met', 'premise_unmet'):
+                    continue                             # V6（用户审阅 RUX 第 9 条）：例外已满足/前提不成立 → 不构成偏离（信号仍作提示）
                 why = '入组资格不符：受试者不应暴露于研究药物，且影响分析人群（ICH E3 Q&A 列举的典型重要偏离）'
-                exc = next((c for c in o.get('ctx') or [] if str(c).startswith('例外条款')), None)
-                if exc:
-                    grade, why = '待判定', f'该标准含{exc}——需核对受试者是否符合例外情形，再确定是否构成偏离'
+                if st == 'undetermined':
+                    grade, why = '待判定', '方案该标准带前提或例外条款，现有数据无法判定是否满足，需核实后再确定是否构成偏离'
             o['pd'] = rule
             self.add(rule, o['sid'], o['sum'], date=o.get('d'), visit=o.get('v'), src=[[_sh(o, 'sh'), o['row'], o.get('test') or '']],
                      grade=grade, why=why, sig=['oth', i, o.get('qkey', '')], ctx=list(o.get('ctx') or []))
@@ -506,20 +508,34 @@ class _PD:
             for d, why in ends:
                 if not is_full_date(d):
                     continue
-                late = [e for e in ex if (_last_dose(e) or '') > d and not zero_dose(e) and not str(e.get('dose') or '').strip() in ('0', '0.0')]
+                late = [e for e in ex if (_last_dose(e) or '') > d and is_dosing(e) and not str(e.get('dose') or '').strip() in ('0', '0.0')]
                 if late:
                     e = late[0]
                     self.add('IP-02', sid, f"{why}日期 {d}，给药记录至 {_last_dose(e)}（{e['start']} 起）", date=_last_dose(e),
                              src=[[_sh(e), e['row'], '给药']], why='终止治疗后继续暴露于研究药物，可能影响受试者安全（重要偏离）')
                     break
             for d, o in sorted(stop_hit.get(sid, []), key=lambda x: x[0])[:1]:   # 按达标日期排序（元组含 dict，显式 key 防比较崩溃）
-                late = [e for e in ex if (_last_dose(e) or '') > d and not zero_dose(e)]
-                if late:
-                    e = late[0]
-                    self.add('WD-01', sid, f"{o.get('test')} {o.get('v') or ''}（{d}）达到方案停药标准（{o['_rule'].get('label') or o['cat']}），给药记录持续至 {_last_dose(e)}",
-                             date=_last_dose(e), src=[[_sh(o, 'sh'), o['row'], o.get('test') or ''], [_sh(e), e['row'], '给药']],
-                             grade='待判定' if o['_rule'].get('stopCond') else None,
-                             why=('方案停药标准带前提（' + o['_rule']['stopCond'] + '…）：需核实前提是否满足') if o['_rule'].get('stopCond') else '')
+                late = [e for e in ex if (_last_dose(e) or '') > d and is_dosing(e)]
+                if not late:
+                    continue
+                e = late[0]
+                lab = o['_rule'].get('label') or o['cat']
+                # V6（RUX 审阅第 11 条）：达标前后已暂停给药（医嘱调整「暂停用药」区间覆盖达标日附近）、之后又恢复——
+                # 不是「给药持续」；按方案停药是否以「复查确认」为前提，列为待判定并请提供复测确认情况（用户裁定 11＝A）
+                pause = next((x for x in ex if dose_state(x) in ('paused', 'withdrawn') and is_full_date(x.get('start'))
+                              and -3 <= (days(x['start'], d) or 99) <= 7), None)
+                if pause is not None:
+                    pe = _last_dose(pause) if pause.get('end') else pause['start']
+                    self.add('WD-01', sid, f"{o.get('test')} {o.get('v') or ''}（{d}）达到方案停药标准（{lab}），{pause['start']} 起已暂停给药"
+                                           f"{('至 ' + pe) if pe and pe != pause['start'] else ''}，{e['start']} 恢复给药",
+                             date=e['start'], src=[[_sh(o, 'sh'), o['row'], o.get('test') or ''], [_sh(pause), pause['row'], '暂停给药'],
+                                                   [_sh(e), e['row'], '恢复给药']],
+                             grade='待判定', why='达标后已暂停给药并恢复：方案停药是否以复查确认为前提、恢复前复测是否已低于标准，需核实')
+                    continue
+                self.add('WD-01', sid, f"{o.get('test')} {o.get('v') or ''}（{d}）达到方案停药标准（{lab}），给药记录持续至 {_last_dose(e)}",
+                         date=_last_dose(e), src=[[_sh(o, 'sh'), o['row'], o.get('test') or ''], [_sh(e), e['row'], '给药']],
+                         grade='待判定' if o['_rule'].get('stopCond') else None,
+                         why=('方案停药标准带前提（' + o['_rule']['stopCond'] + '…）：需核实前提是否满足') if o['_rule'].get('stopCond') else '')
         dz = P.get('dosing') or {}
         if dz:
             self.ran['IP-01'] = 'ran'

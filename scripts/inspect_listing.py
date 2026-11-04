@@ -135,6 +135,20 @@ _STRUCT_LABEL_RX = re.compile(r'^(访视|页面|表单|数据节|数据页|数�
 _STRUCT_VAR_RX = re.compile(r'(VISIT\w*|FOLDER\w*|FORM(NM|OID|REP|NAME)?|VIST(OID|REP)|SITE(ID|NM|NAME|NO)|SUBJSTA|RECREP|PAGE\w*|INSTANCE\w*)', re.I)
 
 
+# V6（RUX 审阅第 19 条根因）：事实字段（时间/日期/结果…）不得取 EDC 结构或稽查元数据列——比 is_struct_col 窄：
+# 「访视日期」是真实日期，「访视名称/页面最近修改时间/表单 OID」不是
+_META_LABEL_RX = re.compile(r'^(访视(名称|编号|代码|序号|阶段)?|页面.*|表单.*|数据节|数据页|数据块|研究中心|试验中心.*|中心(编号|名称|号)?'
+                            r'|受试者状态|记录号|行号|页码|Instance.*|Block.*)$'
+                            r'|(最近|最后|首次)?(修改|录入|创建|保存|提交|审核|锁定|冻结|签名|更新)(时间|日期)$')
+_META_VAR_RX = re.compile(r'PAGE\w*|FOLDER\w*|FORM(NM|OID|REP|NAME)?|VIST(OID|REP)|SITE(ID|NM|NAME|NO)|SUBJSTA|RECREP|INSTANCE\w*'
+                          r'|VISIT(NAME|OID|NUM|REP)?|\w*(LMDT|FSDT|LASTMOD\w*|CREATE\w*|ENTRY\w*)', re.I)
+
+
+def is_meta_col(label, var=''):
+    lab, v = str(label or '').strip(), str(var or '').strip()
+    return (lab in SYS_META) or bool(_META_LABEL_RX.search(lab)) or bool(_META_VAR_RX.fullmatch(v))
+
+
 def is_struct_col(label, var=''):
     """该列是否为结构性元数据列（访视名称/页面名称/研究中心/受试者状态/OID/序号…）——绝不能作事件术语。"""
     lab, v = str(label or '').strip(), str(var or '').strip()
@@ -165,11 +179,17 @@ def split_label(lab, var):
     return (m.group(1), m.group(2)) if m else (lab, var)
 
 
+# 结构性元数据列（访视/页面/表单/中心/稽查时间…）只能绑定到这些字段；其余事实字段（时间/日期/结果/术语…）绝不取它们
+STRUCT_OK = {'visit', 'site', 'center', 'status', 'sid'}
+
+
 def guess(names, field):
     for pat in FIELD_SYN.get(field, []):
         for i, (lab, var) in enumerate(names):
             if lab in SYS_META and SYS_META[lab] != field:
                 continue
+            if field not in STRUCT_OK and is_meta_col(lab, var):
+                continue                 # V6（RUX 审阅）：「页面最近修改时间」被当成采样时间，检验图 87% 点非法、给药-采样时序误判
             if (var and re.search(pat, var)) or (lab and re.search(pat, lab)):
                 return var or lab
     return None

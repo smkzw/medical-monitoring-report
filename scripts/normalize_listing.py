@@ -31,7 +31,7 @@ from pathlib import Path
 import openpyxl
 
 from common import clin_code, dump_json, load_json, norm_date, open_workbook_lenient, parse_desc_links, parse_links, parse_typed_links, to_num, yes
-from inspect_listing import guess, is_struct_col
+from inspect_listing import STRUCT_OK, guess, is_meta_col, is_struct_col
 
 DATE_FIELDS = {'date', 'start', 'end', 'icf', 'eot_d', 'eos_d', 'rand_d', 'fd', 'ld', 'aware', 'rpt'}
 NUM_FIELDS = {'age', 'bmi', 'ht', 'wt', 'lo', 'hi'}
@@ -195,6 +195,12 @@ def read_spec(spec, books, M, dom=None):
     cols = {k: col_index(c, labels, vars_) for k, c in spec.get('cols', {}).items()}
     if dom in EVENT_DOMS and cols.get('term') is not None:
         cols['term'] = _term_guard(spec['sheet'], cols['term'], labels, vars_)
+    for k in [k for k, ix in cols.items() if ix is not None and k not in STRUCT_OK and k != 'term']:
+        ix = cols[k]                     # V6：事实字段落在结构性/稽查元数据列（陈旧或误确认的 mapping：time=页面最近修改时间）→ 不读
+        lab, var = (labels[ix] if ix < len(labels) else ''), (vars_[ix] if ix < len(vars_) else '')
+        if is_meta_col(lab, var):
+            print(f"  ! {spec['sheet']}: {k} 列「{lab or var}」是结构性/稽查元数据列，不作为 {k} 读取")
+            cols[k] = None
     hlk = ('value', 'clin', 'desc', 'link', 'grade', 'rel', 'term', 'aesi', 'serious', 'action', 'indication', 'start', 'end', 'date')
     # PR-8: SHEETS keyed by per-workbook unique id "wb:sheet" — same-name sheets in different
     # workbooks no longer collapse into one meta entry (each keeps its own highlight columns / sid label).

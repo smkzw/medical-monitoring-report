@@ -22,7 +22,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 
-from common import days, dshow, fmt, is_full_date, move_word
+from common import days, dshow, fmt, is_dosing, is_full_date, move_word
 
 BP_DEFAULT_HI = {'收缩压': 139, '舒张压': 89}      # M15：listing 未给范围时的默认上限（与 skill demo 一致）
 
@@ -409,7 +409,7 @@ def m19_ae_ex(C):
         # 给药记录里的「中断」：暂停原因文本、剂量为 0 的给药区间、相邻区间之间的空档；永久停药看末次给药日期
         stops = [e.get('start') for e in exp if act_re.search(str(e.get('pause') or '')) or
                  any(str(e.get(k)).strip() in ('0', '0.0') for k in ('dose_act', 'qty') if e.get(k) not in (None, ''))]
-        iv = sorted((e['start'], e.get('end') or e['start']) for e in exp if is_full_date(e.get('start')))
+        iv = sorted((e['start'], e.get('end') or e['start']) for e in exp if is_full_date(e.get('start')) and is_dosing(e))   # 暂停区间不是给药区间（不能填平空档）
         stops += [prev[1] for prev, nxt in zip(iv, iv[1:]) if is_full_date(prev[1]) and (days(nxt[0], prev[1]) or 0) > 1]
         last = max((x[1] for x in iv if is_full_date(x[1])), default=None)
         for a in C.ae_by[sid]:                          # ② AE 措施=停药/暂停但给药记录无中断

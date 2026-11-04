@@ -69,6 +69,85 @@ def to_num(v):
     return None
 
 
+_NUM_SCI = re.compile(r'^(<=|<|>=|>)?([0-9]+(?:\.[0-9]+)?)(?:[eE]([+-]?\d+)|[*×xX]10\^?([+-]?\d+))?')
+
+
+def result_state(raw):
+    """检验结果写法的统一语义（V6，RUX 审阅第 12 条：「＜检测下限」「<1*10^3」「阴性」「5.26×10^3」各处各解）：
+    返回 (kind, v)：value（确切数值）/ below（低于上界 v；v=None 表示低于检测下限）/ above（高于下界 v）/
+    neg（阴性/未检出类定性）/ pos（阳性类定性）；空或无法识别 → None。"""
+    s = str(raw if raw is not None else '').strip()
+    if not s:
+        return None
+    if isinstance(raw, (int, float)):
+        return ('value', float(raw))
+    t = (s.replace('＜', '<').replace('＞', '>').replace('≤', '<=').replace('≥', '>=').replace('×', '*')
+         .replace(' ', '').replace(',', ''))
+    if re.search(r'低于(检测|定量)?下限|<(检测|定量)下限|<?LLOQ|<?LOD|^ND$|BLQ|TND|不可测|未检出|未检测到|notdetected', t, re.I):
+        return ('below', None)
+    m = _NUM_SCI.match(t)
+    if m:
+        v = float(m.group(2)) * (10 ** int(m.group(3) or m.group(4) or 0))
+        op = m.group(1)
+        return ('below', v) if op in ('<', '<=') else ('above', v) if op in ('>', '>=') else ('value', v)
+    if re.search(r'阴性|negative|^[-－]$|^[（(][-－][)）]$', t, re.I) and not re.search(r'阳性|positive', t, re.I):
+        return ('neg', None)
+    if re.search(r'阳性|positive|^\+', t, re.I):
+        return ('pos', None)
+    return None
+
+
+def state_meets(op, v, st):
+    """结果状态 st 是否满足「op v」（如 ≥ 2000）：True / False / None（无法判定，如删失上界高于阈值）。"""
+    if st is None or v is None:
+        return None
+    kind, x = st
+    v = float(v)
+    ge = op in ('>=', '>', '≥')
+    if kind == 'value':
+        return {'>=': x >= v, '≥': x >= v, '>': x > v, '<=': x <= v, '≤': x <= v, '<': x < v}.get(op)
+    if kind == 'below':
+        if x is None or x <= v:
+            return False if ge else True
+        return None
+    if kind == 'above':
+        if x >= v:
+            return True if ge else False
+        return None
+    if kind == 'neg':
+        return False if ge else True
+    return None
+
+
+_PAUSE_RX = re.compile(r'暂停|中断|暂时停|停止|停用|停药|永久|撤药|终止|pause|interrupt|hold|stop|withdr', re.I)
+_RESUME_RX = re.compile(r'重新|恢复|再次给药|继续用药|resum|restart|re-?start', re.I)
+_REDUCE_RX = re.compile(r'减量|降低剂量|减少剂量|剂量下调|reduc', re.I)
+_PERM_RX = re.compile(r'永久|撤药|终止|withdr|discontinu', re.I)
+
+
+def dose_state(e):
+    """给药记录的语义状态（V6，RUX 审阅第 11 条：医嘱调整表「暂停用药 01-27～02-19」曾被当成给药区间）：
+    paused（暂停/中断）/ withdrawn（永久停药）/ resumed（恢复）/ reduced（减量）/ dosing（普通给药）。
+    依据 mapping 的 pause 字段（调整类型/暂停原因）；「否/无」视为无调整。"""
+    t = str(e.get('pause') or '').strip()
+    if not t or re.fullmatch(r'否|无|N|No|NA|不适用', t, re.I):
+        return 'dosing'
+    if _RESUME_RX.search(t):
+        return 'resumed'
+    if _PERM_RX.search(t):
+        return 'withdrawn'
+    if _PAUSE_RX.search(t):
+        return 'paused'
+    if _REDUCE_RX.search(t):
+        return 'reduced'
+    return 'dosing'
+
+
+def is_dosing(e):
+    """该记录代表实际给药：剂量非 0，且不是暂停/永久停药区间（暂停区间的起止日期是「未给药」的时间段）。"""
+    return not zero_dose(e) and dose_state(e) not in ('paused', 'withdrawn')
+
+
 def zero_dose(e):
     """给药记录的实际剂量/数量明确为 0（暂停或停药后的占位区间）→ 不算给药。"""
     for k in ('dose_act', 'qty'):

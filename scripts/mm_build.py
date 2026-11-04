@@ -23,7 +23,7 @@ import ext_rules
 import monitor_v5
 import raw_export
 import pd_rules
-from common import days, dshow, dump_json, fmt, is_full_date, load_json, move_word, open_workbook_lenient, quantile, study_day, yes, zero_dose
+from common import days, dshow, dump_json, fmt, is_dosing, is_full_date, load_json, move_word, open_workbook_lenient, quantile, result_state, state_meets, study_day, yes, zero_dose
 
 AGG_EXCL = set()
 
@@ -250,7 +250,7 @@ def build_subjects(C):
     C.subj = {}
     for s in sorted(C.subjects, key=lambda x: x['sid']):
         sid = s['sid']
-        e = sorted([x for x in ex[sid] if is_full_date(x.get('start')) and not zero_dose(x)], key=lambda x: x['start'])   # 0 剂量区间不算首/末次给药
+        e = sorted([x for x in ex[sid] if is_full_date(x.get('start')) and is_dosing(x)], key=lambda x: x['start'])   # 0 剂量与暂停/停药区间不算首/末次给药
         fd = e[0]['start'] if e else s.get('fd')
         ld = max([x.get('end') or x['start'] for x in e if is_full_date(x.get('end') or x['start'])], default=None) if e else s.get('ld')
         st = s.get('status')
@@ -1688,6 +1688,64 @@ def _elig_bad(E, x):
     return cmp(E['op'], x, E['v'])
 
 
+_COND_QUAL = re.compile(r'^(?:有临床意义或)?(?:未控制的|未经控制的|有临床意义的|活动性|未经治疗的)?')
+
+
+def _premise_treated(C, sid, E):
+    """「经治疗后仍超标方构成排除」前提（用户 2026-11-04 裁定 9＝A：有病史/合并用药数据时自动判）：
+    violated＝有对应合并用药（经治疗仍超标）；undetermined＝只有病史没有用药记录；premise_unmet＝两者都没有。
+    条件名取标准原文里超标指标所属的疾病（「未控制的高血压（定义为经治疗收缩压>150…）」→ 高血压）。"""
+    txt = str(E.get('text') or '')
+    m = re.search(r'(?:未控制的|未经控制的)([\u4e00-\u9fff]{2,8}?)(?:[（(]|，|,|；|定义)', txt)
+    cond = m.group(1) if m else None
+    if not cond:
+        return 'undetermined'
+    cm = [c for c in (getattr(C, 'cm_by', None) or {}).get(sid, []) if cond in (c.get('why') or '') or cond in (c.get('t') or '')]
+    if cm:
+        return 'violated'
+    mh = [x for x in (getattr(C, 'mh_by', None) or {}).get(sid, []) if cond in (x.get('t') or '')]
+    return 'undetermined' if mh else 'premise_unmet'
+
+
+def _exc_state(C, sid, E, r):
+    """方案例外条款（「青少年碱性磷酸酶>1.5×ULN 且具有临床意义者」）逐条判：只认提到本指标的分句；分句带人群限定
+    （青少年/儿童/<18 岁 / 成人）而受试者不在该人群 → 例外不适用；在该人群且要求「具有临床意义」→ 研究者判 NCS 时例外成立。
+    返回 exception_met / violated / undetermined；没有适用分句 → None（照常判）。"""
+    exc = str(E.get('exc') or '')
+    if not exc:
+        return None
+    lab = C.metric.get(r.get('mid') or '', {}).get('label') or r.get('test') or ''
+    names = [n for n in re.split(r'[（()）\s/]+', lab) if len(n) >= 2]
+    for cl in re.split(r'[；;。]', exc):
+        if not cl.strip() or not any(n in cl for n in names) or re.search(r'胆红素', cl) and not re.search(r'胆红素', lab):
+            continue
+        age = C.subj[sid].get('age')
+        try:
+            age = float(age)
+        except (TypeError, ValueError):
+            age = None
+        kid = re.search(r'青少年|儿童|未成年|<\s*18|18\s*岁以下', cl)
+        adult = re.search(r'成人|成年|≥\s*18', cl)
+        if kid or adult:
+            if age is None:
+                return 'undetermined'
+            if (kid and age >= 18) or (adult and age < 18):
+                return 'violated'           # 例外只对另一人群
+        if re.search(r'具有临床意义|有临床意义', cl):
+            return 'exception_met' if r.get('clin') in (0, 1) else 'violated' if r.get('clin') == 2 else 'undetermined'
+        return 'undetermined'
+    return None
+
+
+def _elig_bad_r(E, r):
+    """V6：删失/定性写法（「<50」被 to_num 读成 50）按结果状态判；其余沿用数值比较。"""
+    if not E.get('re') and E.get('on') in (None, 'val'):
+        st = result_state(r.get('raw'))
+        if st is not None and st[0] in ('below', 'above', 'neg'):
+            return state_meets(E['op'], E.get('v'), st) is True
+    return _elig_bad(E, _elig_x(E, r))
+
+
 _UNS_NAME_RX = re.compile(r'计划外|unsched|^USV$', re.I)
 
 
@@ -1733,45 +1791,31 @@ def _near_val(C, sid, mre, r):
     if not is_full_date(d0):
         return None
     cand = [x for (s2, mid), rows in C.F.items() if s2 == sid and mre.search(mid) for x in rows
-            if (isinstance(x.get('value'), (int, float)) or censored(x.get('raw'))) and is_full_date(x.get('date'))]
+            if (isinstance(x.get('value'), (int, float)) or result_state(x.get('raw')) is not None) and is_full_date(x.get('date'))]
     if not cand:
         return None
     same = [x for x in cand if x.get('sheet') == r.get('sheet')]
     return min(same or cand, key=lambda x: (abs(days(x['date'], d0) or 0), x['date']))
 
 
+_NEG_TXT = r'[^，。；,;]{0,6}?(?:[（(]\s*[-－]\s*[)）]|阴性|未检出|低于(?:检测)?下限|[<＜])'
+
+
 def _gate_ok(C, sid, G, r):
-    """复合排除的伴随条件（E14 型 gate）：None=伴随指标不可得；True/False=是否满足。"""
+    """复合排除的伴随条件（E14 型 gate）：None=伴随指标不可得；True/False=是否满足。
+    V6（用户审阅 RUX 第 12 条）：伴随结果统一按 result_state 判（「<50」「＜检测下限」「阴性」「<1*10^3」都是低于阈值）；
+    结构化结果取不到时，读触发行的说明列（「NCS，乙肝DNA（－）」）里对伴随指标的否定写法——只用于判「不满足」。"""
     x = _near_val(C, sid, re.compile(G['metric']), r)
     if x is None:
-        return None
+        txt = ' '.join(str(r.get(k) or '') for k in ('desc', 'reason_text', 'reason_raw'))
+        kw = G.get('kw') or G['metric']
+        return False if txt and re.search(f'(?:{kw}){_NEG_TXT}', txt, re.I) else None
     if G.get('re'):
         t = str(x.get('raw') or '')
         return bool(re.search(G['re'], t, re.I)) and not re.search(r'阴性|negative|未检出', t, re.I)
-    c = censored(x.get('raw')) if not isinstance(x.get('value'), (int, float)) else None
-    if c is not None and G.get('v') is not None:
-        # V6（MM 审阅 2026-11-02：RUX HBcAb 阳性 14 条 pr4，13 条已有「<1.00E+02 / 低于检测下限」的 HBV-DNA）：删失值按上界判
-        op, ub = G.get('op', '>='), c
-        if op in ('>=', '>', '≥'):
-            return False if ub is not None and ub <= float(G['v']) else None
-        if op in ('<=', '<', '≤'):
-            return True if ub is not None and ub <= float(G['v']) else None
-        return None
-    return cmp(G.get('op', '>='), x.get('value'), G.get('v'))
-
-
-def censored(raw):
-    """删失结果的上界：「<1.00E+02」→100.0；「低于检测下限/未检出/<LLOQ」→0.0（视为低于任何正阈值）；不是删失 → None。"""
-    s = str(raw or '').strip().replace('＜', '<').replace(' ', '')
-    m = re.match(r'^(<|≤|<=)([0-9.]+(?:[eE][+-]?\d+)?)', s)
-    if m:
-        try:
-            return float(m.group(2))
-        except ValueError:
-            return None
-    if re.search(r'低于(检测|定量)?下限|未检出|<LLOQ|<LOD|ND$|BLQ|TND|不可测', s, re.I):
-        return 0.0
-    return None
+    st = result_state(x.get('raw')) if not isinstance(x.get('value'), (int, float)) or re.match(r'\s*[<＜>＞≤≥]', str(x.get('raw') or '')) \
+        else ('value', float(x['value']))
+    return state_meets(G.get('op', '>='), G.get('v'), st)
 
 
 def eligibility_checks(C):
@@ -1789,7 +1833,7 @@ def eligibility_checks(C):
             pool = _elig_pool(C, sid, rows, E)
             if not pool:
                 continue
-            bad = [r for r in pool if _elig_bad(E, _elig_x(E, r))]
+            bad = [r for r in pool if _elig_bad_r(E, r)]
             r = pool[-1] if pick == 'last' else pool[0] if pick == 'first' else (bad[0] if bad else None)
             if r is None or r not in bad:
                 continue
@@ -1805,6 +1849,8 @@ def eligibility_checks(C):
             det = f"入组前 {lab} {r.get('raw')} {r.get('unit') or ''}（{r.get('visit')} {dshow(r.get('date'))}）对照{kind}「{E['text']}」"
             bkey = f"{lab}|{r.get('visit') or ''}|{r.get('date') or ''}"   # qkey 沿用旧口径（类别＋判定记录），存量 MMQ 身份不漂移
             # ---- 用户 2026-11-01 三裁定：复合前提/例外不机械判排除 ----
+            # V6（用户审阅 RUX 第 9 条）：信号带判定状态 _elig（violated/exception_met/premise_unmet/undetermined），
+            # 方案偏离只对 violated 生成、undetermined 列「待判定」，例外已满足/前提不成立只作提示
             if E.get('gate') and E.get('re'):                        # ③「X 阳性且 Y…」：Y 未满足不发；不可得降为请核实
                 g = _gate_ok(C, sid, E['gate'], r)
                 if g is False:
@@ -1812,9 +1858,10 @@ def eligibility_checks(C):
                 if g is None:
                     gl = E['gate'].get('label') or '伴随条件'
                     gv = f"{gl} {E['gate'].get('op', '')}{fmt(E['gate']['v'])}{E['gate'].get('unit') or ''}" if E['gate'].get('v') is not None else gl
-                    add_other(C, sid, E.get('cat', '入排标准核对'), E.get('pr', 4),
-                              f"{det}阳性，方案要求同时 {gv} 才排除，未见同期 {gl} 结果，请核实",
-                              r.get('visit'), r.get('date'), r['sheet'], r['row'], lab, r.get('clin'), ctx=ctx, bkey=bkey, wb=r.get('wb') or '')
+                    o = add_other(C, sid, E.get('cat', '入排标准核对'), E.get('pr', 4),
+                                  f"{det}阳性，方案要求同时 {gv} 才排除，未见同期 {gl} 结果，请核实",
+                                  r.get('visit'), r.get('date'), r['sheet'], r['row'], lab, r.get('clin'), ctx=ctx, bkey=bkey, wb=r.get('wb') or '')
+                    o['_elig'] = 'undetermined'
                     continue
             if E.get('bili'):                                        # ②「直接胆红素<35% 可接受」：占比达标降为提示
                 dv = _near_val(C, sid, re.compile(E['bili']['metric']), r)
@@ -1823,18 +1870,38 @@ def eligibility_checks(C):
                     pct = dv['value'] / tv * 100
                     lim = E['bili'].get('pct', 35)
                     if pct < lim:
-                        add_other(C, sid, E.get('cat', '入排标准核对'), 2,
-                                  f"{det}超标，但直接胆红素占比 {pct:.0f}%＜{lim:.0f}%，孤立性胆红素升高按方案可接受",
-                                  r.get('visit'), r.get('date'), r['sheet'], r['row'], lab, r.get('clin'), ctx=ctx, bkey=bkey, wb=r.get('wb') or '')
+                        o = add_other(C, sid, E.get('cat', '入排标准核对'), 2,
+                                      f"{det}超标，但直接胆红素占比 {pct:.0f}%＜{lim:.0f}%，孤立性胆红素升高按方案可接受",
+                                      r.get('visit'), r.get('date'), r['sheet'], r['row'], lab, r.get('clin'), ctx=ctx, bkey=bkey, wb=r.get('wb') or '')
+                        o['_elig'] = 'exception_met'
                         continue
-            if E.get('premise') == 'treated':                        # ①「经治疗仍超标才排除」：数据无用药面 → 请核实
-                add_other(C, sid, E.get('cat', '入排标准核对'), E.get('pr', 4),
-                          f"{det}超标，方案要求经治疗后仍超标方构成排除，请提供该受试者的相关治疗情况",
-                          r.get('visit'), r.get('date'), r['sheet'], r['row'], lab, r.get('clin'), ctx=ctx, bkey=bkey, wb=r.get('wb') or '')
+            if E.get('premise') == 'treated':                        # ①「经治疗仍超标才排除」：按病史/合并用药判前提
+                st = _premise_treated(C, sid, E)
+                if st == 'premise_unmet':
+                    o = add_other(C, sid, E.get('cat', '入排标准核对'), 2,
+                                  f"{det}超标，但未见相关病史或治疗用药记录，「经治疗后仍超标」的排除前提不成立，按方案不构成排除，供核实",
+                                  r.get('visit'), r.get('date'), r['sheet'], r['row'], lab, r.get('clin'), ctx=ctx, bkey=bkey, wb=r.get('wb') or '')
+                    o['_elig'] = 'premise_unmet'
+                    continue
+                if st == 'undetermined':
+                    o = add_other(C, sid, E.get('cat', '入排标准核对'), E.get('pr', 4),
+                                  f"{det}超标，方案要求经治疗后仍超标方构成排除，受试者有相关病史但未见治疗用药记录，请提供该受试者的相关治疗情况",
+                                  r.get('visit'), r.get('date'), r['sheet'], r['row'], lab, r.get('clin'), ctx=ctx, bkey=bkey, wb=r.get('wb') or '')
+                    o['_elig'] = 'undetermined'
+                    continue
+            ex = _exc_state(C, sid, E, r)
+            if ex == 'exception_met':
+                o = add_other(C, sid, E.get('cat', '入排标准核对'), 2,
+                              f"{det}超标，但符合方案例外情形，按方案不构成排除",
+                              r.get('visit'), r.get('date'), r['sheet'], r['row'], lab, r.get('clin'), ctx=ctx, bkey=bkey, wb=r.get('wb') or '')
+                o['_elig'] = 'exception_met'
                 continue
-            add_other(C, sid, E.get('cat', '入排标准核对'), E.get('pr', 4),
-                      f"{det}不符，但已随机/给药",
-                      r.get('visit'), r.get('date'), r['sheet'], r['row'], lab, r.get('clin'), ctx=ctx, bkey=bkey, wb=r.get('wb') or '')
+            o = add_other(C, sid, E.get('cat', '入排标准核对'), E.get('pr', 4),
+                          f"{det}不符，但已随机/给药",
+                          r.get('visit'), r.get('date'), r['sheet'], r['row'], lab, r.get('clin'), ctx=ctx, bkey=bkey, wb=r.get('wb') or '')
+            o['_elig'] = 'undetermined' if ex == 'undetermined' else 'violated'
+            if ex == 'violated':
+                ctx.append('方案例外条款不适用于该受试者')
     for E in C.A.get('eligibilitySubject', []):  # {"field":"age","op","v","text"}
         for sid in sorted(C.pop):
             v = C.subj[sid].get(E['field'])

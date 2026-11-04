@@ -730,9 +730,24 @@ class EligPremiseAndCompound(unittest.TestCase):
         eligibility_checks(C)
         hit = [o for o in C.others if o['cat'] == '入排标准核对']
         self.assertEqual(len(hit), 1)                                        # 仍有信号（不静默）
-        self.assertIn('方案要求经治疗后仍超标方构成排除', hit[0]['sum'])   # 修前判排除（红）
+        # 用户 2026-11-04 裁定 9＝A：有病史/合并用药数据时自动判「经治疗」前提——无相关病史与用药 → 前提不成立、不构成排除
+        self.assertIn('经治疗后仍超标', hit[0]['sum'])
+        self.assertEqual(hit[0]['_elig'], 'premise_unmet')
         self.assertNotIn('降压', hit[0]['sum'])                            # 泛化守卫：文案不得写死病种（本条=高血压、他研究可为任何病种）
         self.assertNotIn('不符，但已随机/给药', hit[0]['sum'])
+        from collections import defaultdict
+        C.others = []
+        C.mh_by = defaultdict(list, {list(C.pop)[0]: [{'t': '高血压'}]})        # 只有病史、无用药 → 请提供治疗情况（待判定）
+        C.cm_by = defaultdict(list)
+        eligibility_checks(C)
+        o = [x for x in C.others if x['cat'] == '入排标准核对'][0]
+        self.assertEqual(o['_elig'], 'undetermined')
+        self.assertIn('请提供该受试者的相关治疗情况', o['sum'])
+        C.others = []
+        C.cm_by = defaultdict(list, {list(C.pop)[0]: [{'t': '氨氯地平', 'why': '高血压'}]})   # 有对应治疗用药仍超标 → 违反
+        eligibility_checks(C)
+        o = [x for x in C.others if x['cat'] == '入排标准核对'][0]
+        self.assertEqual(o['_elig'], 'violated')
 
     def test_dbil_ratio_below_35_downgrades(self):
         from mm_build import eligibility_checks
