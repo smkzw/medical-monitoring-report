@@ -218,7 +218,10 @@ LINK_RE = re.compile(r'(AE|MH)\s*[+＋_\-]\s*(\d+)\s*[+＋_\-]?\s*(.*)', re.I)
 # 关联字段的通用写法（EDC 厂商各异）：'AE+1+头痛'、'MH+4+贫血'、'病史-3 - 贫血 - 2020-01-01'、'不良事件-2 - 头痛 - 2026-03-01'、
 # 'AE 3'、'MH#2'、'AE (5) 术语'（SAR 实测：SH/VS/USV/EG/PE 等 426+ 非空关联单元格全部圆括号格式）；
 # 多条以 ; , 、 换行 或连续空格分隔。类型 → AE / MH / CM。
-LINK_START = re.compile(r'(?<![A-Za-z一-鿿])(AE|MH|CM|不良事件|既往病史|既往史|病史|合并用药)\s*[(（+＋_\-－#＃：:]?\s*(\d+)', re.I)
+# V6（用户审阅 RUX 第 10 条）：「与MH01相关」「CS与AE02相关」——拉丁编号前紧挨汉字时此前被后顾排除；
+# 中文类型词（病史/既往史…）仍要求前面不是汉字（「高血压病史10年」不是编号），且编号后不跟时长单位
+LINK_START = re.compile(r'(?:(?<![A-Za-z])(AE|MH|CM)|(?<![A-Za-z一-鿿])(不良事件|既往病史|既往史|病史|合并用药))'
+                        r'\s*[(（+＋_\-－#＃：:\[［]?\s*(\d+)(?![\d.]*\s*(?:年|月|周|天|日|岁|次))', re.I)
 LINK_TYPE = {'ae': 'AE', '不良事件': 'AE', 'mh': 'MH', '病史': 'MH', '既往病史': 'MH', '既往史': 'MH', 'cm': 'CM', '合并用药': 'CM'}
 _LINK_DATE_TAIL = re.compile(r'[\s\-－]+(\d{4}|uk|UK|UNK)[-/.]([\dA-Za-z]{1,3})[-/.]([\dA-Za-z]{1,3})\s*$')
 
@@ -261,8 +264,10 @@ def parse_links(v, link_re=None):
         end = starts[i + 1].start() if i + 1 < len(starts) else len(s)
         tail = re.split(r'[;；,，、\n]', s[m.end():end])[0]
         tail = _LINK_DATE_TAIL.sub('', tail.rstrip()).strip(' +＋-－_:：')
-        tail = re.sub(r'^[)）\s#＃]+', '', tail)   # 圆括号格式「AE (5) 术语」剥开头右括号；「MH3#术语」剥井号（F02：术语不带 #，编号后的 # 是分隔符）
-        out.append([LINK_TYPE.get(m.group(1).lower(), m.group(1).upper()), tail.strip(), None, int(m.group(2))])
+        tail = re.sub(r'^[)）\]］\s#＃]+', '', tail)   # 圆括号格式「AE (5) 术语」剥开头右括号；「MH3#术语」剥井号（F02：术语不带 #，编号后的 # 是分隔符）
+        tail = re.sub(r'^(?:相关|有关|所致)$', '', tail.strip(' +＋-－_:：'))    # 「与MH01相关」的「相关」不是术语
+        t = m.group(1) or m.group(2)
+        out.append([LINK_TYPE.get(t.lower(), t.upper()), tail.strip(), None, int(m.group(3))])
     return out
 
 

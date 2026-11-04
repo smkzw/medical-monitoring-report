@@ -23,7 +23,7 @@ import ext_rules
 import monitor_v5
 import raw_export
 import pd_rules
-from common import days, dshow, dump_json, fmt, is_dosing, is_full_date, load_json, move_word, open_workbook_lenient, quantile, result_state, state_meets, study_day, yes, zero_dose
+from common import days, dshow, dump_json, fmt, is_dosing, parse_links, is_full_date, load_json, move_word, open_workbook_lenient, quantile, result_state, state_meets, study_day, yes, zero_dose
 
 AGG_EXCL = set()
 
@@ -737,6 +737,12 @@ def resolve_links(C, sid, links):
                 xt = (xt or '').strip()
                 return bool(t and xt and min(len(t), len(xt)) >= 2 and (t in xt or xt in t))
             ev = next((x for x in pool if _same(x.get('t'))), None)
+            if ev is None and no is None and kind in ('AE', 'MH'):
+                # V6（用户审阅 RUX 第 10 条）：说明列只写术语时类型是猜的（默认 MH）——「与白细胞计数降低有关」实为 AE，另一池也找
+                alt = C.mh_by[sid] if kind == 'AE' else C.ae_by[sid]
+                ev = next((x for x in alt if _same(x.get('t'))), None)
+                if ev is not None:
+                    kind = 'MH' if kind == 'AE' else 'AE'
             no = ev['n'] if ev is not None else no            # 术语也回溯不到：保留研究者填的编号（交 LINK 核对）
         out.append([kind, term or (ev or {}).get('t', ''), (ev or {}).get('s', ''), no, bool(ev)])
     return out
@@ -746,6 +752,46 @@ def real_links(links):
     """resolve_links 结果中算作「研究者已关联」的：回溯到真实记录，或研究者填了编号（编号不存在另由 LINK 核对）。
     说明列抽出、但回溯不到任何记录的词目不算关联（mm5 审阅 S6：否则丢研究疾病豁免、掩盖未关联）。"""
     return [l for l in links if l[4] or l[3] is not None]
+
+
+_DT_NEG_AFTER = re.compile(r'^[^，。；,;]{0,6}?(?:无关|不相关|无明显相关|非.{0,2}所致)')
+_DT_NEG_BEFORE = re.compile(r'(?:排除|否认|除外|不考虑|并非|非)\s*$')
+
+
+def desc_term_links(C):
+    """说明列兜底关联（V6，用户审阅 RUX 第 10 条：80 条「判 CS 未关联」里 79 条说明列已写关联）：
+    CS 行没有回溯得到的关联、也不是研究疾病归因时，用**该受试者本人**的 AE/病史术语去匹配说明文本
+    （「CS肝酶升高AE」「高脂血症」「贫血相关」）；否定写法不算。命中写入 links（编号取回溯到的记录），来源可追溯。"""
+    for (sid, _mid), rows in C.F.items():
+        pools = [('AE', C.ae_by.get(sid) or []), ('MH', C.mh_by.get(sid) or [])]
+        if not any(p for _, p in pools):
+            continue
+        for r in rows:
+            if r.get('clin') != 2:
+                continue
+            txt = ' '.join(str(r.get(k) or '') for k in ('desc', 'reason_text', 'reason_raw')).strip()
+            if not txt or real_links(resolve_links(C, sid, r.get('links') or [])) or ext_rules.disease_attr(C, r):
+                continue
+            hit = None
+            for kind, _t, _s, no in parse_links(txt):           # 编号写法（「与MH01相关」「AE[3]」）：normalize 旧版未抽到时在此补
+                pool = dict(pools).get(kind) or []
+                x = next((x for x in pool if str(x['n']) == str(no)), None)
+                if x is not None:
+                    hit = [kind, x.get('t') or '', None, x['n']]
+                    break
+            for kind, pool in ([] if hit else pools):
+                for x in sorted(pool, key=lambda x: -len(x.get('t') or '')):
+                    t = re.sub(r'[（(].*$', '', str(x.get('t') or '')).strip()
+                    i = txt.find(t) if len(t) >= 2 else -1
+                    if i < 0 or _DT_NEG_BEFORE.search(txt[max(0, i - 4):i]) or _DT_NEG_AFTER.search(txt[i + len(t):]):
+                        continue
+                    hit = [kind, t, None, x['n']]
+                    break
+                if hit:
+                    break
+            if hit:
+                r['links'] = (r.get('links') or []) + [hit]
+                r['_lsrc'] = 'desc-term'
 
 
 def annotate_links(C):
@@ -2955,6 +3001,7 @@ def analyze(C):
     panel_level_clin(C)                                  # V6：长表同一份化验单逐行重复的整份 CS 判定 → 只留在异常行
     bind.rebind(C)                                       # V6：规则指标正则零命中 → 按括注缩写/域别名重绑（说明进 KZ.bind）
     _strip_disease_term_links(C)                         # F02 边界：研究疾病词目不作 MH 关联（先于一切关联消费方）
+    desc_term_links(C)                                   # V6：说明列写了本人 AE/病史术语即算关联（只匹配本人记录）
     annotate_links(C)                                    # 回溯后的关联类型（判定一致性归因维度用）
     build_labrows(C)
     rel_candidates(C)
