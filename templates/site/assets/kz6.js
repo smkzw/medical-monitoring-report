@@ -11,7 +11,7 @@ const shKey=(wb,sh)=>wb&&!String(sh).includes(':')?wb+':'+sh:sh;
 K.allEvidence=()=>{if(K._ev)return K._ev;const by={},put=(sid,e)=>(by[sid]=by[sid]||[]).push(e);
   (K.lab||[]).filter(g=>!['NCS'].includes(g.risk)).forEach(g=>(g.pts||[]).forEach(p=>put(g.sid,{sh:shKey(p[11],p[7]),row:p[8],kind:'lab',label:`${g.test} · ${(K.RISK&&K.RISK[g.risk]&&K.RISK[g.risk][0])||g.risk}`,pr:g.pr||2,open:()=>K.showLabG(g)})));
   (D().others||[]).filter(o=>o.sh).forEach(o=>put(o.sid,{sh:shKey(o.wb,o.sh),row:o.row,kind:'oth',label:o.cat,pr:o.pr||1,open:()=>K.showOth(o)}));
-  (D().queries||[]).forEach(q=>(q.ev||[]).forEach(e=>put(q.sid,{sh:e[0],row:e[1],kind:'q',label:`${q.id} ${q.cat}`,pr:4,open:()=>K.showQ(q.id)})));
+  (D().queries||[]).forEach(q=>(q.ev||[]).forEach(e=>put(q.sid,{sh:e[0],row:e[1],kind:'q',label:`${q.id} ${K.catN(q.cat)}`,pr:4,open:()=>K.showQ(q.id)})));
   return K._ev=by};
 K.subjEvidence=sid=>K.allEvidence()[sid]||[];
 /* ---- 原始数据浏览器（个例） */
@@ -51,8 +51,8 @@ K.journey=(el,d,{lr=[],ot=[],qs=[]}={})=>{if(!el||!window.echarts)return;
     t:`AE「${a.t}」${a.g||''}${a.sae?' · SAE':''}${a.aesi?' · AESI':''}<br>${clip(a.s)} → ${isD(a.e)?clip(a.e):'持续'}${a.rel?'<br>相关性：'+a.rel:''}`})});
   (d.cm||[]).slice(0,30).forEach((c,i)=>{if(!isD(c.s))return;bars.push({lane:3,sub:i%3,s:clip(c.s),e:clip(isD(c.e)?c.e:end),c:'#9DB7D3',t:`合并用药「${c.t}」<br>${clip(c.s)} → ${isD(c.e)?clip(c.e):'持续'}`})});
   lr.filter(g=>!['NCS','MHX-T'].includes(g.risk)).forEach(g=>(g.pts||[]).forEach(p=>{if(isD(p[1]))pts.push({lane:4,d:clip(p[1]),sev:p[5]===2?2:1,c:p[5]===2?'#8B0000':'#E67E00',sym:p[5]===2?'circle':'emptyCircle',sz:p[5]===2?10:8,t:`${g.test} ${p[2]??''} ${p[3]||''}（${p[0]||''}）${p[5]===2?' · CS':p[5]===1?' · NCS':''}${p[4]?' · '+p[4]+'级':''}<br>${K.esc(((K.RISK||{})[g.risk]||[g.risk])[0])}`,go:()=>K.showLabG(g)})}));
-  ot.filter(o=>o.pr>=3&&isD(o.d)).forEach(o=>pts.push({lane:4,d:clip(o.d),c:'#B86400',sym:'diamond',sz:9,t:`${o.cat}<br>${K.esc(String(o.sum||'').slice(0,80))}`,go:()=>K.showOth(o)}));
-  qs.forEach(q=>{if(isD(q.d))pts.push({lane:5,d:clip(q.d),c:'#E67E00',sym:'pin',sz:14,t:`${q.id} ${q.cat}<br>${K.esc(String(q.text||'').slice(0,90))}`,go:()=>K.showQ(q.id)})});
+  ot.filter(o=>o.pr>=3&&isD(o.d)).forEach(o=>pts.push({lane:4,d:clip(o.d),c:'#B86400',sym:'diamond',sz:9,t:`${K.catN(o.cat)}<br>${K.esc(String(o.sum||'').slice(0,80))}`,go:()=>K.showOth(o)}));
+  qs.forEach(q=>{if(isD(q.d))pts.push({lane:5,d:clip(q.d),c:'#E67E00',sym:'pin',sz:14,t:`${q.id} ${K.catN(q.cat)}<br>${K.esc(String(q.text||'').slice(0,90))}`,go:()=>K.showQ(q.id)})});
   pts.sort((a,b)=>(a.sev||0)-(b.sev||0));             /* CS 实心点画在最上层，不被同日的空心点盖住 */
   const ts=(x)=>+new Date(x+'T00:00:00');
   const all=[...bars.flatMap(b=>[b.s,b.e]),...pts.map(p=>p.d)].filter(Boolean).sort();

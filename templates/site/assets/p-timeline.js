@@ -46,8 +46,8 @@ async function one(id){
   // 专项提示点：engine 生成 d.tl=[{lane,pts:[[date,tip,level 0/1/2,symbol,test]]}]（QTc/血压/影像等，每类风险单独一行）
   (d.tl||[]).forEach(G=>{const ps=G.pts.filter(p=>T(p[0]));if(!ps.length)return;const y=lane(G.lane,'O');ps.forEach(p=>pts.push({y,t:T(p[0]),sym:p[3]||'diamond',size:p[2]>=2?11:p[2]?9:6,c:p[2]>=2?'#8B0000':p[2]?'#FF9900':'#587B3B',tip:p[1],test:p[4]}))});
   // 专项核查 / 质疑：分行
-  const ox=ot.filter(o=>T(o.d));if(ox.length){const y=lane('专项核查','O');ox.forEach(o=>pts.push({y,t:T(o.d),sym:'circle',size:o.pr>=3?9:6,c:o.pr>=4?'#8B0000':o.pr>=3?'#FF9900':'#C9CCD1',tip:`${o.cat}<br>${K.esc(o.sum)}`}))}
-  const qx=qs.filter(q=>T(q.d));if(qx.length){const y=lane('质疑','Q');qx.forEach(q=>pts.push({y,t:T(q.d),sym:'roundRect',size:[22,13],c:'#FF9900',lab:q.id.replace('Q',''),tip:`${q.id} ${q.cat}<br>${K.esc(q.text.slice(0,120))}…`,q:q.id}))}
+  const ox=ot.filter(o=>T(o.d));if(ox.length){const y=lane('专项核查','O');ox.forEach(o=>pts.push({y,t:T(o.d),sym:'circle',size:o.pr>=3?9:6,c:o.pr>=4?'#8B0000':o.pr>=3?'#FF9900':'#C9CCD1',tip:`${K.catN(o.cat)}<br>${K.esc(o.sum)}`}))}
+  const qx=qs.filter(q=>T(q.d));if(qx.length){const y=lane('质疑','Q');qx.forEach(q=>pts.push({y,t:T(q.d),sym:'roundRect',size:[22,13],c:'#FF9900',lab:q.id.replace('Q',''),tip:`${q.id} ${K.catN(q.cat)}<br>${K.esc(q.text.slice(0,120))}…`,q:q.id}))}
   // build chart
   const n=lanes.length;const h=Math.max(300,n*20+90);document.getElementById('tl').style.height=h+'px';
   const fd=T(d.fd),ld=T(d.ld);
@@ -102,7 +102,7 @@ function center(site){
     if(ae.length){const y=R.push({sid:s.id,si,k:'AE',lab:'AE'})-1;ae.forEach(a=>{const g=+a.g[0]||1;pts.push({value:[day(a.s,s.fd),y],symbol:a.aesi?'diamond':'circle',symbolSize:g>=3?12:g>=2?10:8,itemStyle:{color:GC[g]},tip:`${s.id} AE ${a.t} ${a.g} D${day(a.s,s.fd)}${a.aesi?'｜AESI':''}`})})}
     ['CSX','MH'].forEach(rk=>{const G=lr.filter(g=>g.risk===rk);if(!G.length)return;const y=R.push({sid:s.id,si,k:rk,lab:rk==='CSX'?'CS未关联':'CS仅MH·加重'})-1;
       G.forEach(g=>g.pts.forEach(p=>{const x=day(p[1],s.fd);if(x!=null)pts.push({value:[x,y],symbol:rk==='CSX'?'triangle':'emptyCircle',symbolSize:10,itemStyle:{color:rk==='CSX'?'#8B0000':'#FF9900'},tip:`${s.id} ${g.test} ${p[0]} ${p[2]} ｜${K.RISK[rk][0]}`})}))});
-    if(qq.length){const y=R.push({sid:s.id,si,k:'Q',lab:'质疑'})-1;qq.forEach(q=>pts.push({value:[day(q.d,s.fd),y],symbol:'roundRect',symbolSize:[18,11],itemStyle:{color:'#FF9900',opacity:.9},label:{show:true,formatter:q.id.slice(1),fontSize:8,color:'#fff'},tip:`${q.id} ${q.cat}`,q:q.id}))}
+    if(qq.length){const y=R.push({sid:s.id,si,k:'Q',lab:'质疑'})-1;qq.forEach(q=>pts.push({value:[day(q.d,s.fd),y],symbol:'roundRect',symbolSize:[18,11],itemStyle:{color:'#FF9900',opacity:.9},label:{show:true,formatter:q.id.slice(1),fontSize:8,color:'#fff'},tip:`${q.id} ${K.catN(q.cat)}`,q:q.id}))}
   });
   document.getElementById('cg').style.height=Math.max(260,R.length*21+70)+'px';
   const ch=K.chart('#cg',{grid:{left:92,right:20,top:30,bottom:20},tooltip:{trigger:'item',formatter:p=>p.data.tip||''},

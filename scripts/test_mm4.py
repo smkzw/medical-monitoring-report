@@ -734,7 +734,7 @@ class EligPremiseAndCompound(unittest.TestCase):
         self.assertIn('经治疗后仍超标', hit[0]['sum'])
         self.assertEqual(hit[0]['_elig'], 'premise_unmet')
         self.assertNotIn('降压', hit[0]['sum'])                            # 泛化守卫：文案不得写死病种（本条=高血压、他研究可为任何病种）
-        self.assertNotIn('不符，但已随机/给药', hit[0]['sum'])
+        self.assertNotIn('，但已随机/给药', hit[0]['sum'])
         from collections import defaultdict
         C.others = []
         C.mh_by = defaultdict(list, {list(C.pop)[0]: [{'t': '高血压'}]})        # 只有病史、无用药 → 请提供治疗情况（待判定）
@@ -762,7 +762,7 @@ class EligPremiseAndCompound(unittest.TestCase):
         self.assertEqual(len(hit), 1)
         self.assertIn('按方案可接受', hit[0]['sum'])                          # 修前判排除（红）
         self.assertIn('孤立性胆红素', hit[0]['sum'])
-        self.assertNotIn('不符，但已随机/给药', hit[0]['sum'])
+        self.assertNotIn('，但已随机/给药', hit[0]['sum'])
         self.assertLess(hit[0]['pr'], 4)                                     # 降为提示级
 
     def test_dbil_ratio_at_or_above_keeps_exclusion(self):
@@ -776,7 +776,7 @@ class EligPremiseAndCompound(unittest.TestCase):
         eligibility_checks(C)
         hit = [o for o in C.others if o['cat'] == '入排标准核对']
         self.assertEqual(len(hit), 1)
-        self.assertIn('不符，但已随机/给药', hit[0]['sum'])
+        self.assertIn('，但已随机/给药', hit[0]['sum'])
 
     def test_dbil_missing_keeps_exclusion(self):
         from mm_build import eligibility_checks
@@ -788,7 +788,7 @@ class EligPremiseAndCompound(unittest.TestCase):
         eligibility_checks(C)
         hit = [o for o in C.others if o['cat'] == '入排标准核对']
         self.assertEqual(len(hit), 1)
-        self.assertIn('不符，但已随机/给药', hit[0]['sum'])
+        self.assertIn('，但已随机/给药', hit[0]['sum'])
 
     def test_hbsag_positive_with_dna_below_threshold_not_flagged(self):
         from mm_build import eligibility_checks
@@ -812,7 +812,7 @@ class EligPremiseAndCompound(unittest.TestCase):
         eligibility_checks(C)
         hit = [o for o in C.others if o['cat'] == '入排标准核对']
         self.assertEqual(len(hit), 1)
-        self.assertIn('不符，但已随机/给药', hit[0]['sum'])
+        self.assertIn('，但已随机/给药', hit[0]['sum'])
 
     def test_hbsag_positive_without_dna_issues_verify(self):
         from mm_build import eligibility_checks
@@ -826,7 +826,7 @@ class EligPremiseAndCompound(unittest.TestCase):
         self.assertEqual(len(hit), 1)
         self.assertIn('请核实', hit[0]['sum'])
         self.assertIn('HBV-DNA', hit[0]['sum'])
-        self.assertNotIn('不符，但已随机/给药', hit[0]['sum'])
+        self.assertNotIn('，但已随机/给药', hit[0]['sum'])
 
 
 class IbSocCodeSuffix(unittest.TestCase):
@@ -1386,7 +1386,7 @@ class ClinConsDirectionalQuery(unittest.TestCase):
                        _cons_row('S1', 120, 1, hi=60, visit='V3', date='2026-06-01', row=2)])
         q = self._q(C)
         self.assertEqual(len(q), 1)
-        self.assertIn('更差', q[0]['sum'])                           # 方向性文案：更差者判 NCS
+        self.assertIn('离正常范围更远', q[0]['sum'])                           # 方向性文案：更差者判 NCS
 
     def test_worse_judged_cs_no_query(self):
         C = self._run([_cons_row('S1', 120, 2, hi=60, visit='V2', row=1),
@@ -1984,8 +1984,8 @@ class F05AttributionDimension(unittest.TestCase):
         ext_rules.clin_consistency(C)
         q = [o for o in C.others if o['cat'] == '临床意义判定不一致']
         self.assertEqual(len(q), 1)
-        self.assertIn('归因MH', q[0]['sum'])
-        self.assertIn('归因未关联', q[0]['sum'])
+        self.assertIn('关联病史', q[0]['sum'])
+        self.assertIn('未关联任何记录', q[0]['sum'])
 
 
 class F06CtcaeDirectionAndWording(unittest.TestCase):

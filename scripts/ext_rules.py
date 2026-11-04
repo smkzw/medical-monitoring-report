@@ -853,12 +853,16 @@ def _cons_text(C, mid, kind, d, a, b, equal):
     lab = C.metric[mid]['label']
     va = f"{a.get('visit')}访视 {_val(_raw_or_val(a), a.get('unit'))}"
     vb = f"{b.get('visit')}访视 {_val(_raw_or_val(b), b.get('unit'))}"
+    # V6 措辞排查：不写「更差者判轻」「归因AE/MH」「偏离参考边界10.3%」这类内部口径（偏离度仍是判定依据，只是不进正文）
     if kind == 'att':
-        return f"{lab}：{va} 判 CS 归因{att_of(a)}，{vb} 判 CS 归因{att_of(b)}，相似结果归因不同"
+        return f"{lab}：{va} 判为有临床意义并{att_cn(a)}，{vb} 判为有临床意义并{att_cn(b)}，相似结果的归因不同"
     if equal:
-        return f"{lab}：{va} 与 {vb} 数值相同，判定不同（一判CS一判NCS）"
-    return (f"{lab}：{vb} 偏离参考边界更远（{cons_dev(b, d):.1%}）判 NCS，"
-            f"{va}（{cons_dev(a, d):.1%}）反而判 CS——更差者判轻")
+        return f"{lab}：{va} 与 {vb} 数值相同，一次判为有临床意义、一次判为无临床意义"
+    return f"{lab}：{vb}（离正常范围更远）判为无临床意义，{va}（更接近正常）却判为有临床意义"
+
+
+def att_cn(r):
+    return {'AE': '关联不良事件', 'MH': '关联病史', '研究疾病': '归因研究疾病'}.get(att_of(r), '未关联任何记录')
 
 
 def clin_consistency(C):

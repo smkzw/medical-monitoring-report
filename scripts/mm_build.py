@@ -1512,8 +1512,8 @@ def ae_checks(C):
         for g in getattr(C, 'ae_dup', None) or []:      # F08：成对/三联记录标记——每组一条，证据指向全部重复行
             if g['sid'] not in C.pop:
                 continue
-            rows = '、'.join(f"#{x['n']}（行 {r}）" if r else f"#{x['n']}" for x, r in zip(g['recs'], g['rows']))
-            add_other(C, g['sid'], 'AE重复记录核对', 2, f"同一受试者「{g['term']}」同一开始日期（{g['start']}）记录了 {len(g['recs'])} 条 AE（{rows}），请核实是否重复录入或修订未归并",
+            rows = '、'.join(_ae_ref(x) for x in g['recs'])     # V6 措辞排查：不写「#2（行 12）」，行号已在证据定位里
+            add_other(C, g['sid'], 'AE重复记录核对', 2, f"同一受试者“{g['term']}”同一开始日期（{g['start']}）记录了 {len(g['recs'])} 条 AE（{rows}），请核实是否重复录入或修订未归并",
                       None, g['start'], g['recs'][0]['sh'], g['recs'][0]['row'], g['term'],
                       rel=[['AE', x['t'], x['s'], x['n']] for x in g['recs']], risk='AE',
                       wb=g['recs'][0].get('wb') or '')
@@ -1532,8 +1532,17 @@ def ae_checks(C):
                     if not (x.get('soc') and x.get('soc') == y.get('soc') and (_ae_similar(x['pt'], y['pt']) or _ae_similar(x['t'], y['t']))):
                         continue
                     add_other(C, sid, 'AE一致性核对（PT级）', 2, f"同一受试者同期记录了不同 AE（PT 级：{x['pt']} vs {y['pt']}）："
-                              f"「{x['t']}」#{x['n']} {x['s']}~{x['e'] or '持续'} / 「{y['t']}」#{y['n']} {y['s']}~{y['e'] or '持续'}，请核实是否重复记录或编码不一致",
+                              f"“{x['t']}”（{_ae_ref(x, True)}）与“{y['t']}”（{_ae_ref(y, True)}），请核实是否重复记录或编码不一致",
                               None, y['s'], y['sh'], y['row'], y['t'], rel=[['AE', x['t'], x['s'], x['n']], ['AE', y['t'], y['s'], y['n']]], risk='AE')
+
+
+def _ae_ref(x, span=False):
+    """AE 的中心可读定位：有可用编号写「AE 2」，否则写起止日期（EDC 记录号不可用时不露 #0）。"""
+    n = str(x.get('n') if x.get('n') is not None else '').strip()
+    d = f"{x.get('s') or ''}~{x.get('e') or '持续'}"
+    if n and n not in ('0', 'None'):
+        return f"AE {n}，{d}" if span else f"AE {n}"
+    return d
 
 
 _AE_DIR_WORDS = re.compile(r'升高|降低|增高|减低|增加|减少|增多|异常|阳性|升|降|偏高|偏低|计数|水平|值')
@@ -1911,6 +1920,33 @@ def _elig_pool(C, sid, rows, E):
     return out
 
 
+_OP_REL = {'>': '超过', '>=': '达到', '≥': '达到', '<': '低于', '<=': '不高于', '≤': '不高于'}
+
+
+_OP_CN = {'>': '＞', '>=': '≥', '<': '＜', '<=': '≤', '==': '＝'}
+
+
+def _elig_subj_txt(E, v):
+    """受试者字段类入排（年龄等）：「年龄 16，不符合入选标准：年龄18~50周岁」。"""
+    t = str(E.get('text') or '')
+    t = t if re.match(r'^(入选|排除)标准', t) else f"入排标准“{t}”"
+    return f"{E.get('label', E['field'])} {fmt(v) if isinstance(v, float) else v}，不符合{t}"
+
+
+def _elig_rel(E, r):
+    return _OP_REL.get(str(E.get('op') or ''), '不符合')
+
+
+def _elig_thr(E, r):
+    """命中的子条件阈值写法：1.5×ULN / 90 g/L。"""
+    on, v = E.get('on', 'val'), E.get('v')
+    if v is None:
+        return '范围'
+    if on in ('uln', 'lln'):
+        return f"{fmt(v)}×{on.upper()}"
+    return f"{fmt(v)} {E.get('unit') or r.get('unit') or ''}".strip()
+
+
 def _elig_label(eid):
     """入排标准编号的可读写法：IE-I4 → 入选标准 4、IE-E7 → 排除标准 7；其他写法原样返回。"""
     m = re.match(r'^IE-([IE])(\d+)$', str(eid or ''))
@@ -1979,7 +2015,12 @@ def eligibility_checks(C):
                 ctx.append('例外条款：' + str(E['exc']))
             if len(pool) > 1:
                 ctx.append(f"判定值＝{'入组前末次测量' if pick == 'last' else '首次筛选测量' if pick == 'first' else '任一测量'}（共 {len(pool)} 次）")
-            det = f"入组前 {lab} {r.get('raw')} {r.get('unit') or ''}（{r.get('visit')} {dshow(r.get('date'))}）对照{kind}「{E['text']}」"
+            # V6 措辞排查：只引用命中的子条件（此前整段标准原文塞进引号再截断，ALP 信号引用了「AST或ALT…」）；原文进判读背景
+            det = f"入组前 {lab} {r.get('raw')} {r.get('unit') or ''}（{r.get('visit')} {dshow(r.get('date'))}）".replace(' （', '（')
+            crit = (_elig_label(E['id']) if E.get('id') else kind).replace(' ', '')
+            hit = f"，为{crit}规定的排除情形" if E.get('re') else f"，{_elig_rel(E, r)}{crit}规定的{_elig_thr(E, r)}"
+            if E.get('text'):
+                ctx.append('标准原文：' + str(E['text'])[:160])
             bkey = f"{lab}|{r.get('visit') or ''}|{r.get('date') or ''}"   # qkey 沿用旧口径（类别＋判定记录），存量 MMQ 身份不漂移
             # ---- 用户 2026-11-01 三裁定：复合前提/例外不机械判排除 ----
             # V6（用户审阅 RUX 第 9 条）：信号带判定状态 _elig（violated/exception_met/premise_unmet/undetermined），
@@ -1990,9 +2031,10 @@ def eligibility_checks(C):
                     continue
                 if g is None:
                     gl = E['gate'].get('label') or '伴随条件'
-                    gv = f"{gl} {E['gate'].get('op', '')}{fmt(E['gate']['v'])}{E['gate'].get('unit') or ''}" if E['gate'].get('v') is not None else gl
+                    gv = (f"{gl} {_OP_CN.get(E['gate'].get('op', ''), E['gate'].get('op', ''))}{fmt(E['gate']['v'])} {E['gate'].get('unit') or ''}".rstrip()
+                          if E['gate'].get('v') is not None else gl)
                     o = add_other(C, sid, E.get('cat', '入排标准核对'), E.get('pr', 4),
-                                  f"{det}阳性，方案要求同时 {gv} 才排除，未见同期 {gl} 结果，请核实",
+                                  f"{det}，{crit}要求同时 {gv} 才排除，未见同期 {gl} 结果，请核实",
                                   r.get('visit'), r.get('date'), r['sheet'], r['row'], lab, r.get('clin'), ctx=ctx, bkey=bkey, wb=r.get('wb') or '')
                     o['_elig'] = 'undetermined'
                     continue
@@ -2004,7 +2046,7 @@ def eligibility_checks(C):
                     lim = E['bili'].get('pct', 35)
                     if pct < lim:
                         o = add_other(C, sid, E.get('cat', '入排标准核对'), 2,
-                                      f"{det}超标，但直接胆红素占比 {pct:.0f}%＜{lim:.0f}%，孤立性胆红素升高按方案可接受",
+                                      f"{det}{hit}，但直接胆红素占比 {pct:.0f}%＜{lim:.0f}%，孤立性胆红素升高按方案可接受",
                                       r.get('visit'), r.get('date'), r['sheet'], r['row'], lab, r.get('clin'), ctx=ctx, bkey=bkey, wb=r.get('wb') or '')
                         o['_elig'] = 'exception_met'
                         continue
@@ -2012,25 +2054,25 @@ def eligibility_checks(C):
                 st = _premise_treated(C, sid, E)
                 if st == 'premise_unmet':
                     o = add_other(C, sid, E.get('cat', '入排标准核对'), 2,
-                                  f"{det}超标，但未见相关病史或治疗用药记录，「经治疗后仍超标」的排除前提不成立，按方案不构成排除，供核实",
+                                  f"{det}{hit}，但未见相关病史或治疗用药记录，“经治疗后仍超标”的排除前提不成立，按方案不构成排除，供核实",
                                   r.get('visit'), r.get('date'), r['sheet'], r['row'], lab, r.get('clin'), ctx=ctx, bkey=bkey, wb=r.get('wb') or '')
                     o['_elig'] = 'premise_unmet'
                     continue
                 if st == 'undetermined':
                     o = add_other(C, sid, E.get('cat', '入排标准核对'), E.get('pr', 4),
-                                  f"{det}超标，方案要求经治疗后仍超标方构成排除，受试者有相关病史但未见治疗用药记录，请提供该受试者的相关治疗情况",
+                                  f"{det}{hit}，方案要求经治疗后仍超标方构成排除，受试者有相关病史但未见治疗用药记录，请提供该受试者的相关治疗情况",
                                   r.get('visit'), r.get('date'), r['sheet'], r['row'], lab, r.get('clin'), ctx=ctx, bkey=bkey, wb=r.get('wb') or '')
                     o['_elig'] = 'undetermined'
                     continue
             ex = _exc_state(C, sid, E, r)
             if ex == 'exception_met':
                 o = add_other(C, sid, E.get('cat', '入排标准核对'), 2,
-                              f"{det}超标，但符合方案例外情形，按方案不构成排除",
+                              f"{det}{hit}，但符合方案例外情形，按方案不构成排除",
                               r.get('visit'), r.get('date'), r['sheet'], r['row'], lab, r.get('clin'), ctx=ctx, bkey=bkey, wb=r.get('wb') or '')
                 o['_elig'] = 'exception_met'
                 continue
             o = add_other(C, sid, E.get('cat', '入排标准核对'), E.get('pr', 4),
-                          f"{det}不符，但已随机/给药",
+                          f"{det}{hit}，但已随机/给药",
                           r.get('visit'), r.get('date'), r['sheet'], r['row'], lab, r.get('clin'), ctx=ctx, bkey=bkey, wb=r.get('wb') or '')
             o['_elig'] = 'undetermined' if ex == 'undetermined' else 'violated'
             if ex == 'violated':
@@ -2046,7 +2088,7 @@ def eligibility_checks(C):
                 except ValueError:
                     continue
             if cmp(E['op'], v, E['v']):
-                add_other(C, sid, E.get('cat', '入排标准核对'), E.get('pr', 4), f"{E.get('label', E['field'])} = {fmt(v) if isinstance(v, float) else v}，不符合入选/排除「{E['text']}」", None, C.subj[sid].get('icf'),
+                add_other(C, sid, E.get('cat', '入排标准核对'), E.get('pr', 4), _elig_subj_txt(E, v), None, C.subj[sid].get('icf'),
                           C.subj[sid].get('sheet', ''), C.subj[sid].get('row'), bkey=f"{E['field']}|{E.get('id') or ''}")
 
 
@@ -2075,7 +2117,11 @@ def visit_window_checks(C):
             sd, lab = (days(v.get('date'), ad) if is_full_date(ad) and is_full_date(v.get('date')) else None), \
                 {'ld': '末次给药后第', 'rand': '随机后第', 'icf': '知情后第'}.get(anc, f'{anc} 后第')
         if sd is not None and (sd < t - mi or sd > t + pl):
-            add_other(C, sid, '访视超窗核对', 2, f"{v['visit']} 实际 {v['date']}（{lab}{sd}），方案窗 {lab}{t}{'−%d' % mi}/+{pl}", v['visit'], v['date'], v['sheet'], v['row'], wb=v.get('wb') or '')
+            if lab == 'D':
+                at, win = f"D{sd}", f"D{t}{'−%d' % mi}/+{pl}"
+            else:   # V6 审阅：「末次给药后第12」缺「天」
+                at, win = f"{lab} {sd} 天", f"{lab} {t} 天（−{mi}/+{pl} 天）"
+            add_other(C, sid, '访视超窗核对', 2, f"{v['visit']} 实际 {v['date']}（{at}），方案窗 {win}", v['visit'], v['date'], v['sheet'], v['row'], wb=v.get('wb') or '')
 
 
 def pd_reconcile(C):
@@ -2098,19 +2144,19 @@ def pd_reconcile(C):
 
 # ----------------------------------------------------------------------------- queries
 QT = {  # 默认 query 措辞：写给 CRC，一句话＝异常点＋冲突点＋建议（不写日期：query 已定位到 listing 行）。可用 analysis.queryTemplates 覆盖
-    'CSX': ('CS未关联AE/MH', '{btxt}{visit}访视{test}{move}{raw}{unit}（参考范围 {rng}{gtxt}），判定为CS，但未关联AE或病史，',
+    'CSX': ('CS未关联AE/MH', '{btxt}{visit}访视{test}{move}{raw}{unit}（参考范围 {rng}{gtxt}），判为有临床意义，但未关联AE或病史，',
             '请核实是否需记录AE，或补充病史并关联。'),
-    'MH': ('CS仅关联病史·加重核对', '{btxt}{visit}访视{test}{move}{raw}{unit}（{wf}），判定为CS，仅关联病史「{mh}」，未见对应AE，',
+    'MH': ('CS仅关联病史·加重核对', '{btxt}{visit}访视{test}{move}{raw}{unit}（{wf}），判为有临床意义，仅关联病史“{mh}”，未见对应AE，',
            '请评估是否为给药后加重、需记录AE。'),
-    'CSX_DIS': ('CS未关联·研究疾病表现较基线加重', '{btxt}{visit}访视{test}{move}{raw}{unit}（{wf}），判定为CS，该指标异常可见于{bg}，但较基线明显加重且未记录AE，',
+    'CSX_DIS': ('CS未关联·研究疾病表现较基线加重', '{btxt}{visit}访视{test}{move}{raw}{unit}（{wf}），判为有临床意义，该指标异常可见于{bg}，但较基线明显加重且未记录AE，',
                 '请评估是否需记录AE。'),
-    'CSX_AE': ('CS未关联·同期疑似AE', '{visit}访视{test}为{raw}{unit}，判定为CS，同期已记录{cand}，但该检验未关联，',
+    'CSX_AE': ('CS未关联·同期疑似AE', '{visit}访视{test}为{raw}{unit}，判为有临床意义，同期已记录{cand}，但该检验未关联，',
                '请确认是否为同一事件并完成关联。'),
-    'NCS2': ('NCS但达分级≥2级', '{btxt}{visit}访视{test}{move}{raw}{unit}（{gl} {grade}级）判定为NCS，',
+    'NCS2': ('NCS但达分级≥2级', '{btxt}{visit}访视{test}{move}{raw}{unit}（{gl} {grade}级），判为无临床意义，',
              '请核实临床意义判定。'),
     'NA': ('超出参考范围·未评价临床意义', '{visit}访视{test}为{raw}{unit}，超出参考范围（{rng}），未评价临床意义，',
            '请补充临床意义评价。'),
-    'DISW': ('CS归因研究疾病·给药后加重', '{btxt}{visit}访视{test}{move}{raw}{unit}（{wf}），判定为CS并归因研究疾病，但未记录研究疾病加重AE，',
+    'DISW': ('CS归因研究疾病·给药后加重', '{btxt}{visit}访视{test}{move}{raw}{unit}（{wf}），判为有临床意义并归因研究疾病，但未记录研究疾病加重AE，',
              '请评估是否需记录AE。'),
     'G2NF': ('达分级≥2级·表单无临床意义评价', '{btxt}{visit}访视{test}{move}{raw}{unit}（{gl} {grade}级），该表单没有临床意义评价，',
              '请评估是否需记录AE。'),
@@ -2332,18 +2378,18 @@ def build_cons(C):
         vb = f"{b.get('visit')}访视 {b.get('raw')}{b.get('unit') or ''}"
         st = '已有问题覆盖' if (a['sheet'], a['row']) in qrows or (b['sheet'], b['row']) in qrows else '需核实'
         if kind == 'att':
-            diff = (f"{'同一受试者' if scope == 'subject' else '同中心'}{lab}相似结果均判 CS 但归因不同："
-                    f"{va} 归因{ext_rules.att_of(a)}，{vb} 归因{ext_rules.att_of(b)}")
+            diff = (f"{'同一受试者' if scope == 'subject' else '同中心'}{lab}相似结果均判为有临床意义但归因不同："
+                    f"{va} {ext_rules.att_cn(a)}，{vb} {ext_rules.att_cn(b)}")
             why = ('同一受试者' if scope == 'subject' else '同一中心') + \
                   '对相似结果给出不同医学解释（CS 归因 AE/病史/研究疾病/未关联 不一致）；先核对两次异常的症状/处置与关联记录差异，再决定是否质疑。'
         elif equal:
-            diff = f"{'同一受试者' if scope == 'subject' else '同中心'}{lab}数值相同（{va} 与 {vb}），分别判 CS 与 NCS——判定不一致"
+            diff = f"{'同一受试者' if scope == 'subject' else '同中心'}{lab}数值相同（{va} 与 {vb}），一次判为有临床意义、一次判为无临床意义"
             why = ('相同数值的判定不同即不一致（无更差方可定向）；' if scope == 'subject' else
                    '同一中心对相同数值分别判 CS 与 NCS——判定尺度不一致；') + \
                   '先核对症状/复查/处置差异，再决定是否质疑。跨例比较只作提示，不以多数判定作为医学标准。'
         else:
-            diff = (f"{'同一受试者' if scope == 'subject' else '同中心'}{lab}同向异常：{vb} 偏离参考边界更远"
-                    f"（{ext_rules.cons_dev(b, d):.1%}）判 NCS，{va}（{ext_rules.cons_dev(a, d):.1%}）反而判 CS——更差者判轻")
+            diff = (f"{'同一受试者' if scope == 'subject' else '同中心'}{lab}同向异常：{vb}（离正常范围更远，"
+                    f"偏离 {ext_rules.cons_dev(b, d):.0%}）判为无临床意义，{va}（偏离 {ext_rules.cons_dev(a, d):.0%}）却判为有临床意义")
             why = ('同一受试者' if scope == 'subject' else '同一中心') + \
                   '对同向异常的判定尺度不一致：偏离参考边界更远者判 NCS、较轻者判 CS；先核对症状/复查/处置差异，再决定是否质疑。跨例比较只作提示，不以多数判定作为医学标准。'
         o = {'id': f'C{len(C.cons) + 1:03d}', 'scope': scope, 'kind': kind, 'site': site, 'test': lab,

@@ -30,10 +30,10 @@ function tabOv(){
      return `<tr><td class="nowrap"><a href="center.html#c=${c.site}" title="中心画像">${K.p(c.site,'sq mono')} ${K.esc(c.name.length>12?c.name.slice(0,12)+'…':c.name)}</a></td><td class="num">${c.n}</td><td class="num" style="${(sfF[ci]||{}).style||''}" title="筛败率 ${(sf/(ss.length||1)*100).toFixed(0)}%">${sf}</td><td class="num"><b>${c.dosed}</b></td><td class="num">${c.dosed?pm(c.site).toFixed(0):'·'}</td><td>${prog(c)}</td>${cells}<td class="num">${hot?K.p(hot,'org'):'·'}</td></tr>`}).join('')}
    </tbody></table></div></div>`;
   pane.querySelectorAll('#ovt td.click').forEach(td=>td.onclick=()=>{const k=td.dataset.k,s=td.dataset.s,c=C.find(x=>x[0]===k),xs=items[k][s]||[],x=(cell[k]||{})[s];
-    const row=x=>k==='q'?`<tr class="click" data-q="${x.id}"><td>${K.sid(x.sid)}</td><td>${K.esc(x.cat)}</td><td class="small">${K.esc(String(x.text).slice(0,80))}</td></tr>`
+    const row=x=>k==='q'?`<tr class="click" data-q="${x.id}"><td>${K.sid(x.sid)}</td><td>${K.esc(K.catN(x.cat))}</td><td class="small">${K.esc(String(x.text).slice(0,80))}</td></tr>`
       :k==='pd'||k==='pdi'?`<tr class="click" data-pd="${x.id}"><td>${K.sid(x.sid)}</td><td>${K.pdGrade(x.grade)}</td><td class="small">${K.esc(x.title)}：${K.esc(String(x.fact||'').slice(0,60))}</td></tr>`
       :x.pts?`<tr class="click" data-g="${lab.indexOf(x)}"><td>${K.sid(x.sid)}</td><td>${K.risk(x.risk)} ${K.sigPill('lab',x)}</td><td>${K.esc(x.test)}</td></tr>`
-      :x.cat&&x.sum?`<tr class="click" data-o="${oth.indexOf(x)}"><td>${K.sid(x.sid)}</td><td>${K.esc(x.cat)} ${K.sigPill('oth',x)}</td><td class="small">${K.esc(String(x.sum).slice(0,80))}</td></tr>`
+      :x.cat&&x.sum?`<tr class="click" data-o="${oth.indexOf(x)}"><td>${K.sid(x.sid)}</td><td>${K.esc(K.catN(x.cat))} ${K.sigPill('oth',x)}</td><td class="small">${K.esc(String(x.sum).slice(0,80))}</td></tr>`
       :x.c&&x.t?`<tr><td>${K.sid(x.sid)}</td><td><b>${K.esc(x.t)}</b> ${x.sae?K.p('SAE','solid-red'):''}${x.aesi?K.p('AESI','red'):''}</td><td>${K.esc(x.g)} · ${K.esc(x.s||'')}</td></tr>`
       :x.why?`<tr class="click" data-e="${(O.entry||[]).indexOf(x)}"><td>${K.sid(x.sid)}</td><td>${K.esc(x.test)} ${K.p(x.visit,'blu')}</td><td class="small">${K.esc(x.raw)} ${K.esc(x.unit)} · ${K.esc(x.why)}</td></tr>`
       :`<tr><td>${K.sid(x.sid)}</td><td colspan="2" class="small">${K.esc((x.c||[]).join(' · '))}</td></tr>`;
@@ -81,10 +81,10 @@ function tabOth(){
   pane.innerHTML=`<div class="card"><div class="tbar"><div class="chips" id="dm"></div><span class="sp"></span>${sel('site',centerOpts,'')}<input class="s" id="q" placeholder="受试者 / 关键词"></div><div class="tbar"><div class="chips" id="ct"></div><span class="sp"></span><span id="chg-oth"></span></div><div id="tb"></div></div>`;
   const cfO=K.chgBar(document.getElementById('chg-oth'),'oth',()=>draw(),'专项核查'),sgO=K.sigBar(document.getElementById('chg-oth'),()=>draw());
   K.chips(document.getElementById('dm'),K.DOM.map(d=>[d[0],d[0],oth.filter(o=>d[1].includes(o.cat)).length]).filter(x=>x[2]),v=>{st.dom=v;st.cat=null;cc();draw()},{all:'全部领域'});
-  let ctc;function cc(){const list=cats.filter(c=>!st.dom||K.domOf(c)===st.dom);ctc=K.chips(document.getElementById('ct'),list.map(c=>[c,c,oth.filter(o=>o.cat===c).length]),v=>{st.cat=v;draw()},{all:'全部类别',value:st.cat})}cc();
+  let ctc;function cc(){const list=cats.filter(c=>!st.dom||K.domOf(c)===st.dom);ctc=K.chips(document.getElementById('ct'),list.map(c=>[c,K.catN(c),oth.filter(o=>o.cat===c).length]),v=>{st.cat=v;draw()},{all:'全部类别',value:st.cat})}cc();
   document.getElementById('site').onchange=e=>{st.site=e.target.value;draw()};document.getElementById('q').oninput=e=>{st.q=e.target.value.trim();draw()};
   const ord=c=>{const i=K.DOM.findIndex(d=>d[1].includes(c));return i*100+(K.DOM[i]?.[1].indexOf(c)||0)};
-  const tb=K.table(document.getElementById('tb'),{rows:[],h:'680px',pageSize:200,group:r=>r.cat,groupHead:(g)=>{const n=oth.filter(o=>o.cat===g);const d=K.DOM.find(d=>d[1].includes(g));return `${K.p(d?d[0]:'其他',d?d[2]:'')} ${g} <span class="muted small">${n.length} 条 · 质疑 ${D.queries.filter(q=>q.cat===g).length}</span>`},
+  const tb=K.table(document.getElementById('tb'),{rows:[],h:'680px',pageSize:200,group:r=>r.cat,groupHead:(g)=>{const n=oth.filter(o=>o.cat===g);const d=K.DOM.find(d=>d[1].includes(g));return `${K.p(d?d[0]:'其他',d?d[2]:'')} ${K.catN(g)} <span class="muted small">${n.length} 条 · 质疑 ${D.queries.filter(q=>q.cat===g).length}</span>`},
     cols:[{k:'pr',t:'优先级',f:r=>K.pri(r.pr)+(r.pdId?' '+K.pdPill(r.pdId):'')+K.dpill('oth',r)+(r.ctq?K.p('关键','solid-red',r.ctq):'')+K.sigPill('oth',r)},{k:'sid',t:'受试者',f:r=>K.sid(r.sid)},{k:'v',t:'访视',f:r=>`${K.p(r.v||'—','blu')} <span class="xs faint">${r.d||''}</span>`},
       {k:'sum',t:'信号',ns:1,f:r=>`<span>${K.hlNum(r.sum)}</span>`},{k:'rel',t:'已关联',ns:1,f:r=>r.rel.slice(0,3).map(x=>K.p(x[0]+' '+K.esc(x[1]),x[0]==='AE'?'grn':'org')).join(' ')},
       {k:'ctx',t:'背景',ns:1,f:r=>K.ctxTags(r.ctx)+(r.cro?K.p(((K.cfg().query||{}).extShort||'外部')+'已覆盖','line'):'')},{k:'q',t:'质疑',f:r=>r.q.map(K.qPill).join('')||(r.cro?'':'<span class="faint xs">未发</span>')}],

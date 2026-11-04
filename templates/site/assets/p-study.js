@@ -3,7 +3,7 @@ const D=KZ,X=KZX,app=document.getElementById('app');
 const qn=cats=>D.queries.filter(q=>cats.includes(q.cat)).length;
 const qlink=(cats,lab)=>{const n=qn(cats);return n?`<a class="small" href="#" data-qc="${K.esc(cats.join('|'))}">${lab||'相关质疑'} ${n} 条 ›</a>`:`<span class="small faint">${lab||'相关质疑'} 0</span>`};
 document.addEventListener('click',e=>{const a=e.target.closest('[data-qc]');if(!a)return;e.preventDefault();const cats=a.dataset.qc.split('|');const qs=D.queries.filter(q=>cats.includes(q.cat));
- K.drawer('相关医学质疑',`<table class="t"><tbody>${qs.map(q=>`<tr class="click" data-q="${q.id}"><td>${K.qPill(q.id)}</td><td>${K.sid(q.sid)}</td><td>${K.p(q.cat,'line')}<div class="small mt" style="margin-top:3px">${K.hlNum(q.text)}</div></td></tr>`).join('')}</tbody></table>`,qs.length+' 条')});
+ K.drawer('相关医学质疑',`<table class="t"><tbody>${qs.map(q=>`<tr class="click" data-q="${q.id}"><td>${K.qPill(q.id)}</td><td>${K.sid(q.sid)}</td><td>${K.p(K.catN(q.cat),'line')}<div class="small mt" style="margin-top:3px">${K.hlNum(q.text)}</div></td></tr>`).join('')}</tbody></table>`,qs.length+' 条')});
 const R=(...ids)=>ids.map(i=>K.rp(i)).join('');
 /* ---------- design (KZ.study, generated from protocol extraction) ---------- */
 const ST=D.study||{},DS=ST.design||{},st=D.meta.status;

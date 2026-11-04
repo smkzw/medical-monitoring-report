@@ -339,7 +339,7 @@ K.centerRisk=()=>{if(K._cr)return K._cr;const D=window.KZ,lab=K.lab,oth=D.others
   const cased=(k,s)=>K.qlt(((cell[k]||{})[s]||{}).qu,.10)&&small.has(s);
   return K._cr={cats:C,items,rate,centers:CS,hot,low,cell,den,small,cased,unit:fu?'随访人日':'给药人数'}};
 K.showQ=id=>{const q=K.qById(id);if(!q)return;const cro=D().cro.filter(c=>c[2]===q.sid);
-  K.drawer(`${q.id} · ${q.cat}`,`<div class="flex wrap mb">${K.sid(q.sid)}${K.p(K.center(q.site),'line')}${K.p(K.loc(q.sh,q.row),'sq')}${K.p(q.v,'blu')}${q.test?K.p(q.test,''):''}${K.p(q.cro,q.cro==='冲突澄清'?'red':q.cro==='未见同问'?'grn':'yel')}</div>
+  K.drawer(`${q.id} · ${K.catN(q.cat)}`,`<div class="flex wrap mb">${K.sid(q.sid)}${K.p(K.center(q.site),'line')}${K.p(K.loc(q.sh,q.row),'sq')}${K.p(q.v,'blu')}${q.test?K.p(q.test,''):''}${K.p(q.cro,q.cro==='冲突澄清'?'red':q.cro==='未见同问'?'grn':'yel')}</div>
   <div class="box org" style="font-size:13px;line-height:1.7">${K.hlNum(q.text)}</div>
   <div class="sec-t"><h2>证据记录</h2><span class="muted small">${q.ev.length} 行 · ${K.esc((C0().query||{}).note||'已写入交付表格对应记录行的首列')}</span></div><div class="ex-rows muted">载入中…</div>
   <div class="q-series"></div>
@@ -412,6 +412,15 @@ document.addEventListener('click',e=>{const a=e.target.closest('[data-pd]');if(a
 K.applyThr();
 })();
 K.DOM=(((window.KZ||{}).cfg||{}).taxonomy||{}).domains||[];
+/* V6 审阅 RUX 第 21 条：内部类别名（质疑键/统计依赖它，不改）→ 页面显示用医学化名称；研究配置 taxonomy.catLabels 可覆盖 */
+K.CATN=Object.assign({'CS未关联AE/MH':'有临床意义异常未关联AE或病史','CS未关联·同期疑似AE':'有临床意义异常未关联AE（同期疑似AE）',
+  'CS仅关联病史·加重核对':'有临床意义异常仅关联病史（是否加重）','CS归因研究疾病·给药后加重':'归因研究疾病的异常给药后加重',
+  'CS较基线加重·请确认AE':'有临床意义异常较基线加重（是否为AE）','NCS但达分级≥2级':'判为无临床意义但毒性分级≥2级',
+  '达分级≥2级·表单无临床意义评价':'毒性分级≥2级但未评价临床意义','超出参考范围·未评价临床意义':'超出参考范围但未评价临床意义',
+  'AE一致性核对（PT级）':'疑似同一事件编码为不同PT','阈值规则核对':'方案阈值核对','入排洗脱用药核对':'入排洗脱期用药核对','CS未关联·研究疾病表现较基线加重':'研究疾病相关异常较基线加重（是否为AE）',
+  '未评价临床意义·达分级≥2级':'毒性分级≥2级且未评价临床意义'},
+  ((((window.KZ||{}).cfg||{}).taxonomy||{}).catLabels)||{});
+K.catN=c=>{c=String(c||'');const m=c.match(/^(AI审阅·)(.+)$/);return m?m[1]+(K.CATN[m[2]]||m[2]):(K.CATN[c]||c)};
 K.domOf=cat=>{const d=K.DOM.find(d=>d[1].includes(cat));return d?d[0]:'其他'};
 K.IBC=Object.assign({'IB已识别风险':'red','IB潜在风险':'org','方案AESI':'solid-red','类效应·预期':'blu','疾病相关':'','同类常见':''},(((window.KZ||{}).cfg||{}).taxonomy||{}).ibColors||{});
 K.ibTags=cat=>((window.KZ.ibtag||{})[cat]||[]).map(t=>K.p(t,K.IBC[t]||'')).join('');
