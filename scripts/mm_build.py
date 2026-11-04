@@ -23,7 +23,7 @@ import ext_rules
 import monitor_v5
 import raw_export
 import pd_rules
-from common import cn_quotes, days, dshow, dump_json, fmt, is_dosing, parse_links, is_full_date, load_json, move_word, open_workbook_lenient, quantile, result_state, state_meets, study_day, yes, zero_dose
+from common import ae_action, cn_quotes, days, dshow, dump_json, fmt, is_dosing, parse_links, is_full_date, load_json, move_word, open_workbook_lenient, quantile, result_state, state_meets, study_day, yes, zero_dose
 
 AGG_EXCL = set()
 
@@ -3114,7 +3114,8 @@ def analyze(C):
     KZ = {'cfg': C.cfg, 'meta': {'cutoff': cutoff, 'qs': len(C.queries), 'counts': {k: len(getattr(C, k)) for k in ('subjects', 'visits', 'exposure', 'ae', 'mh', 'cm', 'findings', 'efficacy', 'pd', 'extq')},
                                  'status': dict(stc), 'n': len(S), 'centers': len(C.centers), 'dosed': len(C.pop), 'built': dt.datetime.now().strftime('%Y-%m-%d %H:%M'),
                                  'sources': C.cfg.get('footer', {}).get('left', '')},
-          'subs': subs, 'centers': C.centers, 'aes': [{**{k: v for k, v in x.items() if not k.startswith('_') and k != 'sh'}, 'rl': bool(x.get('_rel'))} for x in C.aes if x['sid'] in C.pop],   # rl＝与试验药相关（TRAE）
+          'subs': subs, 'centers': C.centers, 'aes': [{**{k: v for k, v in x.items() if not k.startswith('_') and k != 'sh'}, 'rl': bool(x.get('_rel')), 'ak': ae_action(x.get('act')),
+                   'aesi': bool(x.get('aesi') or x.get('_aesi_term'))} for x in C.aes if x['sid'] in C.pop],   # rl＝TRAE；ak＝措施分类；aesi＝勾选 ∪ 方案定义命中
           'aesum': C.aesum, 'aecat': list(C.aesum), 'ibtag': ibtag, 'labrows': [{k: v for k, v in g.items() if k != 'mid' or g.get('risk') == 'REL'} for g in C.labrows],
           'others': [{**{k: (cn_quotes(v) if k == 'sum' else v) for k, v in o.items() if not k.startswith('_')},
                       **({'cl': thr_label(o['_rule'])} if o['cat'] == '阈值规则核对' and (o.get('_rule') or {}).get('metric') else {})}

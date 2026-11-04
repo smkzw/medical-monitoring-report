@@ -23,10 +23,15 @@ K.profile=async(el,sc)=>{
   const refNote=sub?'对照：所在中心、整体（按给药受试者）':site?'对照：整体（按给药受试者）':'全部给药受试者';
   /* ---------- AE ---------- */
   const AE=D.aes.filter(a=>a.te!==false&&!a.dup);   /* F-D：完全重复记录（第 2 份起）不计例次；明细表仍列出并标「重复」 */
-  const aeRows=[['TEAE',a=>true],['TRAE（与试验药相关）',a=>a.rl],['SAE',a=>a.sae],['AESI',a=>a.aesi],['≥3级',a=>gi(a.g)>=3],['导致停药/终止',a=>stopRe.test(a.act||'')],
-    ...[1,2,3,4,5].map(k=>[`${k}级`,a=>gi(a.g)===k])];
-  const aeCell=(g,f)=>{const I=ids(g),xs=AE.filter(a=>I.has(a.sid)&&f(a)),ns=new Set(xs.map(a=>a.sid)).size;
+  /* 用户 2026-11-04 审阅第 13 条：TEAE 与 TRAE 分栏，各含 例数/%/例次；行＝总体、1–4 级、≥3 级、导致中断、导致停药/终止、SAE、AESI。
+   * 措施按构建端受控分类 ak（interrupted/reduced/withdrawn/none/na；「暂时停用后又恢复」＝导致中断）。 */
+  const aeRows=[['任一不良事件',a=>true],...[1,2,3,4].map(k=>[`${k} 级`,a=>gi(a.g)===k]),['≥3 级',a=>gi(a.g)>=3],
+    ['导致暂停/中断给药',a=>a.ak==='interrupted'||(!a.ak&&/暂停|暂时停|中断/.test(a.act||''))],['导致停药/终止',a=>a.ak==='withdrawn'||(!a.ak&&stopRe.test(a.act||''))],
+    ['严重不良事件（SAE）',a=>a.sae],['特别关注不良事件（AESI）',a=>a.aesi]];
+  const aeCell=(g,f,tr)=>{const I=ids(g),xs=AE.filter(a=>I.has(a.sid)&&(!tr||a.rl)&&f(a)),ns=new Set(xs.map(a=>a.sid)).size;
     return sub&&g[0]==='本例'?`<b>${xs.length}</b> <span class="xs muted">例次</span>`:`<b>${ns}</b> <span class="xs muted">例（${pct(ns,g[1].length)}）· ${xs.length} 例次</span>`};
+  const aeTbl=()=>`<table class="t"><thead><tr><th rowspan="2"></th>${groups.map(g=>`<th colspan="2">${g[0]}${sub&&g[0]==='本例'?'':`<span class="xs faint"> n=${g[1].length}</span>`}</th>`).join('')}</tr>
+    <tr>${groups.map(()=>'<th>TEAE</th><th>TRAE（与研究药物相关）</th>').join('')}</tr></thead><tbody>${aeRows.map(([l,f])=>`<tr><td class="nowrap">${l}</td>${groups.map(g=>`<td>${aeCell(g,f,false)}</td><td>${aeCell(g,f,true)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
   const cats=(()=>{const I=ids(groups[0]),c={};AE.filter(a=>I.has(a.sid)).forEach(a=>{c[a.c]=(c[a.c]||0)+1});return Object.entries(c).sort((a,b)=>b[1]-a[1]).slice(0,12).map(x=>x[0])})();
   /* ---------- MH / CM ---------- */
   const MC=D.mhcm||{mh:[],cm:[]};
@@ -55,7 +60,7 @@ K.profile=async(el,sc)=>{
   const miList=rows=>`<table class="t"><tbody>${rows.map(r=>`<tr><td>${r[6]==='C'?'<b>'+K.esc(r[3])+'</b>':K.esc(r[3])}</td><td class="nowrap">${K.p(r[2],'blu')} ${K.esc(r[1])}</td><td>${K.esc(r[4])}</td><td class="small">${K.esc(r[5])}</td></tr>`).join('')||'<tr><td class="empty">无</td></tr>'}</tbody></table>`;
   const microCard=MI.length?`<div class="card mb"><div class="sec-t" style="margin-top:0"><h2>微生物培养与药敏</h2><span class="muted small">判读型结果（培养/涂片/药敏 MIC）单独呈现，不进入检验异常与质疑链</span></div>${tbl([['有培养/药敏记录',groups.map(miCell)]])}${sub?miList(MI.filter(r=>r[0]===sub.id)):''}</div>`:'';
   el.innerHTML=`<div class="card mb"><div class="hd"><h2>安全性概览 · ${title}</h2><span class="sub">${refNote}</span>${sub?`<span class="sp"></span><a class="small" href="subjects.html#s=${sub.id}">参与者资料 ›</a>　<a class="small" href="timeline.html#s=${sub.id}">时间线 ›</a>`:site?`<span class="sp"></span><a class="small" href="subjects.html#c=${site}">本中心受试者 ›</a>　<a class="small" href="safety.html#tab=ov">中心总览 ›</a>`:''}</div>
-   <div class="grid g2"><div><div class="sec-t" style="margin-top:0"><h2>不良事件</h2><span class="muted small">给药后（TEAE）</span></div>${tbl(aeRows.map(([l,f])=>[l,groups.map(g=>aeCell(g,f))]))}</div>
+   <div class="grid g2"><div><div class="sec-t" style="margin-top:0"><h2>不良事件</h2><span class="muted small">给药后（TEAE）</span></div>${aeTbl()}</div>
    <div><div class="sec-t" style="margin-top:0"><h2>AE 类别</h2><span class="muted small">${sub?'本例发生的类别 · 所在中心与整体的发生率（受试者%）':'发生率（受试者%）· 前 '+cats.length+' 类'}</span></div><div class="chart" id="pf-aec" style="height:${Math.max(160,cats.length*24+40)}px"></div></div></div>
    ${sub?`<div class="sec-t"><h2>本例 AE 明细</h2></div><table class="t"><tbody>${subAE.map(a=>`<tr><td><b>${K.esc(a.t)}</b> ${a.sae?K.p('SAE','solid-red'):''}${a.aesi?K.p('AESI','red'):''}${a.rl?K.p('相关','org'):''}${a.dup?' '+K.p(`重复×${a.dup_n||2}`,'yel'):''}</td><td class="nowrap">${K.esc(a.s||'')} → ${a.e?K.esc(a.e):'持续'}</td><td>${K.p(a.g,gi(a.g)>=3?'solid-red':gi(a.g)>=2?'red':'yel')}</td><td class="small">${K.esc(a.act||'')}</td><td class="small">${K.esc(a.out||'')}</td></tr>`).join('')||'<tr><td class="empty">无 AE 记录</td></tr>'}</tbody></table>`:''}</div>
   <div class="grid g2 mb">

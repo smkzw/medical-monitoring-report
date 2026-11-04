@@ -133,6 +133,26 @@ def cn_quotes(s):
     return s.replace('「', '“').replace('」', '”').replace('『', '‘').replace('』', '’')
 
 
+def ae_action(t):
+    """AE 对研究药物采取的措施 → 受控分类（对齐 CDISC AEACN：DRUG WITHDRAWN / DRUG INTERRUPTED / DOSE REDUCED / DOSE NOT CHANGED / NOT APPLICABLE）：
+    withdrawn（永久停药/终止）、interrupted（暂停/中断，含「暂时停用后又恢复」）、reduced（减量）、none（未采取措施/剂量不变）、na（不适用/未知）。
+    V6（用户审阅 RUX 第 13 条：「暂时停用后又恢复研究药物」此前匹配不到「停药」，安全性概览显示 0）。"""
+    s = str(t or '').strip()
+    if not s or s in ('—', '-') or re.search(r'不适用|未知|NA$|N/A|unknown', s, re.I):
+        return 'na'
+    if re.search(r'永久|撤药|终止|停止(研究)?(用药|给药|治疗)(?!后)|withdr|discontinu', s, re.I) and not re.search(r'暂时|暂停|恢复', s):
+        return 'withdrawn'
+    if re.search(r'暂停|暂时停|中断|停(?:用|药)后.{0,6}恢复|interrupt|hold', s, re.I):
+        return 'interrupted'
+    if re.search(r'减量|减少剂量|剂量减少|剂量降低|降低剂量|reduc', s, re.I):
+        return 'reduced'
+    if re.search(r'未采取|无|剂量不变|未改变|not changed|none', s, re.I):
+        return 'none'
+    if re.search(r'停药|停用', s):
+        return 'withdrawn'
+    return 'na'
+
+
 def dose_state(e):
     """给药记录的语义状态（V6，RUX 审阅第 11 条：医嘱调整表「暂停用药 01-27～02-19」曾被当成给药区间）：
     paused（暂停/中断）/ withdrawn（永久停药）/ resumed（恢复）/ reduced（减量）/ dosing（普通给药）。
