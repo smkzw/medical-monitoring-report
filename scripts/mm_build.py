@@ -23,7 +23,7 @@ import ext_rules
 import monitor_v5
 import raw_export
 import pd_rules
-from common import days, dshow, dump_json, fmt, is_dosing, parse_links, is_full_date, load_json, move_word, open_workbook_lenient, quantile, result_state, state_meets, study_day, yes, zero_dose
+from common import cn_quotes, days, dshow, dump_json, fmt, is_dosing, parse_links, is_full_date, load_json, move_word, open_workbook_lenient, quantile, result_state, state_meets, study_day, yes, zero_dose
 
 AGG_EXCL = set()
 
@@ -1226,21 +1226,68 @@ def pct_rule_norm(R):
 _LIVER_RX = re.compile(r'ALT|AST|转氨酶|谷丙|谷草|胆红素|TBIL', re.I)
 
 
+_ACT_RANK = {'stop': 3, 'interrupt': 2, 'retest': 1}
+
+
+def thr_level(R):
+    """阈值规则的处理级别（同一检验格多档命中只取最高档写质疑）：停药 3 > 中断 2 > 复查 1 > 其他 0。"""
+    acts = set(R.get('acts') or []) | ({'stop'} if R.get('stop') else set())
+    return max([_ACT_RANK.get(a, 0) for a in acts] + [0])
+
+
+def thr_label(R):
+    """面向研究者的类别名（替代「达到方案阈值」）：按方案规定的处理动作命名。"""
+    acts = set(R.get('acts') or []) | ({'stop'} if R.get('stop') else set())
+    if 'stop' in acts:
+        return '达到方案停药标准'
+    if 'interrupt' in acts:
+        return '达到方案中断给药标准'
+    if 'retest' in acts:
+        return '达到方案复查标准'
+    if R.get('aesi'):
+        return '达到方案 AESI 标准'
+    if R.get('expectAE') or acts & {'record_ae', 'report'}:
+        return '达到方案需记录 AE 的标准'
+    return '达到方案规定的检查值标准'
+
+
+def thr_rhs(R):
+    """规则的判据右侧：「ALT/AST > 5 ×ULN」→「超过 5×ULN」，「ANC < 1.5 ×10^9/L」→「低于 1.5×10^9/L」，CTCAE 级别 →「达到 CTCAE 3 级」。"""
+    if R.get('on') == 'grade':
+        return f"达到 CTCAE {int(R['v'])} 级"
+    lab = str(R.get('label') or '')
+    m = re.search(r'(?:>=|<=|≥|≤|>|<)\s*(.+)$', lab)
+    rhs = (m.group(1) if m else fmt(R.get('v'))).replace(' ×', '×').strip()
+    op = R.get('op', '>=')
+    return {'>': '超过', '>=': '达到', '<': '低于', '<=': '不高于'}.get(op, '达到') + ' ' + rhs
+
+
 def threshold_ask(R, o):
-    """用户 2026-11-02（阈值类质疑问法 B）：数值本身真实时不问「请核实并更正」，按方案规定的处理来问；措辞由程序模板生成。
-    只对方案阈值规则生效（规则带 metric 与 v）；规则自带 ask 时沿用。"""
+    """用户 2026-11-02（问法 B）＋ 2026-11-04 审阅第 21 条：阈值类质疑不再写「达到方案阈值」，也不重复说两遍——
+    「方案规定此时需在 48 小时内复查确认，并中断研究药物，请确认复查结果及研究药物处理情况」；处理动作取自方案（编译带 acts/retestH）。"""
     if not (R.get('metric') and R.get('v') is not None and o.get('cat') == '阈值规则核对'):
         return ''
-    parts = []
-    if R.get('stop'):
-        parts.append('请确认是否已按方案暂停或停止研究药物并记录处理')
+    acts = list(R.get('acts') or []) + (['stop'] if R.get('stop') and 'stop' not in (R.get('acts') or []) else [])
+    need, ask = [], []
+    if 'retest' in acts:
+        need.append(f"在 {R['retestH']} 小时内复查确认" if R.get('retestH') else '复查确认')
+        ask.append('复查结果')
+    if 'interrupt' in acts:
+        need.append('中断研究药物')
+    if 'stop' in acts:
+        need.append(('确认后' if R.get('stopCond') else '') + '停用研究药物')
+    if 'interrupt' in acts or 'stop' in acts:
+        ask.append('研究药物处理情况')
     if R.get('aesi'):
-        parts.append('请确认是否已按方案记录为 AESI 并在规定时限内报告')
-    if not parts:
-        parts.append('请确认是否已按方案完成复查与评估，如需记录 AE 请补充')
-    if _LIVER_RX.search(str(o.get('test') or '')):
-        parts.append("如涉及肝功能，请同时评估是否符合 Hy's law")
-    return '已达到方案规定的阈值，' + '；'.join(parts) + '。'
+        need.append('按 AESI 记录并在规定时限内报告')
+        ask.append('是否已按 AESI 记录并报告')
+    elif R.get('expectAE') or set(acts) & {'record_ae', 'report'}:
+        need.append('记录为 AE')
+        ask.append('是否已记录 AE')
+    if not ask:
+        ask.append('复查与评估情况')
+    tail = "，并核对同期总胆红素以评估是否符合 Hy's law" if (R.get('on') == 'uln' and _LIVER_RX.search(str(o.get('test') or ''))) else ''
+    return (f"方案规定此时需{'，并'.join(need)}，" if need else '') + f"请确认{'及'.join(ask)}{tail}。"
 
 
 def threshold_rules(C):
@@ -1288,9 +1335,10 @@ def threshold_rules(C):
                             pr = min(pr, 2)
                     else:
                         ctx.append('未见对应 AE 记录')
-                thr_l = str(R.get('label', f"{R.get('op', '>=')}{R['v']}")).replace('|', '/')   # 不让正则写法「ALT|AST」漏进文案
+                thr_l = thr_rhs(R) if not R.get('sum') else str(R.get('label', f"{R.get('op', '>=')}{R['v']}")).replace('|', '/')
                 b = r.get('base') or {}
-                summ = fill(R.get('sum', '{test} {value} {unit}（{visit} {date}）达到方案阈值 {thr}'), test=C.metric[mid]['label'], value=r.get('raw'),
+                # V6（用户审阅 RUX 第 21 条）：不写「达到方案阈值」——写清检查值相对方案标准的关系（「低于 1.5×10^9/L」）
+                summ = fill(R.get('sum', '{visit}访视（{date}）{test} {value} {unit}，{thr}'), test=C.metric[mid]['label'], value=r.get('raw'),
                             unit=r.get('unit') or '', visit=r.get('visit'), date=dshow(r.get('date')), thr=thr_l,
                             base=b.get('raw'), chg=r.get('chg'), pct=None if r.get('pct') is None else round(r['pct'], 1), uln=r.get('hi'), lln=r.get('lo'))
                 add_other(C, sid, R['cat'], pr, summ, r.get('visit'), r.get('date'), r['sheet'], r['row'], C.metric[mid]['label'], r.get('clin'), rel, ctx, risk, R,
@@ -2171,16 +2219,28 @@ def build_queries(C):
             card['其他同类异常访视'] = '、'.join(str(x[0]) for x in P[1:4])
         card['建议动作'] = ask
         new_q(g['sid'], cat, p[7], p[8], p[0], p[1], g['test'], fact, ask, [[x[7], x[8], x[0], g['test']] for x in P], g, qk, card)
+    # 同一检验格命中多档阈值（ALT>3×ULN 复查/中断 与 >5×ULN 停药）：只就最高档发一条质疑，不再「另：」整句重复
+    top_thr = {}
+    for o in C.others:
+        if o['cat'] == '阈值规则核对' and o['_rule'].get('metric'):
+            k = (o['sid'], o['sh'], o['row'])
+            if k not in top_thr or thr_level(o['_rule']) > thr_level(top_thr[k]['_rule']):
+                top_thr[k] = o
     for o in C.others:
         R = o['_rule']
         if o['pr'] < C.A.get('queryMinPr', 3) or R.get('query') is False:
             continue
+        if o['cat'] == '阈值规则核对' and R.get('metric') and top_thr.get((o['sid'], o['sh'], o['row'])) is not o:
+            continue
         thr = threshold_ask(R, o) if not R.get('ask') else ''
         ask = R.get('ask') or thr or C.A.get('askByCat', {}).get(o['cat']) or '请核实并更正，或提供医学说明。'
-        qq = new_q(o['sid'], o['cat'], o['sh'], o['row'], o['v'], o['d'], o['test'], o['sum'].rstrip('。；，') + '，', ask, [[o['sh'], o['row'], o['v'], o['test']]], o, o.get('qkey', ''),
-                   {'问题': o['cat'], '事实': o['sum'].rstrip('。；，'), **({'指标': o['test']} if o.get('test') else {}), **({'访视': o['v']} if o.get('v') else {}), '建议动作': ask})
-        if thr and qq:
-            qq['fixed'] = True                           # 用户 2026-11-02：阈值类质疑措辞固定用程序模板，不交模型润色
+        n0 = len(Q)
+        qq = new_q(o['sid'], o['cat'], o['sh'], o['row'], o['v'], o['d'], o['test'], o['sum'].rstrip('。；，') + '。' if thr else o['sum'].rstrip('。；，') + '，',
+                   ask, [[o['sh'], o['row'], o['v'], o['test']]], o, o.get('qkey', ''),
+                   {'问题': thr_label(R) if thr else o['cat'], '事实': o['sum'].rstrip('。；，'), **({'指标': o['test']} if o.get('test') else {}),
+                    **({'访视': o['v']} if o.get('v') else {}), '建议动作': ask})
+        if thr and qq and len(Q) > n0:
+            qq['fixed'] = True                           # 用户 2026-11-02：新建的阈值类质疑措辞固定用程序模板；并入既有质疑时不锁对方的模型措辞
     for m in C.S.get('queries_manual', []) or []:  # MM-written queries: {sid, cat, sh, row, v, d, test, fact, ask}
         if m.get('sid') in C.subj:
             new_q(m['sid'], m['cat'], m.get('sh', ''), m.get('row'), m.get('v'), m.get('d'), m.get('test'), m['fact'], m.get('ask', ''),
@@ -2202,6 +2262,9 @@ def build_queries(C):
             b, v = _num(re.sub(r'[^\d.\-].*$', '', str(c.get('基线') or ''))), _num(re.sub(r'[^\d.\-].*$', '', str(c.get('数值') or '')))
             if m and b and v is not None and abs(abs((v - b) / b * 100) - int(m.group(2))) > 1.5:
                 print(f"WARN  事实卡数值不一致 {q['id']}：基线 {c.get('基线')} 数值 {c.get('数值')} {c.get('较基线')}", file=sys.stderr)
+    for q in Q:                                          # 输出端统一中文引号（事实卡不动，卡片哈希与已写句子复用不受影响）
+        q['text'] = cn_quotes(q['text'])
+        q['parts'] = [[cn_quotes(x[0])] + list(x[1:]) for x in q['parts']]
     C.queries = Q
     C.qcommon = dict(common)
 
@@ -3053,7 +3116,9 @@ def analyze(C):
                                  'sources': C.cfg.get('footer', {}).get('left', '')},
           'subs': subs, 'centers': C.centers, 'aes': [{**{k: v for k, v in x.items() if not k.startswith('_') and k != 'sh'}, 'rl': bool(x.get('_rel'))} for x in C.aes if x['sid'] in C.pop],   # rl＝与试验药相关（TRAE）
           'aesum': C.aesum, 'aecat': list(C.aesum), 'ibtag': ibtag, 'labrows': [{k: v for k, v in g.items() if k != 'mid' or g.get('risk') == 'REL'} for g in C.labrows],
-          'others': [{k: v for k, v in o.items() if not k.startswith('_')} for o in C.others],
+          'others': [{**{k: (cn_quotes(v) if k == 'sum' else v) for k, v in o.items() if not k.startswith('_')},
+                      **({'cl': thr_label(o['_rule'])} if o['cat'] == '阈值规则核对' and (o.get('_rule') or {}).get('metric') else {})}
+                     for o in C.others],                 # cl＝面向研究者的类别名（阈值类按方案处理动作命名；内部 cat 不变以保持质疑身份稳定）
           'queries': [{k: v for k, v in q.items() if not k.startswith('_')} for q in C.queries], 'qcommon': C.qcommon,
           'cro': [[x.get('form') or '', x.get('row') or '', x.get('sid') or '', x.get('visit') or '', x.get('text') or ''] for x in C.extq],
           'cons': C.cons, 'rules': C.S.get('rules') or [], 'unres': C.S.get('unres') or [], 'methods': C.methods, 'eff': C.KZeff, 'effissues': [], 'v8': [],

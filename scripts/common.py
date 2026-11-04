@@ -125,6 +125,14 @@ _REDUCE_RX = re.compile(r'减量|降低剂量|减少剂量|剂量下调|reduc', 
 _PERM_RX = re.compile(r'永久|撤药|终止|withdr|discontinu', re.I)
 
 
+def cn_quotes(s):
+    """面向中心的文字统一用中文双/单引号（用户审阅 RUX 第 20 条：「」『』不是质疑里常用的原生中文写法）。只在输出端调用：
+    事实卡不改（卡片哈希不变，模型已写句子可继续复用）。"""
+    if not isinstance(s, str):
+        return s
+    return s.replace('「', '“').replace('」', '”').replace('『', '‘').replace('』', '’')
+
+
 def dose_state(e):
     """给药记录的语义状态（V6，RUX 审阅第 11 条：医嘱调整表「暂停用药 01-27～02-19」曾被当成给药区间）：
     paused（暂停/中断）/ withdrawn（永久停药）/ resumed（恢复）/ reduced（减量）/ dosing（普通给药）。

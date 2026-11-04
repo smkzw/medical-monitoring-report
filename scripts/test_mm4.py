@@ -347,7 +347,7 @@ class DemoBuild(unittest.TestCase):
         # 专项信号正文（参与者抽屉的信号框）：合并用药写「合并用药「药名」」，不写 EDC 域名 CM
         cm_sums = [o['sum'] for o in self.KZ['others'] if 'CM「' in (o.get('sum') or '')]
         self.assertEqual(cm_sums, [], cm_sums)
-        self.assertTrue(any('合并用药「' in (o.get('sum') or '') for o in self.KZ['others']), '演示数据应含合并用药类信号')
+        self.assertTrue(any('合并用药“' in (o.get('sum') or '') for o in self.KZ['others']), '演示数据应含合并用药类信号（输出端已统一中文引号）')
         # 判定一致性（同中心/同受试者，mm4 方向性口径）：对照句不写英文「vs」
         self.assertTrue(self.KZ.get('cons'), '演示数据应含判定一致性对照')
         for c in self.KZ['cons']:
@@ -3449,13 +3449,20 @@ class V6Generalization(unittest.TestCase):
     def test_threshold_query_asks_protocol_action(self):
         # 用户 2026-11-02（问法 B）：阈值类质疑按方案规定的处理来问，不问「请核实并更正」；措辞固定用程序模板
         from mm_build import threshold_ask
+        # 2026-11-04 审阅第 21 条：写方案规定的处理（复查时限/中断/停药），不写「达到方案阈值」、不重复两遍
         o = {'cat': '阈值规则核对', 'test': '丙氨酸氨基转移酶（ALT）'}
-        a = threshold_ask({'metric': 'ALT', 'v': 5, 'stop': True}, o)
-        self.assertIn('暂停或停止研究药物', a)
+        a = threshold_ask({'metric': 'ALT', 'v': 5, 'on': 'uln', 'stop': True, 'acts': ['stop'], 'stopCond': '如果确认…'}, o)
+        self.assertIn('确认后停用研究药物', a)
         self.assertIn("Hy's law", a)
         self.assertNotIn('更正', a)
+        self.assertNotIn('阈值', a)
+        a = threshold_ask({'metric': 'ANC', 'v': 1.5, 'acts': ['retest', 'interrupt'], 'retestH': 48}, {'cat': '阈值规则核对', 'test': '中性粒细胞计数'})
+        self.assertEqual(a, '方案规定此时需在 48 小时内复查确认，并中断研究药物，请确认复查结果及研究药物处理情况。')
         self.assertIn('AESI', threshold_ask({'metric': 'QTcF', 'v': 500, 'aesi': True}, {'cat': '阈值规则核对', 'test': 'QTcF'}))
         self.assertEqual(threshold_ask({'metric': 'X', 'v': 1}, {'cat': '入排标准核对'}), '')
+        from mm_build import thr_label, thr_rhs
+        self.assertEqual(thr_label({'acts': ['retest', 'interrupt']}), '达到方案中断给药标准')
+        self.assertEqual(thr_rhs({'label': '中性粒细胞计数ANC < 1.5 ×10^9/L', 'op': '<', 'v': 1.5}), '低于 1.5×10^9/L')
 
     def test_ctcae_v6_corrections_vs_official(self):
         # 2026-11-02 对照 NCI DCTD《CTCAE v6.0》Clean Copy 核对：血小板减少 4 级 <10×10^9/L；
