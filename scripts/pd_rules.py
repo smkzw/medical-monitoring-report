@@ -522,8 +522,8 @@ class _PD:
                 lab = o['_rule'].get('label') or o['cat']
                 # V6（RUX 审阅第 11 条）：达标前后已暂停给药（医嘱调整「暂停用药」区间覆盖达标日附近）、之后又恢复——
                 # 不是「给药持续」；按方案停药是否以「复查确认」为前提，列为待判定并请提供复测确认情况（用户裁定 11＝A）
-                pause = next((x for x in ex if dose_state(x) in ('paused', 'withdrawn') and is_full_date(x.get('start'))
-                              and -3 <= (days(x['start'], d) or 99) <= 7), None)
+                pause = next((x for x in ex if dose_state(x) in ('paused', 'withdrawn') and days(x.get('start'), d) is not None
+                              and -3 <= days(x['start'], d) <= 7), None)        # 注意 0 天（同日暂停）不能被当成假值
                 if pause is not None:
                     pe = _last_dose(pause) if pause.get('end') else pause['start']
                     self.add('WD-01', sid, f"{o.get('test')} {o.get('v') or ''}（{d}）达到方案停药标准（{lab}），{pause['start']} 起已暂停给药"

@@ -2376,7 +2376,7 @@ def _reused(C, sid, dates, n):
     fd = C.subj[sid].get('fd')
     if not dates or not is_full_date(fd):
         return False
-    return any(0 <= (days(fd, d) or -1) <= n for d in dates)
+    return any(days(fd, d) is not None and 0 <= days(fd, d) <= n for d in dates)   # 同日（0 天）有效
 
 
 def _soa_guard_cell(C, name, vis, n, miss):
@@ -2395,9 +2395,11 @@ def _soa_guard_cell(C, name, vis, n, miss):
         return '<18 岁' if a < 18 else '18–64 岁' if a < 65 else '≥65 岁'
     ages = Counter(band(x) for x in miss)
     hint = []
-    for lab, cnt in (('性别', sex), ('年龄', ages)):
+    n_sex = {('女' if re.search(r'女|^F', str(C.subj[x].get('sex') or ''), re.I) else '男') for x in n}
+    n_age = {band(x) for x in n}
+    for lab, cnt, pool in (('性别', sex, n_sex), ('年龄', ages, n_age)):
         k, v = cnt.most_common(1)[0]
-        if v >= 0.9 * len(miss) and k != '未知':
+        if len(pool) > 1 and v >= 0.9 * len(miss) and k != '未知':      # 应做人群本身只有一种（已按性别限定）时不提示
             hint.append(f"缺失者 {v / len(miss):.0%} 为{k}，可能缺少按{lab}的适用条件")
     return {'name': name, 'visit': vis, 'n': len(n), 'miss': len(miss), 'pct': round(len(miss) / len(n), 3),
             'sex': dict(sex), 'age': dict(ages), 'site': dict(by_site.most_common(5)), 'hint': '；'.join(hint)}
