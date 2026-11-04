@@ -196,6 +196,9 @@ def disease_hint(C, mid, sheet=''):
 
 
 # --------------------------------------------------------------------------- M13 MHX-T
+PROTECTIVE_AB = re.compile(r'表面抗体|HBsAb|抗-?HBs(?!Ag)|anti-?HBs(?!Ag)', re.I)
+
+
 def m13_mhx_t(C):
     """首剂前 NCS/未评价且偏离 ≥T_dev（或 ≥2 级/定性 ≥+）且病史未记录 → MHX-T 候选（pr2，不发 query）。
     排除：CS（归 M23）、研究疾病表现（indicationBackground）、已触发 M09 入排核查的同一数值、检验页已关联病史。
@@ -207,6 +210,8 @@ def m13_mhx_t(C):
     elig_rows = {(o['sid'], o.get('sh'), o.get('row')) for o in C.others if o.get('cat') == '入排标准核对'}
     for (sid, mid), rows in sorted(C.F.items()):
         if sid not in C.pop or mid.split(':')[0] not in doms:
+            continue
+        if PROTECTIVE_AB.search(C.metric[mid]['label']):     # 保护性抗体阳性＝免疫（接种/既往感染已愈），不是需记病史的异常（E2E 第 6 轮 RUX：HBsAb 阳性被提示病史漏记）
             continue
         dev_t = float((thr.get('per_metric') or {}).get(mid, {}).get('dev', thr['dev']))
         for T in C.mthr:
@@ -1134,16 +1139,16 @@ def _csb_query(C, r, kind, rec, extra, flags):
         mv = move_word(bv, v, r.get('lo'), r.get('hi'))   # F06：低于下限不写「升高至」（偏离方向与基线方向分离表述）
         head = f"{r.get('visit')}访视{C.metric[r['mid']]['label']}{mv}{_val(_raw_or_val(r), r.get('unit'))}"
     if kind == 'LINK':
-        fact = f"{head}判定为CS{extra or ''}，"
+        fact = f"{head}判为有临床意义{extra or ''}，"
     elif kind == 'CSX_AE':
-        fact = f"{head}判定为CS，同期已记录AE「{(rec or {}).get('term', '')}」（{(rec or {}).get('start', '')}），但未关联，"
+        fact = f"{head}判为有临床意义，同期已记录AE“{(rec or {}).get('term', '')}”（{(rec or {}).get('start', '')}），但未关联，"
     elif kind == 'MH':
-        fact = f"{_base_txt(r)}{head}判定为CS，仅关联病史「{(rec or {}).get('t', '')}」，较基线加重且未见对应AE，"
+        fact = f"{_base_txt(r)}{head}判为有临床意义，仅关联病史“{(rec or {}).get('t', '')}”，较基线加重且未见对应AE，"
     elif kind == 'CSW':
         why = extra or ('（' + '、'.join(f for f in flags if not f.startswith('给药前'))[:40] + '）' if flags else '')
-        fact = f"{_base_txt(r)}{head}判定为CS{why}，"
+        fact = f"{_base_txt(r)}{head}判为有临床意义{why}，"
     else:
-        fact = f"{_base_txt(r)}{head}判定为CS，但未关联AE或病史，"
+        fact = f"{_base_txt(r)}{head}判为有临床意义，但未关联AE或病史，"
     add_ext(C, r['sid'], CSB_CAT[kind], kind, CSB_PR[kind], fact.rstrip('，'),
             r.get('visit'), r.get('date'), r['sheet'], r['row'], C.metric[r['mid']]['label'],
             ctx=flags, rule={'ask': QT_CSB_ASK[kind]},

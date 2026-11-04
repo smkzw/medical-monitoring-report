@@ -2281,12 +2281,12 @@ def build_queries(C):
             parts = qk.split('|')
             parts[3] = f"{row_wb}:{p[7]}"            # qkey 的 wb:sheet 段与被选行一致
             qk = '|'.join(parts)
-        card = {'问题': {'CSX': '判CS但未关联AE或病史', 'MH': '判CS且只关联病史，系统判定较基线加重，未见对应AE', 'NCS2': '数值达CTCAE≥2级但研究者判NCS',
+        card = {'问题': {'CSX': '判为有临床意义但未关联AE或病史', 'MH': '判为有临床意义且只关联病史，较基线加重，未见对应AE', 'NCS2': '数值达CTCAE≥2级但研究者判为无临床意义',
                        'NA': '超出参考范围但未评价临床意义', 'NA2': '数值达CTCAE≥2级但未评价临床意义', 'G2NF': '数值达CTCAE≥2级，该表单没有临床意义评价',
                        'DISW': '研究者归因研究疾病，但较基线明显加重且未记录研究疾病加重AE'}.get(g['risk'], cat),
                 '指标': g['test'], '访视': p[0], '数值': f"{p[2]}{p[3] or ''}", '参考范围': rng}
         if cand:
-            card['问题'], card['同期已记录AE'] = '判CS未关联检验，同期已有可能对应的AE', '、'.join(re.sub(r'可能对应，但检验页未关联', '', c).replace('同期 ', '') for c in cand)
+            card['问题'], card['同期已记录AE'] = '判为有临床意义但检验未关联，同期已有可能对应的AE', '、'.join(re.sub(r'可能对应，但检验页未关联', '', c).replace('同期 ', '') for c in cand)
         if bg:
             card['问题'], card['研究疾病表现'] = '该指标异常可见于研究疾病，但较基线明显加重且未记录AE', re.sub(r'[↑↓]|（医学常识）$', '', bg.split('：')[0])
         if b_ and b_[1] not in (None, ''):

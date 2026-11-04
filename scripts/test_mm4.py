@@ -3530,5 +3530,16 @@ class IeFailReasonTests(unittest.TestCase):
         self.assertEqual(M.ie_fail_reasons(C), {'B2': '排除标准 EX03', 'B3': '入选标准 IN02'})
 
 
+class ProtectiveAntibodyTests(unittest.TestCase):
+    """E2E 第 6 轮 RUX：保护性抗体（HBsAb/抗-HBs）阳性不作首剂前疑似病史漏记；表面抗原、核心抗体照常。"""
+
+    def test_pattern(self):
+        import ext_rules as E
+        self.assertTrue(E.PROTECTIVE_AB.search('乙肝表面抗体（HBsAb）'))
+        self.assertTrue(E.PROTECTIVE_AB.search('抗-HBs'))
+        self.assertFalse(E.PROTECTIVE_AB.search('乙肝表面抗原（HBsAg）'))
+        self.assertFalse(E.PROTECTIVE_AB.search('乙肝核心抗体（HBcAb）'))
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)
