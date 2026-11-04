@@ -22,6 +22,8 @@ DOMAIN_RE = [  # (domain, sheet-name/label regex)
     # R2-2：参与者/人口统计为通用 CRF 命名变体（受试者/参与者两系术语、人口学/人口统计学）；
     # 治疗结束页/研究结束页为 DS 类完成状态页通用表名。
     ('subjects', r'^(DM|人口学|人口统计|受试者信息|参与者信息|筛选|知情|ENR|RAND|RAN\b|随机)'), ('subjects', r'^(DS|完成|结束|退出|EOS|EOT|研究总结|治疗结束|研究结束)'),
+    # V6（用户审阅 RUX 第 4 条）：入选/排除标准页（IEYN/标准类型/标准编号）→ ie 域：筛选失败原因、入排页不满足但已入组
+    ('ie', r'^(IE\b|IE-|入选|排除|入排|纳排|资格)'),
     ('visits', r'^(SV|访视日期|访视)'),
     # findings before exposure so ECG/ECHO are not caught by ^EC; any non lab/vs/ecg findings domain becomes a generic 专项检查 group
     ('findings:ecg', r'^(EG|ECG|心电图|12导联)'),
@@ -74,6 +76,8 @@ FIELD_SYN = {  # normalized field → variable/label patterns (first match wins)
     'sid': [r'^(SUBJID|USUBJID|SUBJECT|受试者(编号|号|代码)?|参与者(编号|号)|筛选号|病例号|Participant ID|Subject ID)$'], 'site': [r'^(SITEID|SITENO|中心(编号|号)?)$'], 'center': [r'^(SITENAME|中心名称|研究中心)$'],
     'visit': [r'^(VISIT|VISITNAME|FOLDERNAME|访视(名称)?|访视阶段)$', r'^(数据节|FOLDER)$'], 'date': [r'(DAT|DTC|日期)$'], 'tpt': [r'(TPT|时间点)$'],
     'time': [r'(TIM|TIME|时间)$'],
+    'met': [r'^(IEYN|IEORRES)$', r'是否满足.{0,10}(入选|标准)|符合.{0,6}入选.{0,10}排除'], 'crit': [r'^(IETESTCD|IETEST)$', r'标准编号|条款编号|标准序号'],
+    'ie_cat': [r'^IECAT$', r'标准类型|标准类别'], 'ie_ver': [r'^IEVER$', r'方案版本'],
     'icf': [r'^(DSICDAT|ICFDAT)$', r'知情同意书?签署日期'], 'rescreen': [r'(RSCRYN|是否.{0,3}重复筛选|是否.{0,3}重新筛选)'], 'prev_sid': [r'(首次筛选.{0,6}编号|DSSUBJID)'], 'eot_d': [r'(EOTDAT|末次(给药|服药)日期|治疗结束.*日期|终止治疗.*日期)'], 'eot_why': [r'(EOTREAS|终止治疗.*原因|治疗结束.*原因)', r'(DSDECOD|DSTERM|退出原因|终止原因|未完成原因)'],
     'eos_d': [r'(EOSDAT|DSSTDAT|研究结束.*日期|完成/?退出日期|退出(研究|试验)?日期)'], 'eos_done': [r'(EOSCOMP|DSCOMYN|是否完成)'], 'eos_why': [r'(EOSREAS|DSREAS|研究结束原因|未完成.*原因)'], 'age': [r'^(AGE|年龄)'], 'sex': [r'^(SEX|性别)'], 'rand': [r'(RANDNO|RANNUM|随机号)'], 'rand_d': [r'(RANDAT|随机日期)'], 'status': [r'^(受试者状态)$', r'(RANYN|是否筛选成功并随机)'], 'ht': [r'(HEIGHT|身高)'], 'wt': [r'^(WEIGHT|体重)'],
     # F-A：具体变量/事件名称列先于通用「名称$」——访视名称/页面名称是结构性元数据，不是事件术语
@@ -96,6 +100,7 @@ DOMAIN_FIELDS = {'subjects': ['sid', 'site', 'center', 'icf', 'rescreen', 'prev_
                  'mh': ['sid', 'term', 'start', 'end', 'ongoing'], 'cm': ['sid', 'term', 'start', 'end', 'ongoing', 'dose', 'freq', 'route', 'indication'],
                  'proc': ['sid', 'term', 'start', 'end'], 'findings': ['sid', 'visit', 'date', 'time', 'tpt', 'test', 'value', 'unit', 'lo', 'hi', 'clin', 'desc', 'link',
                                                                     'link_mh', 'link_ae', 'reason_disease'], 'sample': ['sid', 'visit', 'tpt', 'date', 'time'],
+                 'ie': ['sid', 'met', 'crit', 'ie_cat', 'ie_ver'],
                  'efficacy': ['sid', 'visit', 'date', 'test', 'value'], 'pd': ['sid', 'cat', 'term', 'date'], 'extq': ['sid', 'form', 'visit', 'text'],
                  'pk': ['sid', 'visit', 'date', 'tpt', 'value'], 'ada': ['sid', 'visit', 'date', 'value']}
 
@@ -180,7 +185,7 @@ def split_label(lab, var):
 
 
 # 结构性元数据列（访视/页面/表单/中心/稽查时间…）只能绑定到这些字段；其余事实字段（时间/日期/结果/术语…）绝不取它们
-STRUCT_OK = {'visit', 'site', 'center', 'status', 'sid'}
+STRUCT_OK = {'visit', 'site', 'center', 'status', 'sid', 'no', 'link'}   # 记录号/动态链接是记录身份列
 
 
 def guess(names, field):

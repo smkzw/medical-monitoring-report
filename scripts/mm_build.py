@@ -149,7 +149,7 @@ def load(study_p, norm_p):
     N = Path(norm_p)
     C.src = load_json(N / '_source.json', {})
     for dom in ('subjects', 'visits', 'exposure', 'ae', 'mh', 'cm', 'proc', 'findings', 'efficacy', 'pd', 'extq', 'groups',
-                'icf', 'sample', 'dispense'):   # mm4：知情同意记录 / 样本采集 / 发药回收（可选域，PD 执行层面核查用）
+                'icf', 'sample', 'dispense', 'ie'):   # mm4：知情同意记录 / 样本采集 / 发药回收（可选域）；V6：入排标准页
         setattr(C, dom, load_json(N / f'{dom}.json', []) or [])
     # 表单中文名：EDC 目录页 ＜ study.json analysis.formNames；分组名缺省（等于表单代码）时用中文名，避免页面出现「OTH」
     C.A['formNames'] = {**(C.src.get('formNames') or {}), **(C.A.get('formNames') or {})}
@@ -1645,15 +1645,54 @@ def build_ops(C):
     for r in C.icf:
         icf[r['sid']].append([str(r.get('ver') or ''), r.get('date') or ''])
     subs = []
+    sfw = ie_fail_reasons(C)
     for sid, s in C.subj.items():
         subs.append([sid, s['site'], s['status'], s.get('icf') or '', first.get(sid, ''), s.get('rand') or '', s.get('rand_d') or '',
                      s['fd'] or '', s['ld'] or '', s.get('eot_d') or '', s.get('eot_why') or '', s.get('eos_d') or '', s.get('eos_why') or '',
-                     1 if str(s.get('rescreen') or '').strip() in ('是', 'Y', '1', 'True', 'true') else 0, s.get('prev_sid') or ''])
+                     1 if str(s.get('rescreen') or '').strip() in ('是', 'Y', '1', 'True', 'true') else 0, s.get('prev_sid') or '',
+                     sfw.get(sid, '')])
     alld = [d for d in (f.get('date') for f in C.findings) if is_full_date(d)]
     C.ops = {'subs': subs, 'vis': dict(vis), 'win': C.A.get('visitWindows') or {}, 'planned': (C.S.get('study') or {}).get('planned'),
              'cutoff': C.cfg.get('study', {}).get('cutoff') or (max(alld) if alld else ''), 'stage': C.cfg.get('dataStage') or '',
              'ex': {k: v for k, v in ex.items()}, 'icf': dict(icf), 'entry': C.entry,
-             'fields': ['id', 'site', 'status', 'icf', 'first', 'rand', 'rand_d', 'fd', 'ld', 'eot_d', 'eot_why', 'eos_d', 'eos_why', 'rescreen', 'prev']}
+             'fields': ['id', 'site', 'status', 'icf', 'first', 'rand', 'rand_d', 'fd', 'ld', 'eot_d', 'eot_why', 'eos_d', 'eos_why', 'rescreen', 'prev', 'sf_why']}
+
+
+def _ie_label(r):
+    cat = str(r.get('ie_cat') or '')
+    kind = '排除标准' if re.search(r'排除|EX', cat, re.I) else '入选标准' if re.search(r'入选|IN', cat, re.I) else '入排标准'
+    no = re.sub(r'^0+(?=\d)', '', str(r.get('crit') or '').strip())
+    return f"{kind} {no}".strip()
+
+
+def ie_fail_reasons(C):
+    """入排标准页（ie 域）：不满足的标准 → {sid: '排除标准 5、入选标准 4'}（筛选失败原因；V6 用户审阅 RUX 第 4 条：49 名筛败者原因全显示「未注明」）。"""
+    rows = getattr(C, 'ie', []) or []
+    yes = lambda r: bool(re.match(r'^(是|Y|Yes|满足|符合)', str(r.get('met') or '').strip(), re.I))
+    no = lambda r: bool(re.match(r'^(否|N|No|不满足|不符合)', str(r.get('met') or '').strip(), re.I))
+    # 两种页面形态：① 总问「是否满足全部入选且不符合任何排除」＋否时填不满足的标准（RUX）；
+    # ② 逐条标准一行（CDISC IE：排除标准「是」＝符合排除＝不合格）。「是」的行也填了标准编号 → ②
+    per_crit = any(yes(r) and r.get('crit') for r in rows)
+    out = defaultdict(list)
+    for r in rows:
+        exc = _ie_label(r).startswith('排除')
+        bad = (yes(r) if exc else no(r)) if per_crit else no(r)
+        if bad and (r.get('crit') or r.get('ie_cat')):
+            lab = _ie_label(r)
+            if lab not in out[r['sid']]:
+                out[r['sid']].append(lab)
+    return {k: '、'.join(v) for k, v in out.items()}
+
+
+def ie_checks(C):
+    """入排标准页记录「不满足」但已随机/给药 → 入排核对信号（判定状态 violated，生成入组资格偏离）。"""
+    for sid, why in sorted(ie_fail_reasons(C).items()):
+        if sid not in C.pop:
+            continue
+        r = next(x for x in C.ie if x['sid'] == sid)
+        o = add_other(C, sid, '入排标准核对', 4, f"入排标准页记录不满足{why}，但已随机/给药", r.get('visit'), r.get('date') or C.subj[sid].get('icf'),
+                      r.get('sheet', ''), r.get('row'), bkey=f"ie|{why}", wb=r.get('wb') or '')
+        o['_elig'] = 'violated'
 
 
 def range_checks(C):
@@ -3075,6 +3114,7 @@ def analyze(C):
     ae_checks(C)
     cm_checks(C)
     eligibility_checks(C)
+    ie_checks(C)                                         # V6：入排标准页不满足但已入组
     range_checks(C)
     visit_window_checks(C)
     monitor_v5.gap_check(C, add_other)                   # V6：在研受试者长时间无记录（失访/未录入）

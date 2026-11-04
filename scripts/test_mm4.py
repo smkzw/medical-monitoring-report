@@ -3513,5 +3513,22 @@ class V6Generalization(unittest.TestCase):
         self.assertTrue(_pre_dose('2026-01-30', '2026-02-03'))
 
 
+class IeFailReasonTests(unittest.TestCase):
+    """V6 用户审阅 RUX 第 4 条：筛败原因取入排标准页（两种页面形态）。夹具虚构。"""
+
+    def test_summary_and_per_criterion_layouts(self):
+        from types import SimpleNamespace
+        import mm_build as M
+        C = SimpleNamespace(ie=[{'sid': 'A1', 'met': '否', 'ie_cat': '排除标准', 'crit': '05'},
+                                {'sid': 'A1', 'met': '否', 'ie_cat': '入选标准', 'crit': '4'},
+                                {'sid': 'A2', 'met': '是', 'ie_cat': '', 'crit': ''}])
+        self.assertEqual(M.ie_fail_reasons(C), {'A1': '排除标准 5、入选标准 4'})
+        C = SimpleNamespace(ie=[{'sid': 'B1', 'met': 'Y', 'ie_cat': 'INCLUSION', 'crit': 'IN01'},
+                                {'sid': 'B1', 'met': 'N', 'ie_cat': 'EXCLUSION', 'crit': 'EX02'},
+                                {'sid': 'B2', 'met': 'Y', 'ie_cat': 'EXCLUSION', 'crit': 'EX03'},
+                                {'sid': 'B3', 'met': 'N', 'ie_cat': 'INCLUSION', 'crit': 'IN02'}])
+        self.assertEqual(M.ie_fail_reasons(C), {'B2': '排除标准 EX03', 'B3': '入选标准 IN02'})
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)
