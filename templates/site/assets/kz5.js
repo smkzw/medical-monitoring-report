@@ -20,7 +20,7 @@ K.qtlLim=k=>{const d=K.kriDef(k);if(!d||!d.qtl)return null;return d.qtl[{strict:
 K.qtlState=(k,nd)=>{const v=K.kriV(k,nd),lim=K.qtlLim(k);if(v==null||lim==null)return {v,lim,st:''};return {v,lim,st:v>lim?'exceed':lim>0&&v>lim*.8?'warn':'ok'}};
 K.QTLC={exceed:['超出限度','solid-red'],warn:['接近限度','org'],ok:['限度内','grn']};
 K.qtlRows=()=>{const k=K.kri();if(!k)return [];return k.defs.filter(d=>d.qtl).map(d=>({...d,nd:k.study[d.k],na:(k.na||{})[d.k],...((k.na||{})[d.k]?{v:null,lim:K.qtlLim(d.k),st:''}:K.qtlState(d.k,k.study[d.k]))}))};
-K.qtlBar=el=>{const k=K.kri();if(!el||!k)return;el.innerHTML=`<span class="xs muted">容忍限度档位</span><span class="seg" id="kz-qtl"></span><span class="xs faint" style="margin-left:6px">切换后总览、临床监察、中心画像、行动项按所选档位重算</span>`;
+K.qtlBar=el=>{const k=K.kri();if(!el||!k)return;el.innerHTML=`<span class="xs muted">容忍限度档位</span><span class="seg" id="kz-qtl"></span><span class="xs faint" style="margin-left:6px">切换后总览、临床监查、中心画像、风险排名按所选档位重算</span>`;
   K.seg(el.querySelector('#kz-qtl'),k.tiers,K.qtlTier(),v=>K.setQtl(v))};
 K.qtlTiles=el=>{const rows=K.qtlRows();if(!el)return;if(!rows.length){el.innerHTML='<div class="empty">本构建没有 KRI 数据</div>';return}
   el.innerHTML=`<div class="qtl">${rows.map(r=>`<a class="qt ${r.st||'na'}" href="monitor.html#tab=kri" title="${K.esc(r.note)}"><div class="l">${K.esc(r.l)}</div>
@@ -54,6 +54,11 @@ K.showVis=v=>{const b=K.drawer(`${v.sid} · ${K.esc(v.v)} 访视`,`<div class="b
   /* V6：该受试者的访视记录原行（核对是否其实做了、只是访视名写法不同） */
   K.rawIdx().then(I=>{if(!I)return;const vs=Object.keys(I.sheets).filter(k=>I.sheets[k].domain==='visits');K.raw(v.sid).then(R=>{if(!R)return;const ev=[];vs.forEach(k=>(R[k]||[]).forEach(r=>ev.push([k,r[0]])));
     if(ev.length)K.rawBox(b.querySelector('.vis-raw'),v.sid,ev,{ctx:0,title:'本受试者访视记录（原始）'})})})};
+/* V6（用户审阅 RUX 第 18 条）：时间线任一事件的下钻——事件摘要＋原始数据表对应行（含前后行，可展开本受试者该表单全部行） */
+K.evKey=(wb,sh)=>wb&&sh&&!String(sh).includes(':')?wb+':'+sh:sh;
+K.evDrawer=(title,sid,ev,html='')=>{const b=K.drawer(title,`${html}<div class="evraw"></div><div class="mt"><a class="small" href="subjects.html#s=${encodeURIComponent(sid)}&t=raw">本受试者原始数据 ›</a>　<a class="small" href="timeline.html#s=${encodeURIComponent(sid)}">时间线 ›</a></div>`);
+  const e=(ev||[]).filter(x=>x&&x[0]&&x[1]!=null);if(e.length)K.rawBox(b.querySelector('.evraw'),sid,e,{ctx:2,title:'原始数据（含前后行）'});else b.querySelector('.evraw').innerHTML='<div class="note small">该事件没有可定位的原始行。</div>';return b};
+K.aeBox=a=>`<div class="box small mb"><b>${K.esc(a.t)}</b> ${a.g?K.p(a.g,String(a.g)>='3'?'red':'yel'):''}${a.sae?K.p('SAE','solid-red'):''}${a.aesi?K.p('AESI','red'):''}<div class="mt" style="margin-top:4px">${K.esc(a.s||'')} → ${a.e?K.esc(a.e):'持续'}${[['相关性',a.rel],['措施',a.act],['转归',a.out]].filter(x=>x[1]&&x[1]!=='—').map(x=>` · ${x[0]}：${K.esc(x[1])}`).join('')}</div></div>`;
 K.showSite=(kind,x,title,html)=>K.drawer(title,`${html}<div class="mt"><a class="small" href="center.html#c=${x.site||''}">中心画像 ›</a></div>`);
 
 /* ---------- 风险排名：把各页的风险项汇成一张按严重度排序的清单（只报告，不做处置） ----------

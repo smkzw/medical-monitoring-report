@@ -1,7 +1,7 @@
 /* V6 前端深度优化（审阅者 2026-11-02，docs/v6/FRONTEND.md）：
  *  - K.subjEvidence / K.rawBrowser：个例「原始数据」——逐表单浏览 listing 原行，带信号的行加徽标、点行看对应风险/质疑；
  *  - K.journey：受试者旅程泳道图（给药/访视/AE/合并用药/检验异常/质疑同一时间轴）；
- *  - K.groupSig：信号聚合（同受试者×同日期×同类别×同表单 → 一张卡），行动项/中心待办共用。
+ *  - K.groupSig：信号聚合（同受试者×同日期×同类别×同表单 → 一张卡），风险排名共用。
  * 颜色只表达两件事：风险等级（状态色，配文字）与身份；不用双 y 轴。 */
 (function(){
 const K=window.K;
@@ -44,12 +44,12 @@ K.journeyH=d=>Math.min(320,120+Math.min(4,Math.max(1,...(d.ae||[]).map((_,i)=>i%
 K.journey=(el,d,{lr=[],ot=[],qs=[]}={})=>{if(!el||!window.echarts)return;
   const end=d.lo||d.ld||d.fd,clip=x=>x&&String(x).slice(0,10),isD=x=>/^\d{4}-\d{2}-\d{2}/.test(String(x||''));
   const bars=[],pts=[];
-  (d.ec||[]).forEach(e=>{if(isD(e.s))bars.push({lane:0,s:clip(e.s),e:clip(isD(e.e)?e.e:e.s),c:'#587B3B',t:`给药 ${clip(e.s)}${isD(e.e)?' → '+clip(e.e):''}${e.n?' · '+e.n:''}${e.pause?' · '+e.pause:''}`})});
-  (d.visits||[]).forEach(v=>{if(isD(v[2]))pts.push({lane:1,d:clip(v[2]),c:'#407AAA',sym:'rect',sz:7,t:`${v[0]} 访视 ${clip(v[2])}`,lab:v[0]})});
+  (d.ec||[]).forEach(e=>{if(isD(e.s))bars.push({lane:0,s:clip(e.s),e:clip(isD(e.e)?e.e:e.s),c:'#587B3B',t:`给药 ${clip(e.s)}${isD(e.e)?' → '+clip(e.e):''}${e.n?' · '+e.n:''}${e.pause?' · '+e.pause:''}`,go:()=>K.evDrawer(`${d.id} · 研究药物给药`,d.id,[[K.evKey(e.wb,e.sh),e.row]])})});
+  (d.visits||[]).forEach(v=>{if(isD(v[2]))pts.push({lane:1,d:clip(v[2]),c:'#407AAA',sym:'rect',sz:7,t:`${v[0]} 访视 ${clip(v[2])}`,lab:v[0],go:()=>K.evDrawer(`${d.id} · ${K.esc(v[0])} 访视`,d.id,[[K.evKey(v[5],v[4]),v[3]]])})});
   const gc=g=>{const n=parseInt(g)||0;return n>=3?'#8B0000':n===2?'#E67E00':'#E8C300'};
   (d.ae||[]).forEach((a,i)=>{if(!isD(a.s))return;bars.push({lane:2,sub:i%4,s:clip(a.s),e:clip(isD(a.e)?a.e:end),open:!isD(a.e),c:gc(a.g),bd:a.sae?'#000':null,
-    t:`AE「${a.t}」${a.g||''}${a.sae?' · SAE':''}${a.aesi?' · AESI':''}<br>${clip(a.s)} → ${isD(a.e)?clip(a.e):'持续'}${a.rel?'<br>相关性：'+a.rel:''}`})});
-  (d.cm||[]).slice(0,30).forEach((c,i)=>{if(!isD(c.s))return;bars.push({lane:3,sub:i%3,s:clip(c.s),e:clip(isD(c.e)?c.e:end),c:'#9DB7D3',t:`合并用药「${c.t}」<br>${clip(c.s)} → ${isD(c.e)?clip(c.e):'持续'}`})});
+    t:`AE“${a.t}”${a.g||''}${a.sae?' · SAE':''}${a.aesi?' · AESI':''}<br>${clip(a.s)} → ${isD(a.e)?clip(a.e):'持续'}${a.rel?'<br>相关性：'+a.rel:''}`,go:()=>K.evDrawer(`${d.id} · AE ${K.esc(a.t)}`,d.id,[[K.evKey(a.wb,a.sh),a.row]],K.aeBox(a))})});
+  (d.cm||[]).slice(0,30).forEach((c,i)=>{if(!isD(c.s))return;bars.push({lane:3,sub:i%3,s:clip(c.s),e:clip(isD(c.e)?c.e:end),c:'#9DB7D3',t:`合并用药“${c.t}”<br>${clip(c.s)} → ${isD(c.e)?clip(c.e):'持续'}`,go:()=>K.evDrawer(`${d.id} · 合并用药 ${K.esc(c.t)}`,d.id,[[K.evKey(c.wb,c.sh),c.row]])})});
   lr.filter(g=>!['NCS','MHX-T'].includes(g.risk)).forEach(g=>(g.pts||[]).forEach(p=>{if(isD(p[1]))pts.push({lane:4,d:clip(p[1]),sev:p[5]===2?2:1,c:p[5]===2?'#8B0000':'#E67E00',sym:p[5]===2?'circle':'emptyCircle',sz:p[5]===2?10:8,t:`${g.test} ${p[2]??''} ${p[3]||''}（${p[0]||''}）${p[5]===2?' · CS':p[5]===1?' · NCS':''}${p[4]?' · '+p[4]+'级':''}<br>${K.esc(((K.RISK||{})[g.risk]||[g.risk])[0])}`,go:()=>K.showLabG(g)})}));
   ot.filter(o=>o.pr>=3&&isD(o.d)).forEach(o=>pts.push({lane:4,d:clip(o.d),c:'#B86400',sym:'diamond',sz:9,t:`${K.catN(o.cat)}<br>${K.esc(String(o.sum||'').slice(0,80))}`,go:()=>K.showOth(o)}));
   qs.forEach(q=>{if(isD(q.d))pts.push({lane:5,d:clip(q.d),c:'#E67E00',sym:'pin',sz:14,t:`${q.id} ${K.catN(q.cat)}<br>${K.esc(String(q.text||'').slice(0,90))}`,go:()=>K.showQ(q.id)})});
@@ -70,7 +70,7 @@ K.journey=(el,d,{lr=[],ot=[],qs=[]}={})=>{if(!el||!window.echarts)return;
       encode:{x:[0,1],y:2},data:bars.map(b=>({value:[ts(b.s),ts(b.e),b.lane],t:b.t})),z:2},
      {type:'scatter',data:pts.map(p=>({value:[ts(p.d),LANES[p.lane]],t:p.t,symbol:p.sym,symbolSize:p.sz,itemStyle:{color:p.sym==='emptyCircle'?'#fff':p.c,borderColor:p.c,borderWidth:1.5}})),z:3},
      {type:'line',data:[],markLine:{symbol:'none',silent:true,label:{fontSize:10,color:'#B86400'},lineStyle:{color:'#FF9900',type:'solid',width:1},data:[d.fd?{xAxis:ts(clip(d.fd)),label:{formatter:'D1'}}:null,d.ld?{xAxis:ts(clip(d.ld)),label:{formatter:'末次给药',color:'#64676B'},lineStyle:{color:'#C9CCD1'}}:null].filter(Boolean)}}]});
-  const c=echarts.getInstanceByDom(el);c.off('click');c.on('click',p=>{if(p.seriesIndex===1){const x=pts[p.dataIndex];if(x&&x.go)x.go()}})};
+  const c=echarts.getInstanceByDom(el);c.off('click');c.on('click',p=>{const x=p.seriesIndex===0?bars[p.dataIndex]:p.seriesIndex===1?pts[p.dataIndex]:null;if(x&&x.go)x.go()})};   /* V6：给药/访视/AE/合并用药条也可下钻原始行 */
 /* ---- 检验热力矩阵：行＝曾超出参考范围或判 CS 的指标（按最大偏离排序，最多 30 项），列＝访视（按日期）；
  * 色＝偏离参考范围的相对幅度（偏低蓝/范围内灰/偏高红，±100% 封顶），格内「CS」＝研究者判有临床意义。点格看该指标全程与原始行。 */
 K.labDev=r=>{const v=r[2],lo=r[5],hi=r[6];if(v==null||isNaN(v))return null;if(hi!=null&&v>hi)return hi?Math.min(1,(v-hi)/Math.abs(hi)):1;if(lo!=null&&v<lo)return lo?-Math.min(1,(lo-v)/Math.abs(lo)):-1;return 0};
@@ -109,7 +109,7 @@ K.countUpAll=root=>{if(K.RM)return;(root||document).querySelectorAll('.kpi .v,.f
   el.dataset.cu='1';el.setAttribute('aria-label',el.textContent.trim());const t0=performance.now(),dur=520;
   const step=now=>{const k=Math.min(1,(now-t0)/dur),e=1-Math.pow(1-k,3);tn.nodeValue=m[1]+(end*e).toFixed(dec)+m[3];if(k<1)requestAnimationFrame(step);else tn.nodeValue=m[1]+m[2]+m[3]};requestAnimationFrame(step)})};
 if(typeof window.addEventListener==='function')window.addEventListener('load',()=>setTimeout(()=>K.countUpAll(),30));
-/* ---- 信号聚合：同受试者 × 同日期 × 同类别 × 同表单 → 一组（行动项、中心待办） */
+/* ---- 信号聚合：同受试者 × 同日期 × 同类别 × 同表单 → 一组（风险排名） */
 /* 检验项标题＝「指标 · 类别」→ 按类别聚合（指标进明细）；其余（专项/偏离…）标题本身就是类别 */
 const catOf=o=>o.kind==='lab'?(o.title||'').replace(/^.*? · /,''):(o.title||'');
 const itemOf=o=>o.kind==='lab'?(o.title||'').split(' · ')[0]:(String(o.x&&o.x.test||'')||String(o.why||'').slice(0,24));
@@ -117,7 +117,7 @@ K.groupKey=o=>[o.kind||'',o.sid||'',(o.x&&(o.x.d||((o.x.pts||[])[0]||[])[1]))||'
 K.groupSig=list=>{const m=new Map();list.forEach(o=>{if(!o.sid){m.set(Symbol(),[o]);return}const k=K.groupKey(o);(m.get(k)||m.set(k,[]).get(k)).push(o)});
   return [...m.values()].map(g=>g.length===1?g[0]:{...g[0],group:g,score:Math.max(...g.map(x=>x.score||0)),
     title:`${catOf(g[0])} · ${g.length} 项`,why:[...new Set(g.map(itemOf).filter(Boolean))].slice(0,6).join('、')+(g.length>6?'…':''),
-    open:()=>{const b=K.drawer(`${g[0].sid} · ${K.esc(catOf(g[0]))}`,`<div class="small muted mb">同一受试者同一日期同类信号 ${g.length} 项（已合并为一条行动项）</div>${g.map((x,i)=>`<div class="drow click" data-i="${i}" style="padding:7px 0;border-bottom:1px solid #F0F1F4"><b>${K.esc(itemOf(x))}</b> <span class="small muted">${K.esc(String(x.why||'').slice(0,90))}</span></div>`).join('')}<div class="rawg mt"></div>`);
+    open:()=>{const b=K.drawer(`${g[0].sid} · ${K.esc(catOf(g[0]))}`,`<div class="small muted mb">同一受试者同一日期同类信号 ${g.length} 项（已合并为一条风险项）</div>${g.map((x,i)=>`<div class="drow click" data-i="${i}" style="padding:7px 0;border-bottom:1px solid #F0F1F4"><b>${K.esc(itemOf(x))}</b> <span class="small muted">${K.esc(String(x.why||'').slice(0,90))}</span></div>`).join('')}<div class="rawg mt"></div>`);
       b.querySelectorAll('[data-i]').forEach(d=>d.onclick=()=>g[+d.dataset.i].open());
       const ev=g.flatMap(x=>x.x&&x.x.pts?x.x.pts.map(p=>[shKey(p[11],p[7]),p[8]]):x.x&&x.x.sh?[[shKey(x.x.wb,x.x.sh),x.x.row]]:[]);K.rawBox(b.querySelector('.rawg'),g[0].sid,ev)}})};
 })();

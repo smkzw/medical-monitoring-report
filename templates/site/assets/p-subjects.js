@@ -166,7 +166,7 @@ async function show(id){
     const ml=[];if(lo!=null)ml.push({yAxis:lo,label:{formatter:'LLN '+lo}});if(hi!=null)ml.push({yAxis:hi,label:{formatter:'ULN '+hi}});
     ((CF.refLines||{})[t]||[]).forEach(([y,l])=>ml.push({yAxis:y,label:{formatter:l||String(y)}}));
     (CF.ulnMult||[]).forEach(([re,k])=>{if(new RegExp(re).test(t)&&hi)ml.push({yAxis:hi*k,label:{formatter:k+'×ULN'},lineStyle:{color:'#8B0000'}})});
-    K.chart(b.querySelector('#dc'),{grid:{left:44,right:60,top:20,bottom:30},tooltip:{trigger:'axis'},xAxis:{type:'time',...K.axis},yAxis:{type:'value',scale:true,...K.axis},series:[{type:'line',data:rows.map(r=>({value:[r[0]+(r[12]?'T'+r[12]:''),r[2]],itemStyle:{color:r[7]===2?'#8B0000':r[7]===1?'#E8C300':'#FF9900'}})),symbolSize:8,lineStyle:{color:'#FF9900'},markLine:{symbol:'none',silent:true,lineStyle:{color:'#9A9DA3',type:'dashed'},label:{fontSize:10,position:'end'},data:ml},markArea:d.fd?{silent:true,itemStyle:{color:'rgba(64,122,170,.06)'},data:[[{xAxis:d.fd},{xAxis:lastDose||d.lo}]]}:undefined}]});
+    K.chart(b.querySelector('#dc'),{grid:{left:44,right:60,top:20,bottom:30},tooltip:{trigger:'axis'},xAxis:{type:'time',...K.axis},yAxis:{type:'value',scale:true,...K.axis},series:[{type:'line',data:rows.map(r=>({value:[K.dt(r[0],r[12]),r[2]],itemStyle:{color:r[7]===2?'#8B0000':r[7]===1?'#E8C300':'#FF9900'}})),symbolSize:8,lineStyle:{color:'#FF9900'},markLine:{symbol:'none',silent:true,lineStyle:{color:'#9A9DA3',type:'dashed'},label:{fontSize:10,position:'end'},data:ml},markArea:d.fd?{silent:true,itemStyle:{color:'rgba(64,122,170,.06)'},data:[[{xAxis:d.fd},{xAxis:lastDose||d.lo}]]}:undefined}]});
   }
 }
 });

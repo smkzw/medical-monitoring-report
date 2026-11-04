@@ -31,23 +31,23 @@ async function one(id){
   const lane=(name,grp)=>{lanes.push({name,grp});return lanes.length-1};
   // visits
   const PRE=((CF.timeline||{}).preDays)??30; // long-standing CM/MH bars are clipped to ICF−PRE days (true start in tooltip)
-  const yv=lane('访视','A');d.visits.forEach(v=>{const t=T(v[2]);if(t)pts.push({y:yv,t,sym:'rect',size:9,c:'#64676B',lab:v[0],tip:`${v[1]} ${v[2]}`})});
-  const ye=lane('研究药物','A');d.ec.forEach(e=>{const a=T(e.s),b=T(e.e)||a;if(a)bars.push({y:ye,a,b:b+864e5,c:'#407AAA',tip:`给药 ${e.s} → ${e.e} · ${e.n}${e.pause==='是'?' · 暂停':''}`,lab:''})});
+  const yv=lane('访视','A');d.visits.forEach(v=>{const t=T(v[2]);if(t)pts.push({y:yv,t,sym:'rect',size:9,c:'#64676B',lab:v[0],tip:`${v[1]} ${v[2]}`,go:()=>K.evDrawer(`${id} · ${K.esc(v[0])} 访视`,id,[[K.evKey(v[5],v[4]),v[3]]],`<div class="box small mb">${K.esc(v[1])} 访视日期 ${K.esc(v[2]||'')}</div>`)})});
+  const ye=lane('研究药物','A');d.ec.forEach(e=>{const a=T(e.s),b=T(e.e)||a;if(a)bars.push({y:ye,a,b:b+864e5,c:'#407AAA',tip:`给药 ${e.s} → ${e.e} · ${e.n}${e.pause==='是'?' · 暂停':''}`,lab:'',go:()=>K.evDrawer(`${id} · 研究药物给药`,id,[[K.evKey(e.wb,e.sh),e.row]],`<div class="box small mb">给药 ${K.esc(e.s||'')} → ${K.esc(e.e||'')}${e.n?' · '+K.esc(e.n):''}${e.pause?' · '+K.esc(e.pause):''}</div>`)})});
   // AE
-  d.ae.slice().sort((x,y)=>(x.s||'').localeCompare(y.s||'')).forEach(a=>{const y=lane(`${a.t} ${a.g.replace('级','')}`,'AE');const st=T(a.s),en=a.e?T(a.e):T(d.lo)||Date.now();const g=+a.g[0]||1;if(st)bars.push({y,a:st,b:Math.max(en,st)+864e5,c:GC[g]||'#FF9900',tip:`AE ${a.t}｜${a.g}｜${a.rel}｜${a.act}｜${a.out}<br>${a.s} → ${a.e||'持续'}${a.sae?'｜SAE':''}${a.aesi?'｜AESI':''}`,lab:'',aesi:a.aesi,open:!a.e})});
+  d.ae.slice().sort((x,y)=>(x.s||'').localeCompare(y.s||'')).forEach(a=>{const y=lane(`${a.t} ${a.g.replace('级','')}`,'AE');const st=T(a.s),en=a.e?T(a.e):T(d.lo)||Date.now();const g=+a.g[0]||1;if(st)bars.push({y,a:st,b:Math.max(en,st)+864e5,c:GC[g]||'#FF9900',tip:`AE ${a.t}｜${a.g}｜${a.rel}｜${a.act}｜${a.out}<br>${a.s} → ${a.e||'持续'}${a.sae?'｜SAE':''}${a.aesi?'｜AESI':''}`,lab:'',aesi:a.aesi,open:!a.e,go:()=>K.evDrawer(`${id} · AE ${K.esc(a.t)}`,id,[[K.evKey(a.wb,a.sh),a.row]],K.aeBox(a))})});
   // CM (non-iron condensed, iron each)
-  d.cm.slice().sort((x,y)=>(x.s||'').localeCompare(y.s||'')).forEach(c=>{const iron=hlRe&&hlRe.test(c.t);const nm=c.t.length>9?c.t.slice(0,9)+'…':c.t;let y=lanes.findIndex(l=>l.grp==='CM'&&l.name===nm);if(y<0)y=lane(nm,'CM');const a=Math.max(T(c.s)||T(d.icf),T(d.icf)-PRE*864e5),b=c.ong?(T(d.lo)||Date.now()):T(c.e)||a;bars.push({y,a,b:b+864e5,c:iron?'#8B0000':'#A85F34',op:iron?.85:.55,tip:`CM ${c.t}｜${c.dose} ${c.fq}<br>${c.s} → ${c.ong?'持续':c.e}<br>原因：${K.esc(c.why||'—')}`,open:c.ong})});
+  d.cm.slice().sort((x,y)=>(x.s||'').localeCompare(y.s||'')).forEach(c=>{const iron=hlRe&&hlRe.test(c.t);const nm=c.t.length>9?c.t.slice(0,9)+'…':c.t;let y=lanes.findIndex(l=>l.grp==='CM'&&l.name===nm);if(y<0)y=lane(nm,'CM');const a=Math.max(T(c.s)||T(d.icf),T(d.icf)-PRE*864e5),b=c.ong?(T(d.lo)||Date.now()):T(c.e)||a;bars.push({y,a,b:b+864e5,c:iron?'#8B0000':'#A85F34',op:iron?.85:.55,tip:`CM ${c.t}｜${c.dose} ${c.fq}<br>${c.s} → ${c.ong?'持续':c.e}<br>原因：${K.esc(c.why||'—')}`,open:c.ong,go:()=>K.evDrawer(`${id} · 合并用药 ${K.esc(c.t)}`,id,[[K.evKey(c.wb,c.sh),c.row]],`<div class="box small mb"><b>${K.esc(c.t)}</b> ${K.esc(c.dose||'')} ${K.esc(c.fq||'')}<div>${K.esc(c.s||'')} → ${c.ong?'持续':K.esc(c.e||'')} · 原因：${K.esc(c.why||'—')}</div></div>`)})});
   // MH ongoing
-  const mh=d.mh.filter(m=>m.ong==='是');if(mh.length){mh.forEach(m=>{const y=lane('MH '+(m.t.length>8?m.t.slice(0,8)+'…':m.t),'MH');const a=Math.max(T(m.s)||0,T(d.icf)-PRE*864e5);bars.push({y,a,b:T(d.lo)||Date.now(),c:'#C9CCD1',op:.6,tip:`MH ${m.t}｜开始 ${m.s}｜筛选期持续`})})}
+  const mh=d.mh.filter(m=>m.ong==='是');if(mh.length){mh.forEach(m=>{const y=lane('MH '+(m.t.length>8?m.t.slice(0,8)+'…':m.t),'MH');const a=Math.max(T(m.s)||0,T(d.icf)-PRE*864e5);bars.push({y,a,b:T(d.lo)||Date.now(),c:'#C9CCD1',op:.6,tip:`MH ${m.t}｜开始 ${m.s}｜筛选期持续`,go:()=>K.evDrawer(`${id} · 病史 ${K.esc(m.t)}`,id,[[K.evKey(m.wb,m.sh),m.row]],`<div class="box small mb"><b>${K.esc(m.t)}</b> 开始 ${K.esc(m.s||'—')} · 持续</div>`)})})}
   // lab abnormal markers：按风险标签分行
   const RC={CSX:['#8B0000','triangle',10],MH:['#FF9900','circle',10],AE:['#587B3B','circle',9],NCS2:['#E8C300','circle',9],NA2:['#E8C300','emptyCircle',9],NCS:['#C9CCD1','circle',6]};
   ['CSX','MH','AE','NCS2','NA2','NCS'].forEach(rk=>{const G=lr.filter(g=>g.risk===rk&&g.pts.some(p=>T(p[1])));if(!G.length)return;const y=lane('检验 · '+K.RISK[rk][0],'L');
-    G.forEach(g=>g.pts.forEach(p=>{const t=T(p[1]);if(!t)return;pts.push({y,t,sym:RC[rk][1],size:RC[rk][2],c:RC[rk][0],tip:`${g.test} ${p[0]} ${p[2]}${p[3]||''}${p[4]?' G'+p[4]:''}｜${K.RISK[rk][0]}`,test:g.test})}))});
+    G.forEach(g=>g.pts.forEach(p=>{const t=T(p[1]);if(!t)return;pts.push({y,t,sym:RC[rk][1],size:RC[rk][2],c:RC[rk][0],tip:`${g.test} ${p[0]} ${p[2]}${p[3]||''}${p[4]?' G'+p[4]:''}｜${K.RISK[rk][0]}`,test:g.test,go:()=>K.showLabG(g)})}))});
   // 专项提示点：engine 生成 d.tl=[{lane,pts:[[date,tip,level 0/1/2,symbol,test]]}]（QTc/血压/影像等，每类风险单独一行）
-  (d.tl||[]).forEach(G=>{const ps=G.pts.filter(p=>T(p[0]));if(!ps.length)return;const y=lane(G.lane,'O');ps.forEach(p=>pts.push({y,t:T(p[0]),sym:p[3]||'diamond',size:p[2]>=2?11:p[2]?9:6,c:p[2]>=2?'#8B0000':p[2]?'#FF9900':'#587B3B',tip:p[1],test:p[4]}))});
+  (d.tl||[]).forEach(G=>{const ps=G.pts.filter(p=>T(p[0]));if(!ps.length)return;const y=lane(G.lane,'O');ps.forEach(p=>pts.push({y,t:T(p[0]),sym:p[3]||'diamond',size:p[2]>=2?11:p[2]?9:6,c:p[2]>=2?'#8B0000':p[2]?'#FF9900':'#587B3B',tip:p[1],test:p[4],go:p[4]?()=>K.seriesPanel(K.drawer(`${id} · ${K.esc(p[4])}`,'<div class="box small mb">'+K.esc(String(p[1]).replace(/<br>/g,' '))+'</div><div class="evs"></div>').querySelector('.evs'),{sid:id,tests:[p[4]]}):null}))});
   // 专项核查 / 质疑：分行
-  const ox=ot.filter(o=>T(o.d));if(ox.length){const y=lane('专项核查','O');ox.forEach(o=>pts.push({y,t:T(o.d),sym:'circle',size:o.pr>=3?9:6,c:o.pr>=4?'#8B0000':o.pr>=3?'#FF9900':'#C9CCD1',tip:`${K.catN(o.cat)}<br>${K.esc(o.sum)}`}))}
-  const qx=qs.filter(q=>T(q.d));if(qx.length){const y=lane('质疑','Q');qx.forEach(q=>pts.push({y,t:T(q.d),sym:'roundRect',size:[22,13],c:'#FF9900',lab:q.id.replace('Q',''),tip:`${q.id} ${K.catN(q.cat)}<br>${K.esc(q.text.slice(0,120))}…`,q:q.id}))}
+  const ox=ot.filter(o=>T(o.d));if(ox.length){const y=lane('专项核查','O');ox.forEach(o=>pts.push({y,t:T(o.d),sym:'circle',size:o.pr>=3?9:6,c:o.pr>=4?'#8B0000':o.pr>=3?'#FF9900':'#C9CCD1',tip:`${K.catN(o.cat)}<br>${K.esc(o.sum)}`,go:()=>K.showOth(o)}))}
+  const qx=qs.filter(q=>T(q.d));if(qx.length){const y=lane('质疑','Q');qx.forEach(q=>pts.push({y,t:T(q.d),sym:'roundRect',size:[22,13],c:'#FF9900',lab:q.id.replace('Q',''),tip:`${q.id} ${K.catN(q.cat)}<br>${K.esc(q.text.slice(0,120))}…`,q:q.id,go:()=>K.showQ(q.id)}))}
   // build chart
   const n=lanes.length;const h=Math.max(300,n*20+90);document.getElementById('tl').style.height=h+'px';
   const fd=T(d.fd),ld=T(d.ld);
@@ -62,7 +62,9 @@ async function one(id){
      {type:'custom',renderItem:(params,api)=>{const y=api.value(0),a=api.coord([api.value(1),y]),b=api.coord([api.value(2),y]);const hh=api.size([0,1])[1]*.56;const it=bars[params.dataIndex];return {type:'group',children:[{type:'rect',shape:{x:a[0],y:a[1]-hh/2,width:Math.max(b[0]-a[0],3),height:hh,r:2},style:{fill:it.c,opacity:it.op||1}},...(it.aesi?[{type:'text',style:{text:'◆',x:a[0]-9,y:a[1]-6,fill:'#8B0000',font:'10px sans-serif'}}]:[]),...(it.open?[{type:'text',style:{text:'›',x:b[0]+1,y:a[1]-8,fill:it.c,font:'bold 13px sans-serif'}}]:[])]}},encode:{x:[1,2],y:0},data:bars.map(b=>({value:[b.y,b.a,b.b],tip:b.tip}))},
      {type:'scatter',data:pts.filter(p=>p.t).map(p=>({value:[p.t,p.y],symbol:p.sym,symbolSize:p.size,itemStyle:{color:p.c},tip:p.tip,label:p.lab?{show:true,formatter:p.lab,fontSize:9,color:p.q?'#fff':'#64676B',position:p.q?'inside':'top'}:undefined,q:p.q,test:p.test})),z:5,
       markLine:{symbol:'none',silent:true,label:{fontSize:10,color:'#407AAA',position:'end'},lineStyle:{color:'#407AAA',type:'solid',width:1},data:[{xAxis:fd,label:{formatter:'D1'}},...(ld?[{xAxis:ld,label:{formatter:'末次'},lineStyle:{type:'dashed'}}]:[])]}}]});
-  ch.off('click');ch.on('click',p=>{if(p.data&&p.data.q)K.showQ(p.data.q);else if(p.data&&p.data.test){document.getElementById('tsel').value=p.data.test;trend()}});
+  /* V6（用户审阅 RUX 第 18 条）：每个事件都可点——给药/AE/合并用药/病史/访视看原始行（含前后行），检验异常看图＋表＋原始行，质疑/专项看详情 */
+  const PV=pts.filter(p=>p.t);ch.off('click');ch.on('click',p=>{const it=p.seriesIndex===0?bars[p.dataIndex]:p.seriesIndex===1?PV[p.dataIndex]:null;if(!it)return;
+    if(it.test&&document.getElementById('tsel')&&[...document.getElementById('tsel').options].some(o=>o.value===it.test)){document.getElementById('tsel').value=it.test;trend()}if(it.go)it.go()});
   // trend
   const allT=[...Object.keys(d.labs).map(t=>['labs',t]),...Object.keys(d.ecg).map(t=>['ecg',t]),...Object.keys(d.vs).map(t=>['vs',t])].filter(([o,t])=>d[o][t].some(r=>r[2]!=null)&&d[o][t].filter(r=>r[2]!=null).length>1);
   const fl=new Set(lr.filter(g=>g.risk!=='NCS').map(g=>g.test));
@@ -75,10 +77,10 @@ async function one(id){
   function trend(){const t=ts.value;const o=allT.find(x=>x[1]===t)[0];const rows=d[o][t].filter(r=>r[2]!=null);
     const lo=rows.find(r=>r[5]!=null)?.[5],hi=rows.find(r=>r[6]!=null)?.[6];const ml=[];if(lo!=null)ml.push({yAxis:lo,label:{formatter:'LLN'}});if(hi!=null)ml.push({yAxis:hi,label:{formatter:'ULN'}});((CF.refLines||{})[t]||[]).forEach(([y,l])=>ml.push({yAxis:y,label:{formatter:l||String(y)}}));
     if(/AST|ALT/.test(t)&&hi)ml.push({yAxis:hi*3,label:{formatter:'3×ULN'},lineStyle:{color:'#8B0000'}});
-    const z=ch.getOption().dataZoom[0];
+    const z=((ch.getOption()||{}).dataZoom||[{}])[0];
     const c2=K.chart('#tr',{grid:{left:172,right:20,top:16,bottom:26},tooltip:{trigger:'axis'},xAxis:{type:'time',min:tmin,max:tmax,...K.axis,axisLabel:{color:'#64676B',formatter:v=>{const x=Math.round((v-fd)/864e5);return x>=0?'D'+(x+1):'D'+x}}},yAxis:{type:'value',scale:true,name:rows[0][4],...K.axis},dataZoom:[{type:'inside',filterMode:'none',start:z.start,end:z.end}],
-     series:[{type:'line',name:t,data:rows.map(r=>({value:[T(r[0])+(r[12]?(+r[12].slice(0,2))*36e5:0),r[2]],itemStyle:{color:r[7]===2?'#8B0000':r[7]===1?'#E8C300':'#FF9900'}})),symbolSize:8,lineStyle:{color:'#FF9900'},markLine:{symbol:'none',silent:true,lineStyle:{color:'#9A9DA3',type:'dashed'},label:{fontSize:10,position:'insideEndTop'},data:[...ml,{xAxis:fd,lineStyle:{color:'#407AAA',type:'solid'},label:{formatter:'D1',color:'#407AAA'}}]}}]});
-    ch.off('datazoom');ch.on('datazoom',()=>{const z=ch.getOption().dataZoom[0];c2.dispatchAction({type:'dataZoom',start:z.start,end:z.end})});
+     series:[{type:'line',name:t,data:rows.map(r=>({value:[T(r[0])+(K.hhmm(r[12])?(+r[12].slice(0,2))*36e5:0),r[2]],itemStyle:{color:r[7]===2?'#8B0000':r[7]===1?'#E8C300':'#FF9900'}})),symbolSize:8,lineStyle:{color:'#FF9900'},markLine:{symbol:'none',silent:true,lineStyle:{color:'#9A9DA3',type:'dashed'},label:{fontSize:10,position:'insideEndTop'},data:[...ml,{xAxis:fd,lineStyle:{color:'#407AAA',type:'solid'},label:{formatter:'D1',color:'#407AAA'}}]}}]});
+    ch.off('datazoom');ch.on('datazoom',()=>{const z=((ch.getOption()||{}).dataZoom||[{}])[0];c2.dispatchAction({type:'dataZoom',start:z.start,end:z.end})});
   }
   trend();
 }

@@ -153,6 +153,10 @@ if (typeof K.chartGuard === 'function') {
   const o4 = { series: [{ type: 'line', markPoint: { data: [{ coord: [NaN, 1] }, { coord: [2, 3] }] } }] };
   K.chartGuard(o4);
   ok(o4.series[0].markPoint.data.length === 1, 'markPoint 同口径守卫（coord 含 NaN 剔除）');
+  const o6 = { series: [{ type: 'line', markArea: { data: [[{ xAxis: '2026-01-01' }, { xAxis: undefined }]] } }, { type: 'line', markArea: { data: [[{ yAxis: 1 }, { yAxis: 3 }]] } }] };
+  K.chartGuard(o6);
+  ok(!o6.series[0].markArea && o6.series[1].markArea.data.length === 1, 'markArea：端点缺失整块撤除、完整区间保留（V6 抽屉图空白）');
+  ok(K.dt('2026-01-02', '2025-01-27 10:23:11') === '2026-01-02' && K.dt('2026-01-02', '9:05') === '2026-01-02T09:05', 'K.dt：只接受时:分');
   const o5 = { series: [{ type: 'line', markLine: { data: [] } }] };
   K.chartGuard(o5);
   ok(!o5.series[0].markLine, '空 data 数组的 marker 撤除');

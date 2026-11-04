@@ -33,15 +33,15 @@ ${(()=>{/* V6 首屏吸收：打开即见的关键事实条（结构不变，只
 <div class="grid g21 mt"><div class="card"><div class="hd"><h2>入组进度</h2><span class="sub">首次给药累计${planned?' · 灰线为计划例数':''}${proj?' · 虚线为按近 90 天速率的预测':''}</span></div><div id="enr" class="chart sm" style="height:210px"></div></div>
  <div class="card" id="hist"></div></div>
 ${K.deltaCard()}
-${sec('二','风险数据','研究层面容忍限度 · 医学风险分层 · 方案偏离 · 需关注中心')}
-<div class="card"><div class="hd"><h2>研究层面容忍限度</h2><span class="sub">关键质量因素的研究层面指标，超出或接近限度时进入行动项</span><span class="sp"></span><span id="qtlbar"></span></div><div id="qtl"></div>
+${sec('二','风险数据','研究层面容忍限度 · 医学风险分层 · 方案偏离 · 中心风险热力图')}
+<div class="card"><div class="hd"><h2>研究层面容忍限度</h2><span class="sub">关键质量因素的研究层面指标，超出或接近限度时进入风险排名</span><span class="sp"></span><span id="qtlbar"></span></div><div id="qtl"></div>
  <div class="xs faint mt">${K.esc((D.kri||{}).source||'')}</div></div>
 <div class="grid g12 mt">
  <div class="card"><div class="hd"><h2>医学风险分层</h2><span class="sub">点击进入明细${pdCats.size?' · 入排/用药/访视类信号见方案偏离':''}</span><span class="sp"></span><span class="legend"><span><i class="dot red"></i> 优先核实</span><span><i class="dot org"></i> 需核实</span><span><i class="dot yel"></i> 结合临床/提示</span><span>${K.p('Q','org sq')} 已发质疑</span></span></div><div id="dom"></div></div>
  ${PD?`<div class="card"><div class="hd"><h2>方案偏离</h2><span class="sub">潜在 PD 按分级堆叠 · 右侧为已记录数</span><span class="sp"></span><span class="legend"><span><i class="dot red"></i> 重要</span><span><i class="dot yel"></i> 待判定</span><span><i class="dot"></i> 一般</span></span><a class="small" href="deviations.html" style="margin-left:8px">进入 ›</a></div><div id="pdo"></div></div>`:'<div></div>'}
 </div>
 <div class="grid g12 mt">
- <div class="card"><div class="hd"><h2>需关注中心</h2><span class="sub">风险类别高于按${K.esc(K.centerRisk().unit)}推算的期望（校正多重比较后），或 AE 报告偏少、数据长期未更新</span><span class="sp"></span><a class="small" href="safety.html#tab=ov">中心总览热力图 ›</a></div><div id="ctr"></div></div>
+ <div class="card"><div class="hd"><h2>中心风险热力图</h2><span class="sub">每格＝该维度下明显偏高的风险类别数（按${K.esc(K.centerRisk().unit)}推算期望、校正多重比较；明显偏高计 2、偏高计 1，AE 报告偏少计 1）；综合＝各维度之和 · 点格看明细</span><span class="sp"></span><a class="small" href="safety.html#tab=ov">逐类热力图 ›</a></div><div id="ctr"></div></div>
  <div class="card"><div class="hd"><h2>AE 谱 × IB / 类效应</h2><span class="sub">${(CF.blind||{}).on?'盲态合并 · ':''}给药后 · 点击条形进入明细</span></div><div id="aech" class="chart" style="height:280px"></div></div>
 </div>
 ${sec('三','风险排名','按角色筛选并加权排序（医学监查侧重检验与安全性，临床监查侧重访视、录入与执行偏离）· 可按中心筛选 · 点行查看证据与原始数据')}
@@ -79,9 +79,26 @@ if(PD){const TX=K.pdTax(),G=[['重要','#8B0000'],['待判定','#E8C300'],['一�
   return `<div class="dblk"><div class="dh">${K.p(lay+'层面',lay==='执行'?'blu':'org')}<span class="xs muted">潜在 ${n} 条</span></div>${cs.map(c=>{const ps=POT.filter(x=>x.cat===c),cf=CONF.filter(x=>x.cat===c).length;
    return `<a class="drow" href="deviations.html#tab=${lay==='执行'?'exe':'sci'}&cat=${c}"><span class="dn">${K.esc((TX[c]||[])[1]||c)}</span><div class="bar-in" style="flex:1;display:flex">${G.map(([g,col])=>{const k=ps.filter(x=>x.grade===g).length;return k?`<i style="width:${k/mx*100}%;background:${col}"></i>`:''}).join('')}</div><b>${ps.length}</b><span class="dq">${cf?K.p(cf,'grn sq'):''}</span></a>`}).join('')||'<div class="xs faint" style="padding:4px">无</div>'}</div>`};
  document.getElementById('pdo').innerHTML=`<div class="dgrid">${blkP('执行')}${blkP('科学')}</div><div class="flex wrap mt xs muted" style="gap:10px"><span>已记录 PD <b style="color:var(--ink)">${CONF.length}</b></span><span>潜在未见记录 <b style="color:var(--brand-d)">${(PD||{}).hasListing===false?'—':pdMiss}</b>${(PD||{}).hasListing===false?'（未提供方案偏离记录表，无法比对）':''}</span><span>重要 <b style="color:var(--risk)">${pdImp}</b></span><span>涉及受试者 <b style="color:var(--ink)">${new Set(POT.map(x=>x.sid)).size}</b></span>${PD.hasListing?'':'<span>未提供方案偏离记录表</span>'}<span class="sp"></span><a href="deviations.html#tab=rules">已执行检查 ${(PD.rules||[]).filter(r=>r.state==='ran').length}/${(PD.rules||[]).length} 项 ›</a></div>`}
-{const CR=K.centerRisk(),FR=Object.fromEntries(fresh);
- const rows=CR.centers.map(c=>[c,CR.hot(c.site),CR.low(c.site),FR[c.site]]).filter(x=>x[1].length||x[2].length||x[3]).sort((a,b)=>(b[1].length+b[2].length+(b[3]?1:0))-(a[1].length+a[2].length+(a[3]?1:0)));
- document.getElementById('ctr').innerHTML=rows.length?`<table class="t"><thead><tr><th>中心</th><th class="num">给药</th><th>偏高 / 偏少 / 数据</th></tr></thead><tbody>${rows.slice(0,9).map(([c,h,l,f])=>`<tr class="click" onclick="location.href='center.html#c=${c.site}'"><td class="nowrap">${K.p(c.site,'sq mono')} ${K.esc(c.name.length>14?c.name.slice(0,14)+'…':c.name)}</td><td class="num">${c.dosed}</td><td>${h.map(x=>K.p(x,'org')).join('')}${l.map(x=>K.p(x+'偏少','blu')).join('')}${f?K.p(f[1]+' 天无新数据','yel'):''}</td></tr>`).join('')}</tbody></table>${rows.length>9?`<div class="xs muted mt">另有 ${rows.length-9} 个中心，见中心画像</div>`:''}`:'<div class="empty">没有中心在校正多重比较后明显偏离，各中心数据均在 30 天内</div>'}
+/* V6（用户审阅 RUX 第 2 条、裁定 4）：总览中心风险热力图——综合＋各维度；分值＝显著格数加权（q<0.05 计 2、q<0.10 计 1；AE 偏少计 1；数据 >30 天未更新计 1） */
+{const CR=K.centerRisk(),FR=Object.fromEntries(fresh),G=[...new Set(CR.cats.map(c=>c[1]))];
+ const cellOf=(site,g)=>{const hits=[];let sc=0;CR.cats.filter(c=>c[1]===g).forEach(([k,,l,,desc])=>{const x=(CR.cell[k]||{})[site];if(!x)return;
+   if(K.qlt(x.qu,.10)){const w=K.qlt(x.qu,.05)?2:1;sc+=w;hits.push([l,w===2?'明显偏高':'偏高',x,desc])}
+   else if(k==='ae'&&K.qlt(x.ql,.10)){sc+=1;hits.push([l,'偏少（可能漏报）',x,desc])}});return {sc,hits}};
+ const rows=CR.centers.map(c=>{const by=Object.fromEntries(G.map(g=>[g,cellOf(c.site,g)])),f=FR[c.site],fs=f?1:0;
+   return {c,by,f,fs,tot:G.reduce((a,g)=>a+by[g].sc,0)+fs}}).sort((a,b)=>b.tot-a.tot||b.c.dosed-a.c.dosed);
+ const mx=Math.max(1,...rows.map(r=>r.tot)),mg=Math.max(1,...rows.flatMap(r=>G.map(g=>r.by[g].sc)));
+ const bg=(v,m)=>v?`background:rgba(192,0,0,${(.10+.55*Math.min(1,v/m)).toFixed(2)});color:${v/m>.55?'#fff':'var(--ink)'}`:'';
+ const el=document.getElementById('ctr');
+ el.innerHTML=rows.length?`<div class="tw" style="max-height:330px"><table class="t heat ctrheat"><thead><tr><th>中心</th><th class="num">给药</th><th class="h">综合</th>${G.map(g=>`<th class="h">${K.esc(g)}</th>`).join('')}<th class="h">数据更新</th></tr></thead><tbody>${rows.map((r,i)=>`<tr>
+   <td class="nw"><a href="center.html#c=${r.c.site}">${K.p(r.c.site,'sq mono')} ${K.esc(r.c.name.length>10?r.c.name.slice(0,10)+'…':r.c.name)}</a>${CR.small.has(r.c.site)?' <span class="xs faint" title="分母极小，偏高可能由个别受试者驱动">小中心</span>':''}</td><td class="num">${r.c.dosed}</td>
+   <td class="h click" data-i="${i}" data-g="" style="${bg(r.tot,mx)};font-weight:700">${r.tot||'<span class="faint">0</span>'}</td>
+   ${G.map(g=>`<td class="h${r.by[g].sc?' click':''}" data-i="${i}" data-g="${K.esc(g)}" style="${bg(r.by[g].sc,mg)}">${r.by[g].sc||'<span class="faint">·</span>'}</td>`).join('')}
+   <td class="h" style="${r.fs?bg(1,mg):''}" title="${r.f?`最近记录 ${K.esc(r.f[0])}，${r.f[1]} 天无新数据，仍有 ${r.f[2]} 例在研`:''}">${r.f?r.f[1]+' 天':'<span class="faint">·</span>'}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">无中心数据</div>';
+ el.querySelectorAll('td.click').forEach(td=>td.onclick=()=>{const r=rows[+td.dataset.i],g=td.dataset.g,gs=g?[g]:G;const hs=gs.flatMap(x=>r.by[x].hits.map(h=>[x,...h]));
+   K.drawer(`${r.c.site} ${K.esc(K.center(r.c.site))} · ${g||'综合'}风险`,`<div class="note small mb">${K.esc(CR.unit)}推算期望；校正多重比较后的显著格${CR.small.has(r.c.site)?'；本中心分母极小，偏高可能由个别受试者驱动':''}。</div>
+    ${hs.length?`<table class="t"><thead><tr><th>维度</th><th>类别</th><th>判断</th><th class="num">观察</th><th class="num">期望</th></tr></thead><tbody>${hs.map(([gg,l,j,x,desc])=>`<tr title="${K.esc(desc)}"><td>${K.esc(gg)}</td><td>${K.esc(l)}</td><td>${K.p(j,j.startsWith('明显')?'red':j.startsWith('偏少')?'blu':'org')}</td><td class="num">${x.o}</td><td class="num">${x.e.toFixed(1)}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">该维度没有显著偏离的类别</div>'}
+    ${!g&&r.f?`<div class="box small mt">数据新鲜度：最近记录 ${K.esc(r.f[0])}，${r.f[1]} 天无新数据，仍有 ${r.f[2]} 例在研。</div>`:''}
+    <div class="mt"><a class="small" href="center.html#c=${r.c.site}">中心画像 ›</a>　<a class="small" href="safety.html#tab=ov">逐类热力图 ›</a></div>`)})}
 {const cats=Object.assign({},D.aesum);let order=Object.keys(cats).sort((a,b)=>cats[a].n-cats[b].n);
  if(order.length>12){const rest=order.slice(0,order.length-12);
   cats['其他（'+rest.length+' 类）']=rest.reduce((a,k)=>({n:a.n+cats[k].n,s:a.s+cats[k].s,g2:a.g2+cats[k].g2,rel:a.rel+cats[k].rel,aesi:a.aesi+cats[k].aesi,terms:a.terms.concat(cats[k].terms)}),{n:0,s:0,g2:0,rel:0,aesi:0,terms:[]});

@@ -1,4 +1,4 @@
-/* 临床监察·监察概况（mm5 建页；V5 用户 2026-10-31 晚：KRI 与研究层面容忍限度、录入及时性、数据可信度、前瞻视图）。
+/* 临床监查·监查概况（mm5 建页；V5 用户 2026-10-31 晚：KRI 与研究层面容忍限度、录入及时性、数据可信度、前瞻视图）。
  * 数据：KZ.ops（受试者里程碑、访视推算 due/upcoming、随访人日、新鲜度、给药依从、知情、疑似录入错误）、KZ.kri、KZ.cred，
  * 工作台系统层 KZS.timeliness / history（多次上传才有）。listing 没有录入/核查时间戳：录入及时性由工作台按快照谱系推算上限。 */
 K.init(()=>{
@@ -18,7 +18,7 @@ const UP=(O.upcoming||[]).map(u=>({sid:u[0],site:u[1],v:u[2],lo:u[3],hi:u[4],tg:
 const KR=D.kri,CRD=D.cred,TL=(window.KZS||{}).timeliness;
 const tabs=[['enr','入组与进度',SU.length],['vis','访视执行',visRows.filter(r=>r.st!=='ok').length],['dose','给药与知情'],['dq','退出与数据质量'],
   ['kri','KRI 与容忍限度',KR?K.qtlRows().filter(r=>r.st==='exceed').length||null:null],['time','录入及时性'],['cred','数据可信度',CRD?Object.entries(CRD.sites).filter(([s,v])=>K.credFlags(s,v).length).length||null:null],['ent','疑似录入错误',(O.entry||[]).length]];
-app.innerHTML=`<div class="flex mb"><h1 style="font-size:18px">临床监察</h1><span class="muted small">数据截止 ${K.esc(cut)}${daily?' · 日常监查，数据仍在录入':''}</span><span class="sp"></span><span id="qtlbar"></span></div>
+app.innerHTML=`<div class="flex mb"><h1 style="font-size:18px">临床监查</h1><span class="muted small">数据截止 ${K.esc(cut)}${daily?' · 日常监查，数据仍在录入':''}</span><span class="sp"></span><span id="qtlbar"></span></div>
 <div class="tabs" id="tabs"></div><div id="pane"></div>`;
 const pane=document.getElementById('pane');
 const R={enr,vis,dose,dq,kri,time,cred,ent};

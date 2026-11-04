@@ -2767,10 +2767,11 @@ def build_subject_files(C, out):
     doms = {'lab': 'labs', 'vs': 'vs', 'ecg': 'ecg'}
     vis_by = defaultdict(list)
     for v in C.visits:
-        vis_by[v['sid']].append([v.get('visit'), v.get('visit'), v.get('date'), v['row']])
+        vis_by[v['sid']].append([v.get('visit'), v.get('visit'), v.get('date'), v['row'], v.get('sheet') or '', v.get('wb') or ''])   # V6：时间线事件下钻原始行
     ex_by = defaultdict(list)
     for e in C.exposure:
-        ex_by[e['sid']].append({'s': e.get('start'), 'e': e.get('end'), 'n': e.get('dose') or '', 'pause': e.get('pause') or '', 'row': e['row'], 'v': e.get('visit') or ''})
+        ex_by[e['sid']].append({'s': e.get('start'), 'e': e.get('end'), 'n': e.get('dose') or '', 'pause': e.get('pause') or '', 'row': e['row'], 'v': e.get('visit') or '',
+                                'sh': e.get('sheet') or '', 'wb': e.get('wb') or ''})
     pr_by = defaultdict(lambda: {'sur': [], 'pr': []})
     for p in C.proc:
         k = 'sur' if re.search('手术', str(p.get('kind') or '手术')) else 'pr'

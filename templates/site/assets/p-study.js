@@ -29,11 +29,14 @@ ${(DS.facts||[]).length||(ST.endpoints||[]).length?`<div class="card mt"><div cl
 <div class="chips mb" id="rd"></div><div id="rules"></div>
 <div class="card mt" id="sysnote"><div class="hd"><h2>系统提示</h2><span class="sub">构建与审阅过程中需要人处理的事项（映射、词表、AI 审阅、CS 解释待确认等），不属于数据风险</span></div><div id="todo"></div></div>`;
 /* V6（用户审阅 RUX 裁定 2）：系统提示从总览移到研究依据页底部；工作台系统层（kz-sys.js）向 #todo 追加 CS 解释待确认等行 */
-{const T=(D.todo||[]);document.getElementById('todo').innerHTML=T.length?`<table class="t"><tbody>${T.map(t=>`<tr class="click" onclick="location.href='${t[3]}'"><td style="width:90px">${K.p(t[0],t[1])}</td><td>${t[2]}</td><td class="faint">›</td></tr>`).join('')}</tbody></table>`:'<table class="t"><tbody></tbody></table><div class="empty small">无</div>'}
+/* SoA 合理性守卫（裁定 7）：某评估在某访视 ≥30% 且 ≥10 人缺失 → 不逐人判缺失，作为一条系统提示（附缺失者性别/年龄/中心分布） */
+{const T=(D.todo||[]).concat(((X||{}).soaGuard||[]).map(g=>['SoA 核对','yel',`「${K.esc(g.name)}」${K.esc(g.visit)} 访视 ${g.miss}/${g.n} 人（${Math.round(g.pct*100)}%）无记录，比例异常高，可能是方案流程表对应关系或适用条件（性别、年龄、可沿用首剂前结果等）有误，未逐人判为评估缺失${g.hint?'；'+K.esc(g.hint):''}`,'deviations.html#tab=exe']));
+ document.getElementById('todo').innerHTML=T.length?`<table class="t"><tbody>${T.map(t=>`<tr class="click" onclick="location.href='${t[3]}'"><td style="width:90px">${K.p(t[0],t[1])}</td><td>${t[2]}</td><td class="faint">›</td></tr>`).join('')}</tbody></table>`:'<table class="t"><tbody></tbody></table><div class="empty small">无</div>'}
 /* ---------- 关键口径 ---------- */
 const CST={'方案规定':'grn','口径裁定':'org','待确认':'red','项目配置':'blu','默认采用':'line'};
 /* mm4：知识层状态卡置顶（KZ.knowledge＝study analysis.knowledge；绿＝可用，红＝MedDRA 不可用降级；无键＝旧构建不显示） */
 app.querySelector('#cal').innerHTML=K.knCard(D.knowledge)+((ST.calibers||[]).map(c=>`<div class="c1"><div class="t">${K.esc(c[0])}<span class="sp"></span>${K.p(c[2],CST[c[2]]||'line')}${c[3]?K.rp(c[3]):''}</div><div class="v">${K.esc(c[1])}</div>${c[4]?`<div class="s">${K.esc(c[4])}</div>`:''}</div>`).join('')||'<div class="empty">未生成关键口径</div>')
+  +((ST.pdGrades||[]).length?`<div class="c1"><div class="t">方案偏离分级<span class="sp"></span>${K.p('方案规定','grn')}</div><div class="v small">${ST.pdGrades.map(g=>`<b>${K.esc(g[0])}</b>：${K.esc(g[1]||'')}`).join('<br>')}</div><div class="s">方案原文对偏离分级的规定，供核对潜在方案偏离分级（系统分级口径见方案偏离页）</div></div>`:'')
   +(((D.bind||{}).notes||[]).length?`<div class="c1"><div class="t">规则指标重绑<span class="sp"></span>${K.p('系统对齐','yel')}</div><div class="v small">${D.bind.notes.map(K.esc).join('<br>')}</div><div class="s">方案编译出的指标写法在数据中零命中时，按括注缩写/域别名自动对齐；请核对是否为同一指标</div></div>`:'');
 /* ---------- 监查规则（按领域）---------- */
 /* ---------- thresholds ---------- */

@@ -72,7 +72,7 @@ function tabLab(){
   function draw(){const q=st.q.toLowerCase();tb.set(lab.filter(g=>(!st.risk||(g.risk===st.risk&&(st.risk!=='REL'||K.relRisk(g))))&&(!st.cat||g.cat===st.cat)&&(!st.grp||g.grp===st.grp)&&(!st.site||g.site===st.site)&&(!q||g.sid.includes(q)||g.test.toLowerCase().includes(q))&&cfL(g)))}
   draw();
 }
-function showLab(g){K.showLabG(g)}   /* V5：抽屉统一到 kz5.js（含处置控件），总览行动项、中心画像共用；须为函数声明（页签在顶部即渲染，const 会落入暂时性死区） */
+function showLab(g){K.showLabG(g)}   /* V5：抽屉统一到 kz5.js，总览风险排名、中心画像共用；须为函数声明（页签在顶部即渲染，const 会落入暂时性死区） */
 /* ---------- others */
 function tabOth(){
   const cats=[...new Set(oth.map(o=>o.cat))];const st={cat:H.cat||null,dom:null,site:'',q:''};
