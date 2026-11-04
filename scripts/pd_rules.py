@@ -432,8 +432,8 @@ class _PD:
             name = row['name']
             crit = bool(self.crit_items and self.crit_items.search(name))
             for vis, cell in row['cells'].items():
-                if cell[6] or vis not in row['exp']:
-                    continue
+                if cell[6] or vis not in row['exp'] or row.get('judge') is False or (len(cell) > 7 and cell[7]):
+                    continue                     # V6：不判缺失的项目（必要时/部分受试者）与合理性守卫压下的格子不逐人生成
                 for sid in (cell[4] if self.stage != 'daily' else []):
                     if sid not in C.pop:
                         continue

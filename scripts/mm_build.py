@@ -2261,6 +2261,7 @@ def build_soa(C):
             visited[v['visit']].add(v['sid'])
     cols = [v for v in C.VIS if visited.get(v) and C.isAgg(v)]
     recs = defaultdict(lambda: defaultdict(lambda: [set(), set()]))  # 项目 -> visit -> [done, no]
+    rdates = defaultdict(lambda: defaultdict(set))                    # 项目 -> sid -> {记录日期}（「可沿用首剂前 N 天结果」用）
     names, sheet2grp = {}, {}
     for f in C.findings:
         if f['sid'] not in C.pop or not f.get('visit'):
@@ -2271,17 +2272,24 @@ def build_soa(C):
         sheet2grp.setdefault(f['sheet'], sh)
         k = 1 if str(f.get('done') or '').startswith('否') else 0
         recs[sh][f['visit']][k].add(f['sid'])
+        if not k and is_full_date(f.get('date')):
+            rdates[sh][f['sid']].add(f['date'])
     for e in C.efficacy:
         if e['sid'] in C.pop and e.get('visit'):
             names.setdefault(e['sheet'], e.get('metric') or e['sheet'])
             recs[e['sheet']][e['visit']][0].add(e['sid'])
+            if is_full_date(e.get('date')):
+                rdates[e['sheet']][e['sid']].add(e['date'])
     spec = C.A.get('soa')  # [{"name","sheet","visits":[..],"cond":bool}]
     if not spec:
         spec = []
         for sh, by in recs.items():
             exp = [v for v in cols if len(by[v][0] | by[v][1]) >= 0.5 * len(visited[v])]
             spec.append({'name': names[sh], 'sheet': sh, 'visits': exp, 'cond': False})
-    out = []
+    d1 = ((getattr(C, 'cfg', None) or {}).get('visits') or {}).get('d1') or 'D1'
+    first = [v for v in cols if v != d1][:1] if d1 in cols and cols.index(d1) > 0 else []
+    pre_vis = {d1, *first} | {v for v in cols if re.search(r'^(SCR|筛选|V0)', str(v), re.I)}
+    out, guard = [], []
     for sp in spec:
         # F-F（CRUX-01）：alt＝替代量表（成人版/儿童版等同一家族的互换表单）。带 alt 时：
         # ① 应做人群＝做过本表或任一替代表（任一访视有记录）的受试者——从未做过家族任一表者不在该表人群
@@ -2294,23 +2302,105 @@ def build_soa(C):
             for b in bys:
                 for d0, n0 in b.values():
                     pop |= d0 | n0
+        ap = sp.get('applies') or {}
+        elig = _soa_applicable(C, ap, bys)                # V6（用户审阅 RUX 第 7 条）：逐人适用（性别/育龄代理/年龄段）
+        judge = ap.get('judge', True)                     # 必要时/部分受试者/条件无法解析 → 只展示不判缺失
+        reuse = ap.get('reuse_days')
+        dts = defaultdict(set)
+        for m in members:
+            for sid0, ds in (rdates.get(m) or rdates.get(sheet2grp.get(m), {})).items():
+                dts[sid0] |= ds
         cells = {}
         for v in cols:
-            n = visited[v]
+            n = visited[v] & elig if elig is not None else visited[v]
             if alts:
                 n = n & pop
             done = set().union(*[((b.get(v) or (set(), set()))[0] & n) for b in bys]) if bys else set()
             no = set().union(*[((b.get(v) or (set(), set()))[1] & n) for b in bys]) - done if bys else set()
             if v in sp['visits']:
                 miss = n - done - no
-                cells[v] = [len(n), len(done), len(no), len(miss), sorted(miss), sorted(no), 0]
+                if reuse and v in pre_vis:                # 「可接受首次给药前 N 天内结果」：该期间有记录即算完成
+                    miss = {x for x in miss if not _reused(C, x, dts.get(x), reuse)}
+                if not judge:
+                    miss = set()
+                cells[v] = [len(n), len(done), len(no), len(miss), sorted(miss), sorted(no), 0, 0]
+                if judge and len(n) >= 10 and len(miss) >= 0.3 * len(n):
+                    g = _soa_guard_cell(C, sp['name'], v, n, miss)
+                    if g is not None:
+                        cells[v][7] = 1           # 合理性守卫：大面积缺失＝对应/适用条件疑似有误 → 不逐人判
+                        guard.append(g)
             elif done:
-                cells[v] = [len(n), len(done), 0, 0, [], [], 1]
+                cells[v] = [len(n), len(done), 0, 0, [], [], 1, 0]
         out.append({'name': sp['name'], 'sheet': sp['sheet'], 'exp': sp['visits'], 'cond': sp.get('cond', False),
-                    **({'alt': alts} if alts else {}), 'cells': cells})
+                    **({'alt': alts} if alts else {}), **({'judge': False} if not judge else {}),
+                    **({'applies': ap} if ap else {}), 'cells': cells})
     if spec and any(s.get('cond') for s in spec):
         C.S.setdefault('study', {}).setdefault('soaCond', [s['name'] for s in spec if s.get('cond')])
-    C.soa, C.soacols = out, cols
+    C.soa, C.soacols, C.soaGuard = out, cols, guard
+
+
+def _soa_applicable(C, ap, bys):
+    """适用人群（None＝全部到访者）。sex：F/M；wocbp：女性且任一访视做过本项目（无育龄字段时的代理，用户裁定 8＝A）；
+    age：[下限, 上限)（岁，基线年龄）。"""
+    if not ap or not any(k in ap for k in ('sex', 'wocbp', 'age')):
+        return None
+    did = set()
+    for b in bys:
+        for d0, n0 in b.values():
+            did |= d0 | n0
+    out = set()
+    for sid in C.pop:
+        s = C.subj[sid]
+        sx = str(s.get('sex') or '')
+        female = bool(re.search(r'女|^F', sx, re.I))
+        male = bool(re.search(r'男|^M', sx, re.I))
+        if ap.get('sex') == 'F' and not female:
+            continue
+        if ap.get('sex') == 'M' and not male:
+            continue
+        if ap.get('wocbp') and not (female and sid in did):
+            continue
+        rng = ap.get('age')
+        if rng:
+            try:
+                a = float(s.get('age'))
+            except (TypeError, ValueError):
+                a = None
+            if a is None or (rng[0] is not None and a < rng[0]) or (rng[1] is not None and a >= rng[1]):
+                continue
+        out.add(sid)
+    return out
+
+
+def _reused(C, sid, dates, n):
+    fd = C.subj[sid].get('fd')
+    if not dates or not is_full_date(fd):
+        return False
+    return any(0 <= (days(fd, d) or -1) <= n for d in dates)
+
+
+def _soa_guard_cell(C, name, vis, n, miss):
+    """SoA 合理性守卫（用户裁定 7＝A）：某评估在某访视 ≥30% 受试者缺失（且 ≥10 人）——几乎总是对应关系或适用条件有误
+    （男性被要求妊娠试验、成人被要求儿童量表、首剂前 N 天结果可沿用未抽出），不逐人发质疑，改为一条系统提示并附分布；
+    缺失集中于单一中心（≥80%）时不压——那可能是该中心真实的系统性漏做，照常判。返回提示 dict 或 None（不压）。"""
+    by_site = Counter(C.subj[x]['site'] for x in miss)
+    if by_site and by_site.most_common(1)[0][1] >= 0.8 * len(miss) and len(by_site) < len({C.subj[x]['site'] for x in n}):
+        return None
+    sex = Counter(('女' if re.search(r'女|^F', str(C.subj[x].get('sex') or ''), re.I) else '男' if re.search(r'男|^M', str(C.subj[x].get('sex') or ''), re.I) else '未知') for x in miss)
+    def band(x):
+        try:
+            a = float(C.subj[x].get('age'))
+        except (TypeError, ValueError):
+            return '未知'
+        return '<18 岁' if a < 18 else '18–64 岁' if a < 65 else '≥65 岁'
+    ages = Counter(band(x) for x in miss)
+    hint = []
+    for lab, cnt in (('性别', sex), ('年龄', ages)):
+        k, v = cnt.most_common(1)[0]
+        if v >= 0.9 * len(miss) and k != '未知':
+            hint.append(f"缺失者 {v / len(miss):.0%} 为{k}，可能缺少按{lab}的适用条件")
+    return {'name': name, 'visit': vis, 'n': len(n), 'miss': len(miss), 'pct': round(len(miss) / len(n), 3),
+            'sex': dict(sex), 'age': dict(ages), 'site': dict(by_site.most_common(5)), 'hint': '；'.join(hint)}
 
 
 # ----------------------------------------------------------------------------- trend (KZT)
@@ -2937,7 +3027,7 @@ def write_outputs(C, KZ, X, csb_candidates, out, aud):
     S = C.subj
     js_write(out / 'core.js', 'KZ', KZ)
     js_write(out / 'trend.js', 'KZT', C.KZT)
-    js_write(out / 'extra.js', 'KZX', {'soa': C.soa, 'soacols': C.soacols, 'ex': X['ex'], 'pdex': X['pdex']})
+    js_write(out / 'extra.js', 'KZX', {'soa': C.soa, 'soacols': C.soacols, 'soaGuard': getattr(C, 'soaGuard', []), 'ex': X['ex'], 'pdex': X['pdex']})
     js_write(out / 'grading.js', 'KZG', {'label': C.GL, 'system': C.G.t.get('system'), 'version': C.G.t.get('version'), 'source': C.G.t.get('source', ''),
                                          'items': {k: v for k, v in C.G.items.items() if k in set(C.cmap.values())}, 'map': C.cmap, 'fac': C.fac})
     build_subject_files(C, out)
