@@ -534,6 +534,16 @@ class _PD:
                                                    [_sh(e), e['row'], '恢复给药']],
                              grade='待判定', why='达标后已暂停给药并恢复：方案停药是否以复查确认为前提、恢复前复测是否已低于标准，需核实')
                     continue
+                # 给药表没有暂停记录、但同期 AE 的研究药物措施是暂停/停药（与 WD-02、阈值「已处理」同口径）→ 同样不是「给药持续」
+                aei = next((a for a in C.ae_by.get(sid, []) if ae_action(a.get('act')) in ('interrupted', 'withdrawn') and is_full_date(a.get('s'))
+                            and -3 <= days(a['s'], d) <= 7), None)
+                if aei is not None:
+                    self.add('WD-01', sid, f"{o.get('test')} {o.get('v') or ''}（{d}）达到方案停药标准（{lab}），同期 AE“{aei['t']}”（{aei['s']}）"
+                                           f"措施为{aei.get('act')}，给药记录至 {_last_dose(late[-1])}",
+                             date=d, src=[[_sh(o, 'sh'), o['row'], o.get('test') or ''], [_sh(aei, 'sh'), aei.get('row'), 'AE 措施'],
+                                          [_sh(e), e['row'], '恢复给药']],
+                             grade='待判定', why='AE 记录显示已暂停研究药物，但给药表未记暂停区间：请核对给药记录与 AE 措施是否一致、恢复前是否复查确认')
+                    continue
                 self.add('WD-01', sid, f"{o.get('test')} {o.get('v') or ''}（{d}）达到方案停药标准（{lab}），给药记录持续至 {_last_dose(e)}",
                          date=_last_dose(e), src=[[_sh(o, 'sh'), o['row'], o.get('test') or ''], [_sh(e), e['row'], '给药']],
                          grade='待判定' if o['_rule'].get('stopCond') else None,
@@ -549,7 +559,7 @@ class _PD:
                 continue
             ex = [e for e in C.exposure if e['sid'] == sid and is_full_date(e.get('start'))]
             paused = any(dose_state(e) in ('paused', 'withdrawn') and days(e['start'], d) is not None and -1 <= days(e['start'], d) <= 7 for e in ex)
-            ae_int = any(ae_action(a.get('act')) in ('interrupted', 'withdrawn') and is_full_date(a.get('s')) and abs(days(a['s'], d) or 99) <= 7
+            ae_int = any(ae_action(a.get('act')) in ('interrupted', 'withdrawn') and is_full_date(a.get('s')) and abs(days(a["s"], d)) <= 7
                          for a in C.ae_by.get(sid, []))
             later = [e for e in ex if is_dosing(e) and (_last_dose(e) or '') > (d[:10] if d else '') and (days(_last_dose(e), d) or 0) > 7]
             if paused or ae_int or not later:

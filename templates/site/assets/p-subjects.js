@@ -8,24 +8,27 @@ D.others.forEach(g=>(OT[g.sid]=OT[g.sid]||[]).push(g));
 D.queries.forEach(q=>(QS[q.sid]=QS[q.sid]||[]).push(q));
 const score=s=>{const l=LR[s.id]||[];return {csx:l.filter(g=>g.risk==='CSX').length,mh:l.filter(g=>g.risk==='MH').length,n2:l.filter(g=>g.risk==='NCS2').length,ot:(OT[s.id]||[]).filter(o=>o.pr>=3&&o.risk!=='AE').length,q:(QS[s.id]||[]).length}};
 subs.forEach(s=>s.sc=score(s));
+const ARMS=[...new Set(subs.map(s=>s.grp).filter(Boolean))].sort();   /* 非盲构建才有分组 */
 app.innerHTML=`<div class="grid" style="grid-template-columns:270px 1fr;gap:14px;align-items:start">
  <div class="card" style="padding:8px 0 0;position:sticky;top:66px">
   <div style="padding:0 10px 6px;display:grid;grid-template-columns:90px 1fr;gap:6px"><input class="s" id="fq" placeholder="编号" style="width:100%;min-width:0"><select class="s" id="fc" style="width:100%;min-width:0"><option value="">全部中心</option>${D.centers.filter(c=>c.dosed).map(c=>`<option value="${c.site}">${c.site} ${K.esc(c.name)}</option>`).join('')}</select></div>
+  ${ARMS.length>1?`<div style="padding:0 10px 6px"><select class="s" id="fg" style="width:100%"><option value="">全部分组</option>${ARMS.map(a=>`<option value="${K.esc(a)}">${K.esc(a)}（${subs.filter(s=>s.grp===a&&s.fd).length} 例给药）</option>`).join('')}</select></div>`:''}
   <div style="padding:0 10px 6px" class="chips" id="fs"></div>
   <div style="padding:0 10px 6px" class="flex"><span class="xs muted">排序</span><div class="seg" id="fo"></div></div>
   <div class="subj-list" id="sl"></div></div>
  <div id="main"></div></div>`;
-const st={q:'',c:H.c||'',s:'dosed',o:'risk'};
+const st={q:'',c:H.c||'',g:'',s:'dosed',o:'risk'};
 const DS=((window.KZS||{}).delta||{}).subjects||null;   /* 较上次：有新增/修改/删除记录的受试者 */
 document.getElementById('fc').value=st.c;
 K.chips(document.getElementById('fs'),[['dosed','已给药',subs.filter(s=>s.fd).length],['risk','有风险提示',subs.filter(s=>s.fd&&(s.sc.csx||s.sc.mh||s.sc.ot)).length],['q','有质疑',subs.filter(s=>s.nq).length],['sf','筛选失败',subs.filter(s=>s.status==='筛选失败').length],...(DS?[['chg','本次有新数据',subs.filter(s=>DS[s.id]).length]]:[])],v=>{st.s=v;list()},{all:'全部',value:'dosed'});
 K.seg(document.getElementById('fo'),[['risk','风险'],['id','编号'],['ae','AE数']],'risk',v=>{st.o=v;list()});
 document.getElementById('fq').oninput=e=>{st.q=e.target.value.trim();list()};
 document.getElementById('fc').onchange=e=>{st.c=e.target.value;list()};
+if(ARMS.length>1)document.getElementById('fg').onchange=e=>{st.g=e.target.value;list()};
 const rk=s=>s.sc.csx*100+s.sc.ot*20+s.sc.mh*10+s.sc.q*3+s.sc.n2;
 let cur=H.s;
 function list(){
-  let r=subs.filter(s=>(!st.c||s.site===st.c)&&(!st.q||s.id.includes(st.q)));
+  let r=subs.filter(s=>(!st.c||s.site===st.c)&&(!st.g||s.grp===st.g)&&(!st.q||s.id.includes(st.q)));
   if(st.s==='dosed')r=r.filter(s=>s.fd);else if(st.s==='risk')r=r.filter(s=>s.fd&&(s.sc.csx||s.sc.mh||s.sc.ot));else if(st.s==='q')r=r.filter(s=>s.nq);else if(st.s==='sf')r=r.filter(s=>s.status==='筛选失败');else if(st.s==='chg')r=r.filter(s=>DS&&DS[s.id]);
   r.sort(st.o==='risk'?(a,b)=>rk(b)-rk(a)||a.id.localeCompare(b.id):st.o==='ae'?(a,b)=>b.nae-a.nae||a.id.localeCompare(b.id):(a,b)=>a.id.localeCompare(b.id));
   const el=document.getElementById('sl');
@@ -56,7 +59,7 @@ async function show(id){
   const iron=hlRe?d.cm.filter(c=>hlRe.test(c.t)):[];
   const risks=[...lr.filter(g=>g.risk==='CSX').map(g=>[`CS未关联 · ${g.test}`,'solid-red',`lab:${g.test}`]),...ot.filter(o=>o.pr>=3&&o.risk!=='AE').map(o=>[`${K.catN(o.cat)}`,o.pr>=4?'red':'org',`oth:${D.others.indexOf(o)}`]),...lr.filter(g=>g.risk==='MH').map(g=>[`仅MH · ${g.test}`,'org',`lab:${g.test}`]),...lr.filter(g=>g.risk==='NCS2').map(g=>[`NCS≥2级 · ${g.test}`,'yel',`lab:${g.test}`])];
   m.innerHTML=`<div class="card mb" style="padding:12px 14px">
-   <div class="flex wrap" style="gap:10px"><b style="font-size:22px;color:var(--ink)">${id}</b>${K.status(d.status)}${K.p(d.site+' '+d.center,'line')}${d.rand?K.p('随机号 '+d.rand,'mono sq'):''}${d.strat&&CF.strat?K.p(K.esc(CF.strat.label||'分层')+'：'+K.esc(d.strat),d.strat===CF.strat.flag?'red':''):''}<span class="sp"></span><a class="p click blu" href="timeline.html#s=${id}">时间线 →</a></div>
+   <div class="flex wrap" style="gap:10px"><b style="font-size:22px;color:var(--ink)">${id}</b>${K.status(d.status)}${K.p(d.site+' '+d.center,'line')}${d.rand?K.p('随机号 '+d.rand,'mono sq'):''}${d.strat&&CF.strat?K.p(K.esc(CF.strat.label||'分层')+'：'+K.esc(d.strat),d.strat===CF.strat.flag?'red':''):''}${s.grp?K.p('分组：'+K.esc(s.grp),'line'):''}<span class="sp"></span><a class="p click blu" href="timeline.html#s=${id}">时间线 →</a></div>
    <div class="grid mt" style="grid-template-columns:repeat(7,1fr);gap:8px;margin-top:10px">
     ${[['年龄 / BMI',`${d.age??'—'} 岁 · ${d.bmi??'—'}`],['知情同意',d.icf||'—'],['首剂 D1',d.fd||'—'],['末次给药',lastDose?`${lastDose} <span class="xs muted">${dur?dur+' 天':''}</span>`:'—'],['治疗结束',d.eot?`${d.eot.d}<div class="xs muted clamp2" title="${K.esc(d.eot.why)}">${K.esc(d.eot.why)}</div>`:'—'],['研究结束',d.eos?`${d.eos.d||'—'} ${K.p(d.eos.done==='是'?'完成':'提前退出',d.eos.done==='是'?'grn':'red')}${d.eos.why?`<div class="xs muted clamp2">${K.esc(d.eos.why)}</div>`:''}`:'—'],['末次观察',d.lo||'—']].map(([a,b])=>`<div><div class="xs muted">${a}</div><div style="color:var(--ink);font-size:13px">${b}</div></div>`).join('')}
    </div>

@@ -517,7 +517,15 @@ _RISK_FAMILY = [
     (r'血栓|栓塞', r'血栓|栓塞|梗死|梗塞|卒中|中风'),
     (r'心血管|心脏不良|MACE', r'心肌梗|心衰|心力衰竭|卒中|梗死|心源性'),
     (r'过敏|超敏', r'过敏|超敏|荨麻疹|血管性水肿'),
+    # V6 第二轮医学审阅（RUX「血细胞计数下降（血小板、白细胞、红细胞降低）」：中性粒细胞/淋巴细胞计数降低、红细胞计数降低、贫血均未标）
+    (r'血细胞|全血细胞|骨髓抑制', r'(中性粒|粒|白|淋巴|红|全血)细胞.{0,4}(减少|降低|下降|减低)|血小板.{0,4}(减少|降低|下降|减低)|'
+                              r'贫血|血红蛋白.{0,4}(减少|降低|下降|减低)|骨髓抑制'),
 ]
+_DIR_DN, _DIR_UP = r'减少|降低|下降|减低', r'升高|增多|增高|增加'
+
+
+def _risk_family(full):
+    return next((rx_ for fam, rx_ in _RISK_FAMILY if re.search(fam, full)), None)
 
 
 def risk_term_re(term):
@@ -525,12 +533,18 @@ def risk_term_re(term):
     t = str(term or '')
     core = re.sub(r'^(严重|重要|重度)|[（(].*?[)）]', '', t).strip()
     paren = [x.strip() for x in re.findall(r'[（(]([^）)]+)[）)]', t) for x in re.split(r'[、，,/]', x) if len(x.strip()) >= 2]
-    alts = [re.escape(x) for x in [core] + paren if len(x) >= 2]
-    full = ' '.join([core] + paren)
-    for fam, rx_ in _RISK_FAMILY:
-        if re.search(fam, full):
-            alts.append(rx_)
-            break
+    # 括注项「红细胞降低」要能命中「红细胞计数降低」：主语与升降词之间容许 ≤4 字；括注项没写方向（「血小板」）时继承风险名的方向
+    cdir = _DIR_DN if re.search(_DIR_DN, core) else _DIR_UP if re.search(_DIR_UP, core) else None
+    alts = []
+    for x in [core] + paren:
+        if len(x) < 2:
+            continue
+        m = re.match(rf'(.+?)({_DIR_DN}|{_DIR_UP})$', x)
+        alts.append(re.escape(m.group(1)) + '.{0,4}' + m.group(2) if m else
+                    (re.escape(x) + '.{0,4}(' + cdir + ')' if cdir and x != core else re.escape(x)))
+    fam = _risk_family(' '.join([core] + paren))
+    if fam:
+        alts.append(fam)
     return re.compile('|'.join(alts)) if alts else None
 
 
@@ -547,7 +561,11 @@ def _exp_list(C):
                     pat = re.escape(str(a))
                 if pat:
                     labs.append((re.compile(pat, re.I), d))
-            C._exp.append({**e, '_re': risk_term_re(e.get('term')), '_labs': labs})
+            t_ = str(e.get('term') or '')
+            # 风险已有明确事件族（皮肤感染/皮肤恶性肿瘤/过敏…）→ 不再按 SOC 兜底（第二轮医学审阅：升结肠良性肿瘤被标「皮肤恶性肿瘤」、
+            # 过敏反应被标「局部免疫抑制效应（皮肤感染）」，都只因同 SOC）
+            fam = _risk_family(' '.join([t_] + re.findall(r'[（(]([^）)]+)[）)]', t_)))
+            C._exp.append({**e, '_re': risk_term_re(t_), '_labs': labs, '_fam': bool(fam)})
     return C._exp
 
 
@@ -615,7 +633,7 @@ def ib_match(C, rec):
             continue
         if hit:
             out.append(name)
-        elif severe and rec.get('soc'):
+        elif severe and rec.get('soc') and not e.get('_fam'):
             socs = [_code_suffix_strip(s) for s in re.split(r'[；;]', e.get('soc') or '') if s.strip()]
             if rec['soc'] in [s for s in socs if not s.startswith('各类检查')]:
                 out.append(name + '（同SOC，严重/≥3级）')       # 第②级：真实同 SOC，严重/≥3 级过滤不变（伞形/非伞形一致）
@@ -806,7 +824,9 @@ def resolve_links(C, sid, links):
                 if ev is not None:
                     kind = 'MH' if kind == 'AE' else 'AE'
             no = ev['n'] if ev is not None else no            # 术语也回溯不到：保留研究者填的编号（交 LINK 核对）
-        out.append([kind, term or (ev or {}).get('t', ''), (ev or {}).get('s', ''), no, bool(ev)])
+        # 关联单元格只写了编号（「MH#1」「AE 3」）时显示记录本身的术语——编号原样露给中心看不懂（第二轮医学审阅 Q020）
+        code_only = not (term or '').strip() or re.fullmatch(r'(AE|MH|病史|不良事件)?\s*[#＃(（]?\s*\d+\s*[)）]?', term.strip(), re.I)
+        out.append([kind, (ev or {}).get('t') if ev is not None and code_only else (term or (ev or {}).get('t', '')), (ev or {}).get('s', ''), no, bool(ev)])
     return out
 
 
@@ -975,6 +995,7 @@ def build_labrows(C):
         if sid not in C.pop or mid.split(':')[0] not in doms or C.metric[mid]['nq'] > C.metric[mid]['n']:
             continue
         b = rows[0]['base'] if rows else None
+        pre_v = ext_rules.pre_values(rows)                # 给药前数值：所有「较基线加重」判定按给药前波动容差（ext_rules.within_pre）
         bg = (b or {}).get('grade') or 0
         bc = (b or {}).get('clin') or 0
         pts, cat = [], '治疗后新发/加重检验异常'
@@ -1025,7 +1046,7 @@ def build_labrows(C):
         if anycs and dis_only:
             # 用户 2026-10-27：归因研究疾病不算「未关联」；只有较基线明显加重、且未记录「研究疾病加重」类 AE 才作为风险
             t_base = float(C.cfg['thresholds'].get('base', 0.3))
-            wf = (next((w for w in (worse_vs_base(r, b, t_base, disease=True) for r in cs_pts if r['post']) if w), None) if b else None) or \
+            wf = (next((w for w in (worse_vs_base(r, b, t_base, disease=True, pre=pre_v) for r in cs_pts if r['post']) if w), None) if b else None) or \
                 next((w for w in map(ext_rules.stated_worse, cs_pts) if w), None)      # 研究者备注写明加重：研究者判定优先
             dae = disease_ae(sid, mid, cs_pts) if wf else []
             risk = 'DISW' if wf and not dae else 'DIS'
@@ -1053,7 +1074,7 @@ def build_labrows(C):
                 if b is None:
                     ctx.append(f'研究疾病表现（{nm}）；基线缺失，无法判断是否较基线加重')
                 else:
-                    wf = next((w for w in (worse_vs_base(r, b, float(C.cfg['thresholds'].get('base', 0.3)), disease=True) for r in cs_pts if r['post']) if w), None)
+                    wf = next((w for w in (worse_vs_base(r, b, float(C.cfg['thresholds'].get('base', 0.3)), disease=True, pre=pre_v) for r in cs_pts if r['post']) if w), None)
                     dae = disease_ae(sid, mid, cs_pts) if wf else []
                     if wf and dae:
                         risk = 'DIS'
@@ -1075,6 +1096,11 @@ def build_labrows(C):
         elif mg >= 2:
             # 表单没有临床意义字段（如体重）时不是「未评价」：单列一层，请研究者评估是否需记录 AE（D001 QC：体重 2 级曾要求补一个不存在的字段）
             risk = 'AE' if has_ae else ('NA2' if C.metric[mid].get('hasClin') else 'G2NF') if unassessed else 'NCS2'
+            if risk == 'G2NF' and any(c.startswith('同期 AE') for c in ctx):
+                # 第二轮医学审阅（RUX Q016/Q061/Q062：体重 2 级「同期已记录 AE“体重增加”，请评估是否需记录 AE」自相矛盾）：
+                # 表单既无临床意义字段也无关联字段，同期已有对应 AE → 已处理，不发质疑
+                risk = 'AE'
+                ctx.append('该表单没有临床意义评价与关联字段，同期已记录对应 AE（不发质疑）')
         elif any(r.get('clin') is None and r.get('oor') for r in P) and C.metric[mid].get('hasClin'):
             # mm4：给药后超出参考范围但未评价临床意义（该表单有临床意义字段）→ 请研究者评价（临床意义决定是否需记 AE）
             risk = 'NA'
@@ -1104,20 +1130,7 @@ def build_labrows(C):
 
             dz_mh = bool(dz) and any(l[0] == 'MH' and dz.search(l[1] or '') for l in links)
             cs_ = [r for r in P if r.get('clin') == 2]
-            # V6 医学审阅（RUX S03008 TBIL W8 36.78 而筛选期 35.02、S03045 W2 31.89 而筛选期 32.05）：基线只取一个点时，
-            # 给药前本就达到或超过该值的波动不算给药后加重——比较对象取给药前同向最差值
-            pre_v = [x['value'] for x in rows if not x.get('post') and x.get('value') is not None]
-            def _within_pre(r):
-                v = r.get('value')
-                if v is None or not pre_v:
-                    return False
-                hi_, lo_ = r.get('hi'), r.get('lo')
-                if hi_ is not None and v > hi_:
-                    return max(pre_v) >= v
-                if lo_ is not None and v < lo_:
-                    return min(pre_v) <= v
-                return False
-            wf = next((w for w in ((None if _within_pre(r) else worse_vs_base(r, b, t_base)) or ext_rules.qual_worse(r, b) or (dz_mh and ext_rules.stated_worse(r)) for r in cs_) if w), None)
+            wf = next((w for w in (worse_vs_base(r, b, t_base, pre=pre_v) or ext_rules.qual_worse(r, b) or (dz_mh and ext_rules.stated_worse(r)) for r in cs_) if w), None)
             undet = None if wf else ('基线缺失，无法判断是否加重' if not b else
                                      '描述性结果，无法自动判断是否加重' if all(r.get('value') is None and ext_rules.qual_level(r.get('raw')) is None for r in cs_) else None)
             dae = disease_ae(sid, mid, [r for r in P if r.get('clin') == 2]) if wf and dz_mh else []
@@ -1131,11 +1144,13 @@ def build_labrows(C):
                 ctx.append(f'已关联病史「{mhn}」，较基线未明显加重（病史延续）')
             if risk == 'MHL' and any(c.startswith('同期 AE') for c in ctx):   # 用户 2026-10-28：只做提醒，不作为风险
                 ctx.append('提醒：同期另有可能对应的 AE 未关联，可请研究者确认是否关联（不作为风险）')
-            elif dae:
+            # 第二轮医学审阅：下面两句只在确有加重（wf）时写——此前 else 挂在「同期 AE 提醒」上，未加重的 125 行同时出现
+            # 「较基线加重（None）」与「较基线未明显加重」
+            if wf and dae:
                 risk = 'MHL'
                 ctx.append(f"已关联研究疾病病史，较基线加重（{wf}），加重已记录为 AE「{dae[0]['t']}」（{dae[0]['s']}），请关联"
                            f"{ext_rules.onset_note(C, mid, dae[0], [r for r in P if r.get('clin') == 2])}")
-            else:
+            elif wf:
                 ctx.append(f'较基线加重（{wf}）：仅关联病史「{mhn}」，未见对应 AE')
         if risk in ('CSX', 'MH', 'MHU', 'NCS2', 'NA', 'NA2', 'G2NF', 'DISW'):   # IB/方案列明风险的检验表现只在需关注的层提示
             ctx += ib_lab_tags(C, mid, C.metric[mid]['label'], P)
@@ -1383,10 +1398,11 @@ def thr_handled(C, sid, r, R, rows):
             return None
         done.append(f"{rt[0]['date']} 已复查（{rt[0].get('raw')} {rt[0].get('unit') or ''}）".replace(' ）', '）'))
     if need & {'interrupt', 'stop'}:
+        # 同日＝0 天：不能写 `days(...) or 99`（0 为假 → 99，RUX S01003 当天暂停/当天录 AE 被判「未处理」）
         ex = [e for e in (getattr(C, 'exposure', None) or []) if e.get('sid') == sid and dose_state(e) in ('paused', 'withdrawn') and is_full_date(e.get('start'))
-              and -1 <= (days(e['start'], r['date']) or 99) <= 7]
+              and -1 <= days(e['start'], r['date']) <= 7]
         ae = [a for a in (getattr(C, 'ae_by', None) or {}).get(sid, []) if ae_action(a.get('act')) in ('interrupted', 'withdrawn') and is_full_date(a.get('s'))
-              and abs(days(a['s'], r['date']) or 99) <= 7]
+              and abs(days(a['s'], r['date'])) <= 7]
         if not ex and not ae:
             return None
         done.append(f"{ex[0]['start']} 起暂停/停用研究药物" if ex else f"AE“{ae[0]['t']}”（{ae[0]['s']}）对研究药物采取了暂停/停药措施")
@@ -2404,7 +2420,7 @@ def build_queries(C):
             sc = []
             for x in P:
                 fx = next((r for r in rows_ if r['sheet'] == x[7] and r['row'] == x[8]), None)
-                w_ = fx and b0 and (worse_vs_base(fx, b0, float(C.cfg['thresholds'].get('base', 0.3))) or ext_rules.qual_worse(fx, b0))
+                w_ = fx and b0 and (worse_vs_base(fx, b0, float(C.cfg['thresholds'].get('base', 0.3)), pre=ext_rules.pre_values(rows_)) or ext_rules.qual_worse(fx, b0))
                 if w_:
                     sc.append(((fx.get('grade') or 0), abs(x[6] or 0), x, w_))
             if sc:
@@ -2442,7 +2458,10 @@ def build_queries(C):
                        'DISW': '研究者归因研究疾病，但较基线明显加重且未记录研究疾病加重AE'}.get(g['risk'], cat),
                 '指标': g['test'], '访视': p[0], '数值': f"{p[2]}{p[3] or ''}", '参考范围': rng}
         if cand:
-            card['问题'], card['同期已记录AE'] = '判为有临床意义但检验未关联，同期已有可能对应的AE', '、'.join(re.sub(r'可能对应，但检验页未关联', '', c).replace('同期 ', '') for c in cand)
+            # 「判为有临床意义」只对 CS 类成立；NCS≥2级/未评价≥2级有同期 AE 时问的是判定/评价本身（第二轮医学审阅措辞排查）
+            card['问题'] = {'NCS2': '数值达CTCAE≥2级但判为无临床意义，同期已记录可能对应的AE',
+                          'NA2': '数值达CTCAE≥2级但未评价临床意义，同期已记录可能对应的AE'}.get(g['risk'], '判为有临床意义但检验未关联，同期已有可能对应的AE')
+            card['同期已记录AE'] = '、'.join(re.sub(r'可能对应，但检验页未关联', '', c).replace('同期 ', '') for c in cand)
         if bg:
             card['问题'], card['研究疾病表现'] = '该指标异常可见于研究疾病，但较基线明显加重且未记录AE', re.sub(r'[↑↓]|（医学常识）$', '', bg.split('：')[0])
         if b_ and b_[1] not in (None, ''):

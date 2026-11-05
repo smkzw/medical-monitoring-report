@@ -100,6 +100,8 @@ class WorseningRule(unittest.TestCase):
         self.assertTrue(grade_up(0, 2))
         self.assertTrue(grade_up(1, 2))
         self.assertFalse(grade_up(2, 2))
+        self.assertFalse(grade_up(1, 2, 98, 100))          # 跨界值但只变 2%：测量波动
+        self.assertTrue(grade_up(1, 2, 85, 100))
 
     def test_worse_vs_base(self):
         from mm_build import worse_vs_base
@@ -108,7 +110,9 @@ class WorseningRule(unittest.TestCase):
         self.assertIsNone(worse_vs_base(small, b, 0.3))
         big = {'grade': 1, 'value': 6.8, 'hi': 5.2, 'lo': 0, 'oor': True}              # 0→1 级、+33%：算
         self.assertIn('较基线升高', worse_vs_base(big, b, 0.3))
-        self.assertIn('等级', worse_vs_base({'grade': 2, 'value': 5.6, 'hi': 5.2, 'oor': True}, {'grade': 1, 'value': 5.5}, 0.3))
+        self.assertIn('等级', worse_vs_base({'grade': 2, 'value': 5.6, 'hi': 5.2, 'oor': True}, {'grade': 1, 'value': 5.0}, 0.3))
+        # 跨分级界值但只变 1.8%（5.5→5.6）：测量波动，不算加重（V6 第二轮医学审阅）
+        self.assertIsNone(worse_vs_base({'grade': 2, 'value': 5.6, 'hi': 5.2, 'oor': True}, {'grade': 1, 'value': 5.5}, 0.3))
         self.assertIsNone(worse_vs_base({'grade': 0, 'value': 0.9, 'hi': 0.52, 'oor': True}, {'grade': 0, 'value': 0.8}, 0.3))  # 基线已高、+12%
 
 
@@ -3615,6 +3619,40 @@ class Eng2Tests(unittest.TestCase):
         import datetime as dt
         self.assertEqual(conv('win_lo', dt.datetime(2024, 7, 9), {}), '2024-07-09')
         self.assertEqual(conv('win_hi', '2024/07/09', {}), '2024-07-09')
+
+    def test_thr_handled_same_day(self):
+        from types import SimpleNamespace
+        from mm_build import thr_handled
+        R = {'acts': ['retest', 'interrupt'], 'retestH': 48}
+        r = {'date': '2024-07-30', 'row': 5, 'value': 1.24}
+        rows = [r, {'date': '2024-07-31', 'row': 6, 'value': 1.57, 'raw': '1.57'}]
+        C = SimpleNamespace(exposure=[], ae_by={'S1': [{'t': '中性粒细胞计数降低', 's': '2024-07-30', 'act': '暂时停用后又恢复研究药物'}]})
+        self.assertTrue(thr_handled(C, 'S1', r, R, rows))     # 同日 AE 暂停（0 天）不能被当成「未处理」
+        C = SimpleNamespace(exposure=[{'sid': 'S1', 'start': '2024-07-30', 'pause': '暂停用药'}], ae_by={})
+        self.assertTrue(thr_handled(C, 'S1', r, R, rows))
+
+    def test_within_pre_tolerance(self):
+        from ext_rules import worse_vs_base, pre_values
+        rows = [{'post': False, 'value': 35.02}, {'post': False, 'value': 26.61}]
+        b = {'value': 26.61, 'grade': 0, 'hi': 21}
+        r = {'value': 36.78, 'hi': 21, 'grade': 0, 'mid': 'LB:总胆红素'}
+        self.assertTrue(worse_vs_base(r, b, 0.3))                         # 只比基线：+38% 判加重
+        self.assertIsNone(worse_vs_base(r, b, 0.3, pre=pre_values(rows)))  # 筛选期已到 35.02：+5% 在波动内
+        self.assertTrue(worse_vs_base({**r, 'value': 45.0}, b, 0.3, pre=pre_values(rows)))
+
+    def test_csb_multi_link_and_mh_text(self):
+        from types import SimpleNamespace
+        from collections import defaultdict
+        import ext_rules
+        ae = defaultdict(list, {'S1': [{'n': 3, 't': '腹痛', 's': '2024-01-01'}, {'n': 4, 't': '肝功能异常', 's': '2024-01-01'}]})
+        mh = defaultdict(list, {'S1': [{'n': 3, 't': '不完全性右束支传导阻滞', 's': '2020-01-01', 'e': '', 'ong': '是'}]})
+        C = SimpleNamespace(ae_by=ae, mh_by=mh, A={'aeMatch': [['ALT', '肝', 30]]}, mhMatch=[])
+        r = {'sheet': 'LB', 'row': 2, 'date': '2024-01-05'}
+        links = [['AE', '', None, 3], ['AE', '', None, 4]]
+        best = max(links, key=lambda l: ext_rules._link_rank(C, 'S1', 'LB:ALT', r, l))
+        self.assertEqual(best[3], 4)                           # 第二个关联才对应：取对应的那个
+        ecg = {'desc': '右束支传导阻滞', 'value': None, 'date': '2024-01-05'}
+        self.assertEqual([m['no'] for m in ext_rules.desc_mh_match(C, 'S1', ecg)], [3])
 
     def test_catalog_header_only_needs_two(self):
         from normalize_listing import catalog_map

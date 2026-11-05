@@ -175,6 +175,27 @@ def desc_ae_match(C, sid, r):
     return out
 
 
+_MH_QUAL = re.compile(r'^(不完全性|完全性|轻度|中度|重度|慢性|急性|陈旧性|间歇性|持续性|阵发性)')
+
+
+def desc_mh_match(C, sid, r):
+    """研究者描述/结果文本与病史术语互相包含（去掉「不完全性/轻度/慢性」等限定词后比较）且病史时段覆盖检查日期 →
+    病史可解释候选。V6 第二轮医学审阅（RUX Q114：心电图「右束支传导阻滞」判 CS，病史第 3 条即「不完全性右束支传导阻滞」，
+    仍写「病史未见」）。"""
+    d = re.sub(r'\s', '', str(r.get('desc') or (r.get('raw') if r.get('value') is None else '') or ''))
+    if len(d) < 2:
+        return []
+    out = []
+    for m in C.mh_by[sid]:
+        t_ = re.sub(r'[（(].*$', '', str(m.get('t') or '')).strip()
+        core = _MH_QUAL.sub('', t_)
+        cover = (not m.get('s') or not r.get('date') or m['s'] <= r['date']) and \
+                (m.get('ong') == '是' or not m.get('e') or not is_full_date(r.get('date')) or m['e'] >= r['date'])
+        if len(core) >= 3 and cover and (core in d or (len(d) <= 16 and _MH_QUAL.sub('', d) in t_)):
+            out.append({'no': m['n'], 'term': m['t'], 'start': m['s'], 'end': m.get('e'), 'ongoing': m.get('ong') == '是', 'match': True})
+    return out
+
+
 _SPECIMEN = re.compile(r'鼻(分泌物|涂片|黏膜|拭子)?|痰|尿|粪|大便|脑脊液|关节液|胸水|腹水|皮损|阴道分泌物|白带')
 
 
@@ -605,19 +626,46 @@ def daily_open(C, sid) -> bool:
 DAILY_NOTE = '受试者尚未出组，后续访视数据可能尚未录入（日常监查阶段仅作提示）'
 
 
-def grade_up(bg, cg):
-    """按分级判加重：基线已 ≥1 级后再升级，或升到 ≥2 级。0 级 → 1 级不单独算（避免略超上限即判加重）。"""
-    return (cg or 0) > (bg or 0) and ((bg or 0) >= 1 or (cg or 0) >= 2)
+def grade_up(bg, cg, v=None, bv=None):
+    """按分级判加重：基线已 ≥1 级后再升级，或升到 ≥2 级。0 级 → 1 级不单独算（避免略超上限即判加重）。
+    有数值时还要求变化幅度 ≥5%：数值刚好跨过分级界值（第二轮医学审阅 RUX Q027 HGB 100→98 g/L 判「1→2 级加重」）属测量波动。"""
+    if not ((cg or 0) > (bg or 0) and ((bg or 0) >= 1 or (cg or 0) >= 2)):
+        return False
+    if isinstance(v, (int, float)) and isinstance(bv, (int, float)) and bv:
+        return abs(v - bv) / abs(bv) >= 0.05
+    return True
 
 
-def worse_vs_base(r, b, t_base, disease=False):
+def pre_values(rows):
+    """同受试者同指标的给药前数值（筛选/基线/给药前复查）。"""
+    return [x['value'] for x in rows or () if not x.get('post') and isinstance(x.get('value'), (int, float))]
+
+
+def within_pre(r, pre, tol=0.10):
+    """给药后异常值仍在给药前同向最差值的波动范围内（容差 10%）→ 不算给药后加重。
+    V6 医学审阅（RUX S03008 TBIL 筛选 35.02、基线 26.61、W8 36.78；S03045 DBIL 7.36→7.50）：基线只取一个点时，
+    给药前本就达到该水平的波动不能判「较基线加重」。所有加重判定（病史/研究疾病/整份判定/质疑写法）同一口径。"""
+    v = r.get('value')
+    if not pre or not isinstance(v, (int, float)):
+        return False
+    hi, lo = ref_hi(r), r.get('lo')
+    if hi is not None and v > hi:
+        return max(pre) * (1 + tol) >= v
+    if lo is not None and v < lo:
+        return min(pre) * (1 - tol) <= v
+    return False
+
+
+def worse_vs_base(r, b, t_base, disease=False, pre=None):
     """D14/D19 较基线加重：分级升高（0→1 级不单独算，见 grade_up），或超出范围且同向较基线变化 ≥T_base。
     返回说明文本或 None；仅临床意义 NCS→CS 的判定波动不算加重。
     V6 R3（审阅者 2026-11-02）：disease=True（研究疾病本身的表现，如嗜酸粒细胞）时，小基数指标的相对变化须同时达到
     绝对变化下限（monitor_v5.abs_floor，0.5→0.7 ×10^9/L 这类相对 40% 的波动不算「明显加重」）。"""
     if not b:                                        # 基线缺失：不虚构「0→2 级」，由调用方按「无法判断」处理
         return None
-    if grade_up(b.get('grade'), r.get('grade')):
+    if within_pre(r, pre):                           # pre＝给药前数值（pre_values）；给药前本就到过这个水平 → 不算加重
+        return None
+    if grade_up(b.get('grade'), r.get('grade'), r.get('value'), b.get('value')):
         return f"等级 {b.get('grade') or 0}→{r.get('grade')} 级"
     v, bv = r.get('value'), b.get('value')
     if v is None or bv is None:
@@ -930,16 +978,19 @@ def clin_consistency(C):
                 bkey=f"{sh}|clin", wb=late.get('wb') or '')
 
 
-def _worsening(r, t_base):
-    """步骤 4 确定性恶化（与 review/csb.py deterministic_worsening 同口径）。返回 (known, value, flags)。"""
+def _worsening(r, t_base, pre=None):
+    """步骤 4 确定性恶化（与 review/csb.py deterministic_worsening 同口径）。返回 (known, value, flags)。
+    pre＝给药前数值：仍在给药前同向最差值波动范围内（within_pre）→ 未恶化（与 worse_vs_base 同口径）。"""
     if not r['post']:
         return True, False, ['给药前（不适用）']
     b = r.get('base')
     if not b:
         return True, True, ['基线缺失（按新发处理）']
+    if within_pre(r, pre):
+        return True, False, ['在给药前波动范围内']
     flags = []
     bg, cg = b.get('grade') or 0, r.get('grade') or 0
-    if grade_up(bg, cg):                       # 0 级 → 1 级不单独算加重（须同时超出范围且同向较基线 ≥T_base，由下方数值规则判定；用户 2026-10-27 确认）
+    if grade_up(bg, cg, r.get('value'), b.get('value')):   # 0 级 → 1 级不单独算加重（须同时超出范围且同向较基线 ≥T_base，由下方数值规则判定；用户 2026-10-27 确认）
         flags.append(f"等级升高 {bg}→{cg} 级")
     # V6（MM 审阅 2026-11-02：D002「CS较基线加重」9/9 假，尿潜血 3+→2+ 也算加重）：NCS→CS 判定翻转本身不是加重（另由判定一致性核对）
     v, bv = r.get('value'), b.get('value')
@@ -1004,20 +1055,26 @@ def m23_csb(C):
                         rule={'ask': '结果为阴性/未见却判为有临床意义，请核实结果或临床意义判定是否录入有误。'},
                         bkey=f"{mid}|{r.get('visit')}|{r.get('date')}|negcs", wb=r.get('wb') or '')
                 continue
-            known, worse, flags = _worsening(r, t_base)
+            known, worse, flags = _worsening(r, t_base, pre_values(rows))
             binding = {'link': None, 'matched_ae': [], 'matched_mh': []}
             emit = None                                  # ('LINK'|'CSX_AE'|'MH'|'CSW'|'CSX', rec, extra)
-            link = next((l for l in (r.get('links') or [])), None)
-            if link is not None and link[3] is None:
-                # F02 词目型（说明列写法）：按术语回溯到记录才算关联；对不上 → 回到未关联流程（不判「关联不对应」）
-                pool = C.ae_by[sid] if link[0] == 'AE' else C.mh_by[sid]
-                t = re.sub(r'[（(].*$', '', (link[1] or '').strip())
-                ev = next((x for x in pool if t and (t in (x.get('t') or '') or (x.get('t') or '') in t)), None)
-                link = [link[0], link[1], None, ev['n']] if ev is not None else None
+            # V6 第二轮医学审阅（RUX Q113：关联「AE#3 AE#4 AE#5」只读了第一个 AE#3，三条其实都对应）：逐个解析，
+            # 取对应性最好的一个——对应 > 存在但无法判断 > 存在但不对应 > 不存在
+            links = []
+            for l in r.get('links') or []:
+                if l[3] is None:
+                    # F02 词目型（说明列写法）：按术语回溯到记录才算关联；对不上 → 不算关联（不判「关联不对应」）
+                    pool = C.ae_by[sid] if l[0] == 'AE' else C.mh_by[sid]
+                    t = re.sub(r'[（(].*$', '', (l[1] or '').strip())
+                    ev = next((x for x in pool if t and (t in (x.get('t') or '') or (x.get('t') or '') in t)), None)
+                    l = [l[0], l[1], None, ev['n']] if ev is not None else None
+                if l:
+                    links.append(l)
+            link = max(links, key=lambda l: _link_rank(C, sid, mid, r, l)) if links else None
             if not link and disease_attr(C, r):
                 # 用户 2026-10-27：归因研究疾病不算「未关联」。只有较基线明显加重（D14/D19，判定波动不算）且同期未见
                 # 「研究疾病加重」类 AE 才作为风险；其余只作提示。方案进展条款已确认时交步骤 5 候选（D21）。
-                wf = (worse_vs_base(r, r.get('base'), t_base) if r['post'] and r.get('base') else None) or (r['post'] and stated_worse(r))
+                wf = (worse_vs_base(r, r.get('base'), t_base, pre=pre_values(C.F.get((sid, mid)))) if r['post'] and r.get('base') else None) or (r['post'] and stated_worse(r))
                 if not wf and r['post'] and r.get('value') is None and (r.get('base') or {}).get('clin') == 0:
                     wf = '基线正常，给药后新出现异常'           # 定性检查（体检/影像）：基线正常 → CS 视为明显异常；NCS→CS 判定波动不算
                 if not wf or disease_ae(C, sid, mid, [r]):
@@ -1028,11 +1085,7 @@ def m23_csb(C):
                 _csb_query(C, r, 'CSW', None, f"并归因研究疾病，较基线明显加重（{wf}），但未记录研究疾病加重AE", flags)
                 continue
             if link:
-                pool = C.ae_by[sid] if link[0] == 'AE' else C.mh_by[sid]
-                ev = next((x for x in pool if str(x['n']) == str(link[3])), None)
-                if ev is None and (link[1] or '').strip():   # V6：编号口径不同但术语能回溯 → 按术语认（同 mm_build.resolve_links）
-                    t = re.sub(r'[（(].*$', '', link[1].strip())
-                    ev = next((x for x in pool if t and len(t) >= 2 and (x.get('t') or '') and (t in x['t'] or x['t'] in t)), None)
+                ev = _link_rec(C, sid, link)
                 if ev is None:                           # 步骤 1′：关联对象不存在
                     binding['link'] = {'type': link[0], 'no': link[3], 'term': link[1], 'exists': False, 'match': None}
                     page = '不良事件页' if link[0] == 'AE' else '病史页'
@@ -1043,17 +1096,7 @@ def m23_csb(C):
                     # implausible＝有正面反证 → LINK；plausible → 视同对应；unknown → 步骤 5 Q3。
                     # 无预判时词表命中 → 对应；词表未命中只说明词表未覆盖，不等于关联错误 → None（步骤 5），
                     # 仅 analysis.linkStrict=true 时沿用旧口径（未命中即 LINK）。
-                    lv = (C.A.get('linkVerdicts') or {}).get(f"{r.get('wb') or ''}:{r['sheet']}|{r['row']}") or \
-                         (C.A.get('linkVerdicts') or {}).get(f"{r['sheet']}|{r['row']}")
-                    if lv:
-                        match = {'implausible': False, 'plausible': True}.get(lv.get('v'))
-                    else:
-                        if link[0] == 'AE':
-                            terms = [re.compile(b) for a, b, w in (C.A.get('aeMatch') or []) if re.compile(a).search(mid)]
-                        else:
-                            terms = [tre for mre, tre in C.mhMatch if mre.search(mid)]
-                        hit = any(t.search(ev.get('t') or '') for t in terms) if terms else None
-                        match = True if hit else (False if (hit is False and C.A.get('linkStrict')) else None)
+                    match, lv = _link_match(C, r, mid, link[0], ev)
                     binding['link'] = {'type': link[0], 'no': link[3], 'term': ev.get('t', ''), 'exists': True, 'match': match,
                                        'why': (lv or {}).get('why') or ''}
                     if match is False:                   # 词表确认不对应 → LINK
@@ -1096,11 +1139,13 @@ def m23_csb(C):
                         if not mre.search(mid):
                             continue
                         for m in C.mh_by[sid]:
-                            cover = (not m.get('start') or not r.get('date') or m['start'] <= r['date']) and \
+                            cover = (not m.get('s') or not r.get('date') or m['s'] <= r['date']) and \
                                     (m.get('ong') == '是' or not m.get('e') or not is_full_date(r['date']) or m['e'] >= r['date'])
                             if tre.search(m.get('t') or '') and cover:
                                 mmhs.append({'no': m['n'], 'term': m['t'], 'start': m['s'], 'end': m['e'],
                                              'ongoing': m.get('ong') == '是', 'match': True})
+                    if not mmhs:
+                        mmhs = desc_mh_match(C, sid, r)
                     binding['matched_mh'] = mmhs[:4]
                     if mmhs:
                         if not r['post'] or (known and not worse):
@@ -1116,6 +1161,39 @@ def m23_csb(C):
             else:
                 candidates.append(_candidate(C, r, binding, known, worse, flags, dh))
     return candidates
+
+
+def _link_rec(C, sid, link):
+    """关联对象 → 记录：先按编号，编号口径不同时按术语回溯（同 mm_build.resolve_links）。"""
+    pool = C.ae_by[sid] if link[0] == 'AE' else C.mh_by[sid]
+    ev = next((x for x in pool if str(x['n']) == str(link[3])), None)
+    if ev is None and (link[1] or '').strip():
+        t = re.sub(r'[（(].*$', '', link[1].strip())
+        ev = next((x for x in pool if t and len(t) >= 2 and (x.get('t') or '') and (t in x['t'] or x['t'] in t)), None)
+    return ev
+
+
+def _link_match(C, r, mid, typ, ev):
+    """关联对象与该异常是否对应 → (True/False/None, 宿主预判)。宿主预判 linkVerdicts 优先；否则词表命中＝对应，
+    词表未命中只说明词表未覆盖（None，交步骤 5），仅 analysis.linkStrict=true 时判不对应。"""
+    lv = (C.A.get('linkVerdicts') or {}).get(f"{r.get('wb') or ''}:{r['sheet']}|{r['row']}") or \
+        (C.A.get('linkVerdicts') or {}).get(f"{r['sheet']}|{r['row']}")
+    if lv:
+        return {'implausible': False, 'plausible': True}.get(lv.get('v')), lv
+    if typ == 'AE':
+        terms = [re.compile(b) for a, b, w in (C.A.get('aeMatch') or []) if re.compile(a).search(mid)]
+    else:
+        terms = [tre for mre, tre in C.mhMatch if mre.search(mid)]
+    hit = any(t.search(ev.get('t') or '') for t in terms) if terms else None
+    return (True if hit else (False if (hit is False and C.A.get('linkStrict')) else None)), None
+
+
+def _link_rank(C, sid, mid, r, link):
+    ev = _link_rec(C, sid, link)
+    if ev is None:
+        return 0
+    m, _ = _link_match(C, r, mid, link[0], ev)
+    return 3 if m is True else 2 if m is None else 1
 
 
 QT_CSB_ASK = {                                   # 写给 CRC：一句话建议

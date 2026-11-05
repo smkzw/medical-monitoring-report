@@ -18,9 +18,12 @@ K.profile=async(el,sc)=>{
   else groups.push(['全试验',dosed]);
   if(sub)groups.push(['所在中心',dosed.filter(s=>s.site===sub.site)]);
   if(sub||site)groups.push(['整体',dosed]);
+  /* V6（锁库揭盲项目 RUX/MY008）：非盲构建有分组时，本级按分组拆列（盲态构建 grp 已在构建端清空，自然不出现） */
+  if(!sub){const lv=groups[0][1],arms=[...new Set(lv.map(s=>s.grp).filter(Boolean))].sort();
+    if(arms.length>=2)groups.splice(1,0,...arms.map(a=>[a,lv.filter(s=>s.grp===a)]))}
   const ids=g=>new Set(g[1].map(s=>s.id));
   const title=sub?`${sub.id} · ${K.esc(K.center(sub.site))}`:site?`${site} ${K.esc(K.center(site))}`:'全试验';
-  const refNote=sub?'对照：所在中心、整体（按给药受试者）':site?'对照：整体（按给药受试者）':'全部给药受试者';
+  const refNote=(sub?'对照：所在中心、整体（按给药受试者）':site?'对照：整体（按给药受试者）':'全部给药受试者')+(groups.some(g=>!['本例','本中心','全试验','所在中心','整体'].includes(g[0]))?' · 按分组拆列（非盲数据）':'');
   /* ---------- AE ---------- */
   const AE=D.aes.filter(a=>a.te!==false&&!a.dup);   /* F-D：完全重复记录（第 2 份起）不计例次；明细表仍列出并标「重复」 */
   /* 用户 2026-11-04 审阅第 13 条：TEAE 与 TRAE 分栏，各含 例数/%/例次；行＝总体、1–4 级、≥3 级、导致中断、导致停药/终止、SAE、AESI。
@@ -79,7 +82,7 @@ K.profile=async(el,sc)=>{
   function cmList(rows,fd){return `<table class="t"><tbody>${rows.map(r=>`<tr><td><b>${K.esc(r[1])}</b>${fd&&r[2]&&r[2].slice(0,10)>=fd?' '+K.p('给药后开始','org'):''}</td><td class="nowrap">${K.esc(r[2])} → ${r[3]?K.esc(r[3]):r[4]?'持续':''}</td><td class="small">${K.esc(r[5])}</td></tr>`).join('')||'<tr><td class="empty">无</td></tr>'}</tbody></table>`}
   /* AE 类别图：本级与对照的发生率（受试者%） */
   const inc=(g,c)=>{const I=ids(g);const n=new Set(AE.filter(a=>I.has(a.sid)&&a.c===c).map(a=>a.sid)).size;return sub&&g[0]==='本例'?AE.filter(a=>a.sid===sub.id&&a.c===c).length:+(n/(g[1].length||1)*100).toFixed(1)};
-  const col=['#FF9900','#407AAA','#9DB7D3'];
+  const col=['#FF9900','#407AAA','#9DB7D3','#587B3B','#A85F34','#7A5195','#C9CCD1'];
   /* 受试者层：本例有的类别 → 所在中心与整体在该类别的发生率（看本例的 AE 在中心/整体中是否常见） */
   if(cats.length)K.chart('#pf-aec',{grid:{left:150,right:30,top:24,bottom:20},legend:{top:0},tooltip:{trigger:'axis',axisPointer:{type:'shadow'},valueFormatter:v=>v+'%'},
     xAxis:{type:'value',...K.axis,axisLabel:{formatter:v=>v+'%'}},yAxis:{type:'category',data:cats.slice().reverse(),...K.axis,axisLabel:{color:'#404040',fontSize:11,width:140,overflow:'truncate'}},
