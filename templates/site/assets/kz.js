@@ -42,7 +42,7 @@ K.judgeCell=(r,sid)=>{const code=r[14]||'',txt=r[15]||'',sum=r[16]||'';
  return `<div class="flex wrap" style="gap:3px;align-items:center">${pill}${attr}</div>${links?`<div style="margin-top:2px">${links}</div>`:''}${txt?`<div class="xs muted" style="margin-top:2px">${K.esc(txt)}</div>`:''}`};
 K.PRI={4:['优先核实','red'],3:['需核实','org'],2:['结合临床','yel'],1:['筛查提示','']};
 K.pri=n=>K.p(K.PRI[n]?.[0]||'—',K.PRI[n]?.[1]||'');
-K.RISK={CSX:['CS·未关联AE/MH','solid-red','判CS但未关联AE或病史：漏报AE风险最高'],MH:['CS·仅关联MH·较基线加重','org','判CS且仅关联既往病史，系统判定给药后较基线加重，未见对应AE：请评估是否需记录AE'],MHU:['CS·仅关联MH·无法判断加重','yel','判CS并已关联病史，但基线缺失或为描述性结果，系统无法判断是否加重：请结合原始记录判断'],MHL:['已关联MH','grn','判CS并已关联既往病史，较基线未明显加重（病史延续），或加重已记录为AE：不作为风险'],NCS2:['NCS·≥2级','yel','数值落入'+((window.KZ||{}).cfg||{}).ctcaeVersion+'≥2级但判NCS'],NA2:['未评价·≥2级','yel','数值达≥2级，表单有临床意义字段但研究者未评价'],G2NF:['≥2级·表单无临床意义评价','yel','数值达≥2级，该表单没有临床意义字段（如体重）：请评估是否需记录AE'],AE:['已关联AE','grn','已有对应AE记录'],NA:['超范围·未评价','yel','给药后超出参考范围但未见研究者临床意义评价'],DIS:['CS·研究疾病表现','grn','研究者归因研究疾病，或属方案/IB 列出的研究疾病表现，且给药后未较基线进一步加重：不作为风险'],DISW:['CS·研究疾病·加重','org','研究者归因研究疾病，但给药后较基线加重：按AE定义评估'],NCS:['NCS','','异常无临床意义'],CSI:['CS·判定不一致','yel','同一受试者相近结果一次判NCS、一次判CS：发判定一致性query，不按潜在AE漏记'],REL:['较基线显著变化','yel','给药后超出参考范围且较基线同向明显变化（阈值见下方选择）；只统计未关联AE/病史的，已关联的单独标注'],'MHX-T':['疑似病史漏记·首剂前','org','首次给药前已明显超出参考范围（或达≥2级），研究者判NCS或未评价，且病史未记录（阈值见下方选择）']};
+K.RISK={CSX:['有临床意义·未关联AE/病史','solid-red','判为有临床意义但未关联AE或病史：漏报AE风险最高'],MH:['有临床意义·仅关联病史·加重','org','判为有临床意义且仅关联既往病史，系统判定给药后较基线加重，未见对应AE：请评估是否需记录AE'],MHU:['有临床意义·仅关联病史·无法判断加重','yel','判为有临床意义并已关联病史，但基线缺失或为描述性结果，系统无法判断是否加重：请结合原始记录判断'],MHL:['已关联MH','grn','判为有临床意义并已关联既往病史，较基线未明显加重（病史延续），或加重已记录为AE：不作为风险'],NCS2:['无临床意义·≥2级','yel','数值落入'+((window.KZ||{}).cfg||{}).ctcaeVersion+'≥2级但判为无临床意义'],NA2:['未评价·≥2级','yel','数值达≥2级，表单有临床意义字段但研究者未评价'],G2NF:['≥2级·表单无临床意义评价','yel','数值达≥2级，该表单没有临床意义字段（如体重）：请评估是否需记录AE'],AE:['已关联AE','grn','已有对应AE记录'],NA:['超范围·未评价','yel','给药后超出参考范围但未见研究者临床意义评价'],DIS:['研究疾病表现','grn','研究者归因研究疾病，或属方案/IB 列出的研究疾病表现，且给药后未较基线进一步加重：不作为风险'],DISW:['研究疾病表现·加重','org','研究者归因研究疾病，但给药后较基线加重：按AE定义评估'],NCS:['无临床意义','','异常无临床意义'],CSI:['临床意义判定不一致','yel','同一受试者相近结果一次判为无临床意义、一次判为有临床意义：发判定一致性query，不按潜在AE漏记'],REL:['较基线显著变化','yel','给药后超出参考范围且较基线同向明显变化（阈值见下方选择）；只统计未关联AE/病史的，已关联的单独标注'],'MHX-T':['疑似病史漏记·首剂前','org','首次给药前已明显超出参考范围（或达≥2级），研究者判为无临床意义或未评价，且病史未记录（阈值见下方选择）']};
 K.risk=r=>K.p(K.RISK[r]?.[0]||r,K.RISK[r]?.[1]||'',K.RISK[r]?.[2]);
 /* ---- 双阈值（T_dev/T_base，PR-4）：状态读取 + REL 即时重分类 + 变更监听 ----
  * 档位来源：用户所选（localStorage，按研究编号）＞ 系统层 KZS.thresholds（工作台项目设置）＞ cfg.thresholds（构建配置，默认 30%/30%）。
@@ -107,7 +107,7 @@ K.thrOf=mid=>{const t=K.thr(),pm=(t.per_metric||{})[mid]||{},ti=((C0().metricTig
   return {dev:ti.dev!=null?Math.min(d,ti.dev):d,base:ti.base!=null?Math.min(b,ti.base):b,ov:pm.dev!=null||pm.base!=null,tight:ti.dev!=null||ti.base!=null}};
 K.relOn=g=>!!g&&g.risk==='REL'&&!g.off;
 K.relRisk=g=>K.relOn(g)&&(g.bind||'none')==='none';   /* 只有未关联 AE/病史的才算需关注 */
-K.relBind=g=>({AE:['已关联AE','grn'],MH:['已关联病史','grn'],DIS:['研究疾病相关','grn']}[g.bind]||({NCS:['未关联·判NCS','yel'],NA:['未关联·未评价','yel'],N:['未关联·判正常','yel'],CS:['未关联·判CS','red']}[g.judg]||['未关联','yel']));
+K.relBind=g=>({AE:['已关联AE','grn'],MH:['已关联病史','grn'],DIS:['研究疾病相关','grn']}[g.bind]||({NCS:['未关联·判为无临床意义','yel'],NA:['未关联·未评价','yel'],N:['未关联·判正常','yel'],CS:['未关联·判为有临床意义','red']}[g.judg]||['未关联','yel']));
 K.thrBar=(el)=>{if(!el)return;const t=K.thr(),o=[['0.2','20%'],['0.3','30%'],['0.5','50%']];
   el.innerHTML='<span class="xs muted">阈值：偏离参考范围 ≥</span><span class="seg" id="kz-tdev"></span><span class="xs muted">且较基线变化 ≥</span><span class="seg" id="kz-tbase"></span><span class="xs faint" style="margin-left:8px">切换后整份报告按所选阈值重算（各页列表、计数、质疑、潜在 PD）</span>';
   K.seg(el.querySelector('#kz-tdev'),o,String(t.dev),v=>K.setThr({dev:+v}));K.seg(el.querySelector('#kz-tbase'),o,String(t.base),v=>K.setThr({base:+v}))};                 /* 当前所选阈值下该 REL 候选是否构成风险项 */
@@ -178,7 +178,7 @@ K.raw=async id=>{if(K._rc[id])return K._rc[id];const I=await K.rawIdx();if(!I||!
 K.rawKey=(I,sh)=>{if(!I||!sh)return null;if(I.sheets[sh])return sh;const nm=String(sh).replace(/^[^:]*:/,'');const ks=Object.keys(I.sheets).filter(k=>I.sheets[k].name===nm);return ks.length?ks[0]:null};
 /* 原始行表格：meta＝表单目录项，rows＝[[行号,…值]]，hit＝命中行号集合（加粗＋命中列高亮） */
 /* 列顺序：判定相关列（hl）在前，其余内容列居中，EDC 系统元数据列（研究中心/受试者状态/页面…）放最后 */
-K.RAW_META=/^(MM comment|Flag|研究中心|中心编号|中心名称|试验中心.*|受试者状态|页面.*|数据节|Instance.*|数据块|Block.*|数据页|最后修改时间|项目编号|表单编号|行号)$/i;
+K.RAW_META=/^(MM comment|Flag|研究中心|中心编号|中心名称|试验中心.*|受试者状态|页面.*|数据节|Instance.*|数据块|Block.*|数据页|最后修改时间|项目编号|项目名称|表单编号|表单集.*|行号|记录号|GROUPID|是否失活|数据库版本|访视OID|表单OID)$/i;
 K.rawOrder=meta=>{const hl=new Set(meta.hl||[]),ix=meta.cols.map((c,j)=>j);const rk=j=>hl.has(meta.cols[j])?0:K.RAW_META.test(meta.cols[j])?2:1;return ix.sort((a,b)=>rk(a)-rk(b)||a-b)};
 K.rawTable=(meta,rows,hit=new Set(),{max=400}={})=>{const hl=new Set(meta.hl||[]);const ord=K.rawOrder(meta),cols=ord.map(j=>meta.cols[j]);
   const cst=Object.entries(meta.const||{});
@@ -390,9 +390,9 @@ K.centerRisk=()=>{if(K._cr)return K._cr;const D=window.KZ,lab=K.lab,oth=D.others
   /* 风险类别：[键, 组, 列名, 取条目(按中心), 说明] —— 条目数组用于点击下钻 */
   const L=k=>lab.filter(g=>Array.isArray(k)?k.includes(g.risk):g.risk===k);
   const C=[
-    ['csx','检验','CS未关联',()=>L('CSX'),'判 CS 但未关联 AE/病史（受试者×指标）'],
+    ['csx','检验','有临床意义未关联',()=>L('CSX'),'判 CS 但未关联 AE/病史（受试者×指标）'],
     ['wor','检验','较基线加重',()=>L(['MH','DISW']),'判 CS 仅关联病史或归因研究疾病，但较基线加重'],
-    ['g2','检验','≥2级未判CS',()=>L(['NCS2','NA2','G2NF','NA']),'达 ≥2 级判 NCS/未评价、超范围未评价'],
+    ['g2','检验','≥2级未判为有临床意义',()=>L(['NCS2','NA2','G2NF','NA']),'达 ≥2 级判为无临床意义/未评价、超范围未评价'],
     ['rel','检验','显著变化·未关联',()=>lab.filter(g=>g.risk==='REL'&&K.relRisk(g)),'较基线显著变化且未关联 AE/病史（按当前阈值）'],
     ['inc','检验','判定不一致',()=>oth.filter(o=>o.cat==='临床意义判定不一致'),'相近结果判定不同'],
     ['trd','检验','范围内变化/趋势',()=>oth.filter(o=>o.cat==='范围内明显变化'||o.cat==='持续变化趋势'),'参考范围内的明显变化与持续不利趋势（提示）'],
@@ -433,7 +433,7 @@ K.showQ=id=>{const q=K.qById(id);if(!q)return;const cro=D().cro.filter(c=>c[2]==
   K.seriesPanel(document.querySelector('.dr .q-series'),{sid:q.sid,tests:[q.test,...q.ev.map(e=>e[3])],hl:q.ev.map(e=>[e[0],e[1]])});
 };
 document.addEventListener('click',e=>{const q=e.target.closest('[data-q]');if(q){e.preventDefault();K.showQ(q.dataset.q)}});
-K.CTX=((((window.KZ||{}).cfg||{}).taxonomy||{}).ctx||[['^提醒：同期另有可能对应的 AE','提醒：同期AE未关联','yel'],['^(IB|类效应|方案列明风险)','IB/类效应风险','red'],['^已关联病史「','已关联病史','grn'],['^已关联AE：','已关联AE','grn'],['^未关联AE/病史，研究者判定NCS','未关联·判NCS','yel'],['无CTCAE条目|不能仅凭数值','无CTCAE数值条目',''],['症状/处置型','需结合症状/处置',''],['单位|换算','单位待核','org'],['基线.*(回退|替代)|替代基线|改用首次','替代基线','blu'],['研究疾病表现.*未进一步加重|研究者归因：研究疾病$','研究疾病表现·未加重','grn'],['研究疾病表现.*进一步加重','疾病表现·较基线加重','org'],['可能为研究疾病表现','可能为疾病表现','']]).map(([re,l,c])=>[new RegExp(re),l,c]);
+K.CTX=((((window.KZ||{}).cfg||{}).taxonomy||{}).ctx||[['^提醒：同期另有可能对应的 AE','提醒：同期AE未关联','yel'],['^(IB|类效应|方案列明风险)','IB/类效应风险','red'],['^已关联病史「','已关联病史','grn'],['^已关联AE：','已关联AE','grn'],['^未关联AE/病史，研究者判定NCS','未关联·判无临床意义','yel'],['无CTCAE条目|不能仅凭数值','无CTCAE数值条目',''],['症状/处置型','需结合症状/处置',''],['单位|换算','单位待核','org'],['基线.*(回退|替代)|替代基线|改用首次','替代基线','blu'],['研究疾病表现.*未进一步加重|研究者归因：研究疾病$','研究疾病表现·未加重','grn'],['研究疾病表现.*进一步加重','疾病表现·较基线加重','org'],['可能为研究疾病表现','可能为疾病表现','']]).map(([re,l,c])=>[new RegExp(re),l,c]);
 K.ctxTags=arr=>{const out=[];(arr||[]).forEach(t=>{const m=K.CTX.find(([re])=>re.test(t));if(m&&!out.some(o=>o[0]===m[1]))out.push([m[1],m[2],t])});return out.map(([l,c,t])=>K.p(l,c,t)).join('')};
 /* 声明了系统层（cfg.ext.sys）时等它载入后再渲染：页面要用到 KZS（较上次、阈值等）；最多等 4 秒，载入失败也照常渲染 */
 K.init=fn=>document.addEventListener('DOMContentLoaded',()=>{const go=()=>{K.header();fn()};K._sys?K._sys.then(go):go()});

@@ -110,7 +110,7 @@ K.RLV=[[80,'高','solid-red'],[40,'中','org'],[0,'低','line']];
 K.riskTable=(el,list,o={})=>K.table(el,{rows:list.map((a,i)=>({...a,rk:i+1})),sort:'rk',dir:1,h:o.h||'560px',onRow:a=>a.open(),cols:[
   {k:'rk',t:'排名',cls:'num',w:'46px'},{k:'score',t:'风险',f:a=>K.rlv(a.score),w:'52px'},
   {k:'tag',t:'类别',f:a=>K.p(a.tag[0],a.tag[1])+a.tags.map(t=>K.p(t[0],t[1],t[2])).join(''),s:a=>a.tag[0],w:'150px'},
-  {k:'title',t:'风险项',f:a=>`<b style="color:var(--ink)">${K.esc(a.title)}</b><div class="xs muted" style="margin-top:2px;line-height:1.5">${K.esc(String(a.why||'').slice(0,160))}</div>`},
+  {k:'title',t:'风险项',f:a=>`<b style="color:var(--ink)">${K.esc(a.title)}</b><div class="xs muted rk-why" style="margin-top:2px;line-height:1.5">${K.esc(String(a.why||'').slice(0,160))}</div>`},
   {k:'sid',t:'受试者',f:a=>a.sid?K.sid(a.sid):'',cls:'nowrap',w:'92px'},
   {k:'site',t:'中心',f:a=>a.site?`<a class="xs" href="center.html#c=${a.site}">${K.esc(a.site)}</a>`:'',cls:'nowrap',w:'60px'}]});
 K.rlv=sc=>{const l=K.RLV.find(x=>sc>=x[0]);return K.p(l[1],l[2],'风险分 '+sc)};

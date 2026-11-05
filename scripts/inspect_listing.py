@@ -145,9 +145,9 @@ _STRUCT_VAR_RX = re.compile(r'(VISIT\w*|FOLDER\w*|FORM(NM|OID|REP|NAME)?|VIST(OI
 # V6（RUX 审阅第 19 条根因）：事实字段（时间/日期/结果…）不得取 EDC 结构或稽查元数据列——比 is_struct_col 窄：
 # 「访视日期」是真实日期，「访视名称/页面最近修改时间/表单 OID」不是
 _META_LABEL_RX = re.compile(r'^(访视(名称|编号|代码|序号|阶段)?|页面.*|表单.*|数据节|数据页|数据块|研究中心|试验中心.*|中心(编号|名称|号)?'
-                            r'|受试者状态|记录号|行号|页码|Instance.*|Block.*)$'
+                            r'|受试者状态|记录号|行号|页码|Instance.*|Block.*|GROUPID|是否失活|数据库版本|项目(名称|编号))$'
                             r'|(最近|最后|首次)?(修改|录入|创建|保存|提交|审核|锁定|冻结|签名|更新)(时间|日期)$')
-_META_VAR_RX = re.compile(r'PAGE\w*|FOLDER\w*|FORM(NM|OID|REP|NAME)?|VIST(OID|REP)|SITE(ID|NM|NAME|NO)|SUBJSTA|RECREP|INSTANCE\w*'
+_META_VAR_RX = re.compile(r'GROUPID|PAGE\w*|FOLDER\w*|FORM(NM|OID|REP|NAME)?|VIST(OID|REP)|SITE(ID|NM|NAME|NO)|SUBJSTA|RECREP|INSTANCE\w*'
                           r'|VISIT(NAME|OID|NUM|REP)?|\w*(LMDT|FSDT|LASTMOD\w*|CREATE\w*|ENTRY\w*)', re.I)
 
 

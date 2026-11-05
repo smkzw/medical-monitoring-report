@@ -77,21 +77,49 @@ class Book:
         return self._cache[key]
 
 
-def form_names(book):
-    """EDC 导出常带目录页（TOC/目录：表单编号 → 表单名称），用于把 LBCH、OTH 等代码显示成中文表单名。"""
+def catalog_map(sheet_rows, names):
+    """表单目录 → {表单代码: 表单名称}。sheet_rows：{sheet 名: 前若干行}；names：工作簿全部 sheet 名。
+    目录页形态不固定（TOC/目录、DOMAIN_NAME 四列「版本 | 数据集名 | 表单 OID | 表单名称」…）：
+    找一列取值大多是其他 sheet 名（≥3 个且 ≥一半行），名称取同行右侧第一个含中文/非代码的单元格。V6（MY008211A）。"""
     out = {}
+    for n, rows in sheet_rows.items():
+        body = [r for r in rows[1:] if r]
+        if not body:
+            continue
+        ncol = max(len(r) for r in body)
+        head = ' '.join(str(x) for x in (rows[0] or ()) if x)
+        named = bool(re.fullmatch(r'TOC|目录|Contents?|表单目录|DOMAIN_NAME', str(n).strip(), re.I) or re.search(r'表单名称|Form[\s_]*Name', head, re.I))
+        need = 1 if named else 3                     # 明确的目录页（表名/表头）只要求 1 张表对上；其余要 ≥3 张
+        for j in range(ncol):
+            vals = [str(r[j]).strip() if j < len(r) and r[j] not in (None, '') else '' for r in body]
+            hit = [v for v in vals if v in names and v != n]
+            if len(hit) < need or len(hit) < 0.5 * len([v for v in vals if v]) or len(set(hit)) < 0.8 * len(hit):
+                continue                                 # 目录里每张表只出现一次（代码表/字典逐选项重复出现，不是目录）
+            m = {}
+            for r in body:
+                code = str(r[j]).strip() if j < len(r) and r[j] not in (None, '') else ''
+                if code not in names or code == n:
+                    continue
+                nm = next((str(x).strip() for x in r[j + 1:] if x not in (None, '') and str(x).strip() not in names
+                           and re.search(r'[\u4e00-\u9fff]', str(x))), '')
+                if nm:
+                    m.setdefault(code, nm)
+            if len(m) >= need:
+                out.update(m)
+                break
+    return out
+
+
+def form_names(book):
+    """EDC 导出常带目录页（表单代码 → 表单名称），用于把 LBCH、OTH、LB3 等代码显示成中文表单名。"""
     names = set(book.wb.sheetnames)
+    rows = {}
     for n in book.wb.sheetnames:
         ws = book.wb[n]
-        rows = list(ws.iter_rows(min_row=1, max_row=400, values_only=True))
-        head = ' '.join(str(x) for x in (rows[0] if rows else []) if x)
-        if not (re.fullmatch(r'TOC|目录|Contents?|表单目录', n.strip(), re.I) or re.search(r'表单名称|Form\s*Name', head, re.I)):
+        if ws.max_row and ws.max_row > 2000:              # 数据表不可能是目录页；只取较小的表扫描
             continue
-        for r in rows[1:]:
-            c = [str(x).strip() for x in r if x not in (None, '')]
-            if len(c) >= 2 and c[0] in names and c[0] != n:
-                out[c[0]] = c[1]
-    return out
+        rows[n] = list(ws.iter_rows(min_row=1, max_row=400, values_only=True))
+    return catalog_map(rows, names)
 
 
 def col_index(ref, labels, vars_):

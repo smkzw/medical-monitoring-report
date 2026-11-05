@@ -195,3 +195,4 @@ table.t th.s:hover{background:#EEF1F4}
 .top .bsep{width:1px;height:26px;background:var(--line)}
 .top .proj{font:700 13px Arial,var(--font);color:var(--ink);padding:2px 9px;border:1px solid #D6DBE0;border-radius:6px;background:#fff;letter-spacing:.2px}
 .top .meta{align-items:center}
+.t td>b+.rk-why{white-space:normal}   /* 风险排名说明可换行（V6 运营审阅：表宽 1709px 撑出容器） */
