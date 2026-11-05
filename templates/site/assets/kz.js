@@ -174,6 +174,10 @@ K._js=src=>new Promise(res=>{const s=document.createElement('script');s.src=src;
 K.rawIdx=async()=>{if(window.KZRI)return window.KZRI;if(!K._ri)K._ri=K._js('data/rawidx.js');await K._ri;return window.KZRI||null};
 K.raw=async id=>{if(K._rc[id])return K._rc[id];const I=await K.rawIdx();if(!I||!(I.subs||{})[id])return null;
   return new Promise(res=>{(K._rw[id]=K._rw[id]||[]).push(res);if(K._rw[id].length>1)return;K._js('data/r/'+encodeURIComponent(id)+'.js').then(ok=>{if(!ok){res(null);delete K._rw[id]}})})};
+/* 按表单载入（原始数据页）：只缓存当前一张表单，切换即释放 */
+K._rsw={};window.KZ_RAWS=(k,d)=>{K._rsc={k,d};(K._rsw[k]||[]).forEach(f=>f(d));delete K._rsw[k]};
+K.rawSheet=async k=>{if(K._rsc&&K._rsc.k===k)return K._rsc.d;const I=await K.rawIdx();const m=I&&I.sheets[k];if(!m||m.f==null)return null;
+  return new Promise(res=>{(K._rsw[k]=K._rsw[k]||[]).push(res);if(K._rsw[k].length>1)return;K._js('data/rs/'+m.f+'.js').then(ok=>{if(!ok){res(null);delete K._rsw[k]}})})};
 /* 证据表单键归一：完整 id 直接用；只给表单名（旧证据）时按名称唯一匹配 */
 K.rawKey=(I,sh)=>{if(!I||!sh)return null;if(I.sheets[sh])return sh;const nm=String(sh).replace(/^[^:]*:/,'');const ks=Object.keys(I.sheets).filter(k=>I.sheets[k].name===nm);return ks.length?ks[0]:null};
 /* 原始行表格：meta＝表单目录项，rows＝[[行号,…值]]，hit＝命中行号集合（加粗＋命中列高亮） */

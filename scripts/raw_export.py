@@ -143,6 +143,17 @@ def export_raw(C, out):
         idx['subs'][sid] = sorted(shs)
         (out / 'r' / f'{sid}.js').write_text('KZ_RAW(' + json.dumps(sid, ensure_ascii=False) + ',' +
                                              json.dumps(shs, ensure_ascii=False, separators=(',', ':')) + ');', encoding='utf-8')
+    # V6 工程审阅 P2-7：原始数据页按表单浏览——另出按表单的 data/rs/<序号>.js（行＝[受试者, 行号, …值]），
+    # 页面只载入当前表单（此前要把全部受试者文件 RUX 约 39 MB 逐个载入）；个例页仍读按受试者的 data/r/<sid>.js
+    (out / 'rs').mkdir(parents=True, exist_ok=True)
+    by_sheet = defaultdict(list)
+    for sid in sorted(per_sub):
+        for key, rows_ in per_sub[sid].items():
+            by_sheet[key] += [[sid] + r_ for r_ in rows_]
+    for i, key in enumerate(sorted(idx['sheets'])):
+        idx['sheets'][key]['f'] = i
+        (out / 'rs' / f'{i}.js').write_text('KZ_RAWS(' + json.dumps(key, ensure_ascii=False) + ',' +
+                                            json.dumps(by_sheet.get(key, []), ensure_ascii=False, separators=(',', ':')) + ');', encoding='utf-8')
     idx['dropped'] = sorted(dropped)
     idx['subs'] = dict(idx['subs'])
     (out / 'rawidx.js').write_text('window.KZRI=' + json.dumps(idx, ensure_ascii=False, separators=(',', ':')) + ';', encoding='utf-8')

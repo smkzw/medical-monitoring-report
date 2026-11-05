@@ -31,11 +31,14 @@ async function draw(){const my=++seq,m=I.sheets[st.k];K.setHash({k:st.k,c:st.c,s
   document.getElementById('tm').textContent=`${m.mapped?(DN[m.domain]||m.domain||''):'未映射表单'} · ${m.n} 行 · ${m.nsub} 名受试者`;
   const cst=Object.entries(m.const||{});document.getElementById('tc').innerHTML=cst.length?'本表单固定值：'+cst.slice(0,8).map(([a,b])=>`${K.esc(a)}＝${K.esc(b)}`).join('；'):'';
   const sids=Object.keys(I.subs).filter(s=>I.subs[s].includes(st.k)&&(!st.c||(SUB[s]||{}).site===st.c)&&(!st.s||s.includes(st.s))).sort();
-  const tb=document.getElementById('tb');tb.innerHTML=`<div class="empty">载入 ${sids.length} 名受试者的原始数据…</div>`;
-  const rows=[],hit=new Set();let done=0;
-  for(let i=0;i<sids.length;i+=16){const batch=sids.slice(i,i+16),Rs=await Promise.all(batch.map(s=>K.raw(s)));if(my!==seq)return;   /* 16 个并行载入 */
-    done+=batch.length;tb.innerHTML=`<div class="empty">载入中 ${done}/${sids.length}…</div>`;
-    batch.forEach((s,bi)=>((Rs[bi]||{})[st.k]||[]).forEach(r=>{const key=s+'|'+r[0];rows.push([s,...r]);if((sheetSig[st.k]||new Set()).has(key))hit.add(rows.length-1)}))}
+  const tb=document.getElementById('tb');tb.innerHTML=`<div class="empty">载入表单原始数据…</div>`;
+  const rows=[],hit=new Set(),want=new Set(sids);
+  if(m.f!=null){const all=await K.rawSheet(st.k);if(my!==seq)return;   /* 按表单一次载入（工程审阅 P2-7） */
+    (all||[]).forEach(r=>{if(!want.has(r[0]))return;rows.push(r);if((sheetSig[st.k]||new Set()).has(r[0]+'|'+r[1]))hit.add(rows.length-1)})}
+  else{let done=0;                                                     /* 旧版构建无按表单文件：回退按受试者载入 */
+    for(let i=0;i<sids.length;i+=16){const batch=sids.slice(i,i+16),Rs=await Promise.all(batch.map(s=>K.raw(s)));if(my!==seq)return;
+      done+=batch.length;tb.innerHTML=`<div class="empty">载入中 ${done}/${sids.length}…</div>`;
+      batch.forEach((s,bi)=>((Rs[bi]||{})[st.k]||[]).forEach(r=>{const key=s+'|'+r[0];rows.push([s,...r]);if((sheetSig[st.k]||new Set()).has(key))hit.add(rows.length-1)}))}}
   const kw=st.q;let idx=rows.map((_,i)=>i);
   if(st.hit)idx=idx.filter(i=>hit.has(i));if(kw)idx=idx.filter(i=>rows[i].some(v=>String(v).includes(kw)));
   const hl=new Set(m.hl||[]),ord=K.rawOrder(m),cols=ord.map(j=>m.cols[j]),MAX=1500;
