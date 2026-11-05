@@ -50,6 +50,12 @@ def rx(p):
     return re.compile(p) if p else None
 
 
+def _dose_num(v):
+    """剂量文本 → 数值（「900 mg」「600mg」「0.5 g」按原单位取数；不含数字或含多个数字 → None）。"""
+    nums = re.findall(r'\d+(?:\.\d+)?', str(v or ''))
+    return float(nums[0]) if len(nums) == 1 else None
+
+
 def deviation(v, lo, hi):
     """偏离参考范围的比例（T_dev 口径）：高于上限 (x−ULN)/ULN，低于下限 (LLN−x)/LLN；
     范围内 = 0.0；无值或无范围 = None。与工作台问数据引擎同口径（mm3/ask/dataset.py deviation）。"""
@@ -1057,6 +1063,23 @@ def micro_rows(C):
     return out
 
 
+# 生理可能范围（通用医学常识；只拦明显录错的值，如平均红细胞容积 26.5 fl、红细胞比容 96%）
+_PLAUSIBLE = [(re.compile(r'平均红细胞(体积|容积)|MCV', re.I), 'fl', 50, 150), (re.compile(r'红细胞比容|红细胞压积|HCT', re.I), '%', 10, 75),
+              (re.compile(r'红细胞比容|红细胞压积|HCT', re.I), 'l/l', 0.1, 0.75), (re.compile(r'平均红细胞血红蛋白浓度|MCHC', re.I), 'g/l', 200, 450),
+              (re.compile(r'平均红细胞血红蛋白(含)?量|MCH(?!C)', re.I), 'pg', 15, 50)]
+
+
+def implausible(r, label):
+    """数值落在生理不可能区间（单位须对上）→ 返回说明，否则空串。"""
+    v, u = r.get('value'), str(r.get('unit') or '').lower().replace(' ', '')
+    if not isinstance(v, (int, float)):
+        return ''
+    for rx_, uu, lo, hi in _PLAUSIBLE:
+        if rx_.search(label) and u == uu and not (lo <= v <= hi):
+            return f"{label} {r.get('raw')} {r.get('unit') or ''} 超出生理可能范围（{lo}–{hi} {r.get('unit')}），疑似录入错误"
+    return ''
+
+
 def disease_gate(C, mid, pts, b):
     """研究疾病归因异常已判「较基线加重」后是否发质疑（用户 2026-11-05）：有 CTCAE 分级的指标只在最差 ≥3 级或分级上升
     （同 ext_rules.grade_up：已 ≥1 级再升级或升到 ≥2 级、且变化 ≥5%）时发；其余列「研究疾病指标波动」清单。无分级的指标 → 发（≥T_base 已满足）。
@@ -1136,7 +1159,11 @@ def build_labrows(C):
         # 原因选「病史/不良事件」但未关联编号 → 仍按 CSX（事实即「未关联」），上下文注明数据缺失。
         cs_pts = [r for r in P if r.get('clin') == 2]
         dis_only = bool(cs_pts) and not real_links(links) and all(ext_rules.disease_attr(C, r) for r in cs_pts)   # 原因选项或备注归因研究疾病
-        if anycs and dis_only:
+        bad_ = next((w for w in (implausible(r, C.metric[mid]['label']) for r in cs_pts) if w), '') if anycs else ''
+        if bad_:
+            risk = 'ENT'                                  # 第 8 轮医学复审 Q177/Q206：录错的值不该按「请评估 AE」追问——走录入核对
+            ctx.append(bad_)
+        elif anycs and dis_only:
             # 用户 2026-10-27：归因研究疾病不算「未关联」；只有较基线明显加重、且未记录「研究疾病加重」类 AE 才作为风险
             t_base = float(C.cfg['thresholds'].get('base', 0.3))
             ddir = ext_rules.disease_dir(C, mid, P[0].get('sheet', '') if P else '')
@@ -1573,6 +1600,9 @@ def threshold_rules(C):
                             pr = min(pr, 2)
                     else:
                         ctx.append('未见对应 AE 记录')
+                if R.get('partial'):
+                    risk = 'PART'
+                    ctx.append('方案定义为复合条件（' + str(R['partial'])[:60] + '…），单项达标只作提示，不构成该事件')
                 hd = thr_handled(C, sid, r, R, rows)
                 if hd:                                   # V6 医学审阅（RUX S01003/S01007 NEU<1.5 均已当天暂停、次日复查并录 AE，仍被要求「确认复查与处理」）
                     pr = min(pr, 1)                      # 记录显示已按方案处理 → 只作提示，不发质疑
@@ -1890,8 +1920,9 @@ def build_ops(C):
         x['miss'] += bool(e.get('miss_qty') not in (None, '', 0, '0')) or zero_dose(e)
         x['pause'] += bool(str(e.get('pause') or '').strip() and not re.match(r'^(否|无|N|No)$', str(e.get('pause')).strip(), re.I))
         x['fast'] += bool(re.match(r'^(否|未空腹|N|No)$', str(e.get('fast') or '').strip(), re.I))
-        dp, da = e.get('dose_plan'), e.get('dose_act')
-        x['devi'] += bool(dp not in (None, '') and da not in (None, '') and str(dp).strip() != str(da).strip())
+        # MY008 第 8 轮运营审阅：计划「900 mg」vs 实际「900」按文本比较 → 496 条假剂量偏离。按数值比较（单位写法不计），任一方不是数值不判
+        dp, da = _dose_num(e.get('dose_plan')), _dose_num(e.get('dose_act'))
+        x['devi'] += bool(dp is not None and da is not None and abs(dp - da) > 1e-9 * max(1, abs(dp)))
     icf = defaultdict(list)
     for r in C.icf:
         icf[r['sid']].append([str(r.get('ver') or ''), r.get('date') or ''])
@@ -2038,11 +2069,16 @@ def restricted_checks(C):
             for c in C.cm_by[sid]:
                 if not rx_.search(c['t']):
                     continue
+                loc_ = f"{c.get('rt') or ''} {c['t']}"
+                if R.get('route') == 'systemic' and (_TOPICAL.search(loc_) or _NONDERMAL.search(loc_)):
+                    continue                          # 「全身用糖皮质激素」不含外用/吸入/鼻用/眼用（与禁用药同口径）
+                if R.get('route') == 'topical' and (not _TOPICAL.search(loc_) or _NONDERMAL.search(loc_)):
+                    continue
                 why = ''
                 if is_full_date(c['s']) and c['s'] > s['fd'] and (not end_tx or c['s'] <= end_tx):
                     why = f"首剂（{s['fd']}）后才开始使用"
-                elif is_full_date(c['e']) and s['fd'] <= c['e'] < (end_tx or '9999') and not c['ong']:
-                    why = f"治疗期内（{c['e']}）停用"
+                elif R.get('noStop', True) and is_full_date(c['e']) and s['fd'] <= c['e'] < (end_tx or '9999') and not c['ong']:
+                    why = f"治疗期内（{c['e']}）停用"           # 方案允许增减（如激素）时不核查停用
                 elif n and is_full_date(c['s']) and c['s'] <= s['fd'] and (days(s['fd'], c['s']) or 0) < n:
                     why = f"首剂前仅使用 {days(s['fd'], c['s'])} 天（方案要求稳定使用 ≥{n} 天）"
                 if why:
@@ -3131,7 +3167,8 @@ def build_subject_files(C, out):
     pr_by = defaultdict(lambda: {'sur': [], 'pr': []})
     for p in C.proc:
         k = 'sur' if re.search('手术', str(p.get('kind') or '手术')) else 'pr'
-        pr_by[p['sid']][k].append({'t': p.get('term') or '', 'd': p.get('date') or '', 's': p.get('date') or '', 'why': p.get('why') or ''})
+        d_ = p.get('date') or p.get('start') or ''          # MY008：输血记录日期在 start，受试者页 153 条输血日期全空
+        pr_by[p['sid']][k].append({'t': p.get('term') or '', 'd': d_, 's': d_, 'why': p.get('why') or p.get('indication') or ''})
     for sid, s in C.subj.items():
         d = {'id': sid, 'site': s['site'], 'center': s['center'], 'status': s['status'], 'rand': s.get('rand') or '', 'strat': s.get('strat') or '',
              'icf': s.get('icf') or '', 'fd': s['fd'] or '', 'ld': s['ld'] or '', 'lo': s['lo'] or '', 'age': s.get('age'), 'bmi': s.get('bmi'),

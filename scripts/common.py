@@ -275,12 +275,20 @@ _LINK_DATE_TAIL = re.compile(r'[\s\-－]+(\d{4}|uk|UK|UNK)[-/.]([\dA-Za-z]{1,3})
 _TYPED_ITEM = re.compile(r'^\s*0*(\d+)\s*(?:[>＞\-－]\s*(.*?))?\s*$')
 
 
+_LABELED_ITEM = re.compile(r'(?:序号|编号|记录号|No\.?)\s*[:：]\s*(\d+)\s*[-－—,，\s]*(?:[^：:;；]{0,8}?(?:名称|术语)\s*[:：]\s*)'
+                           r'(.+?)(?=\s*[-－—]?\s*(?:开始|结束|发生)?日期\s*[:：]|[;；\n]|$)', re.I)
+
+
 def parse_typed_links(v, typ):
     """关联类型由列决定（病史编号列 / AE 编号列），取值只有「编号>术语>日期」或编号本身 → [[typ, 术语, None, 编号]]。
     取值自带类型前缀（MH-4-…）时按 parse_links 解析。"""
     if not v:
         return []
     s = str(v)
+    lab = list(_LABELED_ITEM.finditer(s))
+    if lab:
+        # 标签式（MY008：「序号：4-不良事件名称：白细胞降低-开始日期：2024-11-21；」多条以；分隔）：类型由列决定
+        return [[typ, m.group(2).strip(' -－'), None, int(m.group(1))] for m in lab]
     if LINK_START.search(s):
         return parse_links(s)
     out = []

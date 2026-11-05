@@ -170,6 +170,9 @@ def _dt(d, t):
         return None
 
 
+_HIST_FORM = re.compile(r'诊断|既往|病史|发病史|疾病史|history|diagnos', re.I)
+
+
 def _sh(r, sheet_key='sheet'):
     """证据 sheet 引用：带工作簿别名时用唯一 id「wb:sheet」（同名 sheet 跨工作簿不混淆）。"""
     sh = r.get(sheet_key) or ''
@@ -242,8 +245,9 @@ class _PD:
             rule = hit[1] if hit else None
             if not rule and re.search(r'报告|时限', o['cat']) and re.search(r'SAE|AESI|报告', o.get('sum', '')):
                 rule = 'SAFE-02'
-            if not rule and o.get('_rule', {}).get('expectAE') and '未见对应 AE' in ' '.join(o.get('ctx') or []) + o.get('sum', ''):
-                rule = 'SAFE-03'
+            if not rule and o.get('_rule', {}).get('expectAE') and '未见对应 AE' in ' '.join(o.get('ctx') or []) + o.get('sum', '') \
+                    and not o['_rule'].get('partial') and o['_rule'].get('query') is not False:
+                rule = 'SAFE-03'      # 复合定义的单项（MY008 LDH>1.5×ULN 只是突破性溶血定义的一半，133 条假偏离）只作提示，不判偏离
             if not rule:
                 continue
             grade, why = None, ''
@@ -298,7 +302,8 @@ class _PD:
             for f in C.findings:
                 if f['sid'] != sid or not is_full_date(f.get('date')) or f['date'] >= icf:
                     continue
-                tag = f"{f.get('group') or f['sheet']}|{f['test']}|{f['sheet']}"
+                if _HIST_FORM.search(f"{f.get('group') or ''}|{(C.A.get('formNames') or {}).get(f['sheet'], '')}|{f['sheet']}"):
+                    continue          # 疾病诊断/既往史表记录的是既往诊疗结果，不是研究程序（MY008 2019 年 Ham 试验）
                 ok, out_win = False, None
                 for rx, ref, n in allow:
                     if rx.search(tag):

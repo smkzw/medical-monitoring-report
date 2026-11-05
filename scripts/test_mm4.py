@@ -3726,6 +3726,15 @@ class Eng2Tests(unittest.TestCase):
         self.assertIn('甲泼尼龙', hit[0])
         self.assertTrue(any(o['cat'] == '用药日期核对' for o in C.others))
 
+    def test_labeled_links_dose_and_plausible(self):
+        from common import parse_typed_links
+        self.assertEqual(parse_typed_links('序号：4-不良事件名称：白细胞降低-开始日期：2024-11-21；序号：5-不良事件名称：D-二聚体升高-开始日期：2025-01-02；', 'AE'),
+                         [['AE', '白细胞降低', None, 4], ['AE', 'D-二聚体升高', None, 5]])
+        from mm_build import _dose_num, implausible
+        self.assertEqual((_dose_num('900 mg'), _dose_num('900'), _dose_num('其他')), (900.0, 900.0, None))
+        self.assertTrue(implausible({'value': 26.5, 'raw': '26.5', 'unit': 'fl'}, '平均红细胞体积'))
+        self.assertFalse(implausible({'value': 88, 'raw': '88', 'unit': 'fl'}, '平均红细胞体积'))
+
     def test_catalog_header_only_needs_two(self):
         from normalize_listing import catalog_map
         names = {'AE', 'SAE', 'LB1', 'TOC'}
