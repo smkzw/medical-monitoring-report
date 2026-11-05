@@ -507,7 +507,8 @@ def main():
             recs = []
             for s in specs:
                 for rec, *_ in read_spec(s, books, M, dom):
-                    if dom in ('ae', 'mh', 'cm', 'proc') and 'term' in (s.get('cols') or {}) and not str(rec.get('term') or '').strip():
+                    if dom in ('ae', 'mh', 'cm', 'proc') and 'term' in (s.get('cols') or {}) and \
+                            re.fullmatch(r'(是|否|有|无|Y|N|Yes|No|NA|N/A|不适用|未知|不详)?', str(rec.get('term') or '').strip(), re.I):
                         continue                         # 日志表的占位行（如「是否发生了不良事件？=否」）不是事件记录
                     if dom in ('mh', 'cm') and 'ongoing' in rec:
                         rec['ongoing'] = yes(rec['ongoing'])

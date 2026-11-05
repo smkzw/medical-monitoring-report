@@ -133,6 +133,19 @@ def cn_quotes(s):
     return s.replace('「', '“').replace('」', '”').replace('『', '‘').replace('』', '’')
 
 
+_CS_PLAIN = [(re.compile(r'(判定?为|判定|评为|评估为|判)\s*NCS'), '判为无临床意义'), (re.compile(r'(判定?为|判定|评为|评估为|判)\s*CS'), '判为有临床意义')]
+
+
+def cs_plain(s):
+    """面向中心的质疑文字里，「判为CS / 判定为NCS / 判CS」统一写成「判为有/无临床意义」（V6 第 2 轮审阅：模型撰写的句子仍出现「判为CS」）。
+    只改「判…CS/NCS」这种判定写法，类别名、「CS 异常」等不动；只在输出端调用（事实卡与模型缓存不受影响）。"""
+    if not isinstance(s, str):
+        return s
+    for rx_, rep in _CS_PLAIN:
+        s = rx_.sub(rep, s)
+    return s
+
+
 def ae_action(t):
     """AE 对研究药物采取的措施 → 受控分类（对齐 CDISC AEACN：DRUG WITHDRAWN / DRUG INTERRUPTED / DOSE REDUCED / DOSE NOT CHANGED / NOT APPLICABLE）：
     withdrawn（永久停药/终止）、interrupted（暂停/中断，含「暂时停用后又恢复」）、reduced（减量）、none（未采取措施/剂量不变）、na（不适用/未知）。

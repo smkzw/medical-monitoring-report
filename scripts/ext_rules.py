@@ -843,6 +843,14 @@ def _mh_then_ae(a, b):
     return is_full_date(mh.get('date')) and is_full_date(ae.get('date')) and mh['date'] < ae['date']   # 先后不明/同日不豁免
 
 
+def _near(a, b, days_=14):
+    """同一受试者的归因比较只在时间相近（同一次异常过程）时才有意义（V6 医学审阅：W4 关联 AE、数月后同指标异常关联病史，
+    是不同时期的不同解释，不是归因不一致）。"""
+    if not (is_full_date(a.get('date')) and is_full_date(b.get('date'))):
+        return False
+    return abs(days(a['date'], b['date']) or 0) <= days_
+
+
 def cons_attribution(cs, cross_subject):
     """归因维度配对：两条均 CS 且归因不同 → 一对（无方向不排序）；每行至多出现在一对中，取序稳定。"""
     out, used = [], set()
@@ -850,7 +858,7 @@ def cons_attribution(cs, cross_subject):
         if id(a) in used:
             continue
         b = next((x for x in cs[i + 1:] if id(x) not in used and (not cross_subject or x['sid'] != a['sid'])
-                  and att_of(x) != att_of(a) and not (not cross_subject and _mh_then_ae(a, x))), None)
+                  and att_of(x) != att_of(a) and not (not cross_subject and (_mh_then_ae(a, x) or not _near(a, x)))), None)
         if b is None:
             continue
         used.add(id(a))
@@ -1080,7 +1088,11 @@ def m23_csb(C):
                     emit = ('CSX_AE', maes[0], None)
                 else:
                     mmhs = []                            # 步骤 3：匹配 MH（时段覆盖）
-                    for mre, tre in C.mhMatch:
+                    # V6（RUX 生命体征「总体评价」整份 CS：血压 153/106 而病史有高血压，仍发「较基线加重请确认 AE」）：
+                    # 项目 mhMatch 没有该指标时，按指标族/整份判定的域术语族兜底（与 AE 同口径）
+                    mh_rules = [(mre, tre) for mre, tre in C.mhMatch if mre.search(mid)] or \
+                        [(re.compile('.'), tre) for _, tre, _w in ae_match_rows(C, mid)]
+                    for mre, tre in mh_rules:
                         if not mre.search(mid):
                             continue
                         for m in C.mh_by[sid]:

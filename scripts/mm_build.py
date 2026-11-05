@@ -23,7 +23,7 @@ import ext_rules
 import monitor_v5
 import raw_export
 import pd_rules
-from common import ae_action, cn_quotes, days, dose_state, dshow, dump_json, fmt, is_dosing, parse_links, is_full_date, load_json, move_word, open_workbook_lenient, quantile, result_state, state_meets, study_day, yes, zero_dose
+from common import ae_action, cn_quotes, cs_plain, days, dose_state, dshow, dump_json, fmt, is_dosing, parse_links, is_full_date, load_json, move_word, open_workbook_lenient, quantile, result_state, state_meets, study_day, yes, zero_dose
 
 AGG_EXCL = set()
 
@@ -2488,8 +2488,8 @@ def build_queries(C):
             if m and b and v is not None and abs(abs((v - b) / b * 100) - int(m.group(2))) > 1.5:
                 print(f"WARN  事实卡数值不一致 {q['id']}：基线 {c.get('基线')} 数值 {c.get('数值')} {c.get('较基线')}", file=sys.stderr)
     for q in Q:                                          # 输出端统一中文引号（事实卡不动，卡片哈希与已写句子复用不受影响）
-        q['text'] = cn_quotes(q['text'])
-        q['parts'] = [[cn_quotes(x[0])] + list(x[1:]) for x in q['parts']]
+        q['text'] = cs_plain(cn_quotes(q['text']))
+        q['parts'] = [[cs_plain(cn_quotes(x[0]))] + list(x[1:]) for x in q['parts']]
     C.queries = Q
     C.qcommon = dict(common)
 

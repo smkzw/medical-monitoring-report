@@ -1977,7 +1977,7 @@ class F05AttributionDimension(unittest.TestCase):
         from types import SimpleNamespace
         import ext_rules
         rows = [_cons_row('S1', 90, 2, lo=115, links=[['MH', '贫血', None, 1]], visit='V2', date='2026-05-01', row=1),
-                _cons_row('S1', 95, 2, lo=115, links=[], visit='V3', date='2026-06-01', row=2)]
+                _cons_row('S1', 95, 2, lo=115, links=[], visit='V3', date='2026-05-10', row=2)]   # V6：同受试者归因比较只看 14 天内
         F = {}
         for r in rows:
             F.setdefault((r['sid'], 'lab:HGB'), []).append(r)
@@ -3576,6 +3576,18 @@ class WorseRangeChangeTests(unittest.TestCase):
         b = {'value': 25.0, 'hi': 20.5, 'lo': 0}
         self.assertIsNone(worse_vs_base({'value': 31.7, 'hi': 26.0, 'lo': 0}, b, 0.3))       # ×ULN 1.22 → 1.22，不加重
         self.assertTrue(worse_vs_base({'value': 45.0, 'hi': 26.0, 'lo': 0}, b, 0.3))         # ×ULN 1.22 → 1.73，加重
+
+
+class AttributionNearTests(unittest.TestCase):
+    """V6 医学审阅：同一受试者相隔较远（不同时期）的归因不同不算归因不一致。"""
+
+    def test_far_apart_not_paired(self):
+        from ext_rules import cons_attribution
+        a = {'sid': 'S1', 'date': '2026-05-01', 'links': [['AE', 'x', None, 1]], 'reason': ''}
+        b = {'sid': 'S1', 'date': '2026-08-01', 'links': [], 'reason': ''}
+        self.assertEqual(cons_attribution([a, b], False), [])
+        b2 = dict(b, date='2026-05-08')
+        self.assertEqual(len(cons_attribution([a, b2], False)), 1)
 
 
 if __name__ == '__main__':
