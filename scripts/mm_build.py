@@ -207,6 +207,17 @@ def align_visit_codes(C):
                 pairs[vc].add(vn)
                 inv[vn].add(vc)
     vmap = {k: next(iter(v)) for k, v in pairs.items() if len(v) == 1 and len(inv[next(iter(v))]) == 1}
+    # 编号体系可能错位（MY008：EDC 的 V10 起与方案 V10 不是同一访视，D84 被配上方案 D70 的窗 → 超窗 22→414）：
+    # 访视名自带研究日（D84）且方案该代码有目标日时，两者须在窗内（至少 ±7 天）才采用这对配对
+    W0 = C.A.get('visitWindows') if isinstance(C.A.get('visitWindows'), dict) else {}
+    for k in list(vmap):
+        spec = W0.get(k)
+        dm = re.findall(r'D\s*(-?\d+)', str(vmap[k]))
+        if spec is None or not dm:
+            continue
+        t, mi, pl = (spec.get('target'), spec.get('minus', 0), spec.get('plus', 0)) if isinstance(spec, dict) else (list(spec) + [0, 0, 0])[:3]
+        if t is not None and abs(int(dm[-1]) - int(t)) > max(7, int(mi or 0), int(pl or 0)):
+            vmap.pop(k)
 
     def m(c):
         if c in L or not isinstance(c, str):

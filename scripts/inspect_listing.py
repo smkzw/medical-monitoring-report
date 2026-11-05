@@ -189,7 +189,7 @@ def split_label(lab, var):
 
 
 # 结构性元数据列（访视/页面/表单/中心/稽查时间…）只能绑定到这些字段；其余事实字段（时间/日期/结果/术语…）绝不取它们
-STRUCT_OK = {'visit', 'site', 'center', 'status', 'sid', 'no', 'link'}   # 记录号/动态链接是记录身份列
+STRUCT_OK = {'visit', 'vcode', 'site', 'center', 'status', 'sid', 'no', 'link'}   # vcode＝访视代码列（与工作台 _STRUCT_OK 同口径）   # 记录号/动态链接是记录身份列
 
 
 def guess(names, field):
