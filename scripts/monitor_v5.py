@@ -162,6 +162,7 @@ def visit_due(C, cutoff):
             rec[v['sid']][v['visit']].append(v['date'])
             if is_full_date(v.get('win_lo')) and is_full_date(v.get('win_hi')):     # V6：EDC 系统计划窗（同 visit_window_checks 口径）
                 syswin[(v['sid'], v['visit'], v['date'])] = (str(v['win_lo'])[:10], str(v['win_hi'])[:10])
+    missed = {(v['sid'], v.get('visit')) for v in getattr(C, 'visits_missed', [])}   # EDC 访视页记为「未进行」的访视
     order = sorted((k for k in W if k not in unmapped), key=lambda k: (_win(W[k])[0] is None, _win(W[k])[0] or 0))
     horizon = _add(cutoff, 14) if is_full_date(cutoff) else ''
     due, up = [], []
@@ -204,7 +205,8 @@ def visit_due(C, cutoff):
             if sw:                                             # 有 EDC 系统窗：窗与超窗判定以它为准
                 lo, hi = sw
                 st = 'ok' if lo <= got <= hi else 'out'
-            due.append([sid, s['site'], v, lo, hi, got, st, sd, t, mi, pl])
+            # 第 12 列：逾期且 EDC 已记为未进行（不是「没录入」，是「确认没做」——CRA 不用再追录入，转方案偏离/缺失核实）
+            due.append([sid, s['site'], v, lo, hi, got, st, sd, t, mi, pl, 1 if not got and ((sid, v) in missed or (sid, code) in missed) else 0])
     return due, up
 
 

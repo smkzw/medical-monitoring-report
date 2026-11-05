@@ -73,12 +73,14 @@ def is_subjects_sheet(title, first_label=''):
             return True
     return False
 FIELD_SYN = {  # normalized field → variable/label patterns (first match wins)
-    'sid': [r'^(SUBJID|USUBJID|SUBJECT|受试者(编号|号|代码)?|参与者(编号|号)|筛选号|病例号|Participant ID|Subject ID)$'], 'site': [r'^(SITEID|SITENO|中心(编号|号)?)$'], 'center': [r'^(SITENAME|中心名称|研究中心)$'],
+    'sid': [r'^(SUBJID|USUBJID|SUBJECT|受试者(筛选)?(编号|号|代码)?|参与者(编号|号)|筛选号|病例号|Participant ID|Subject ID)$'], 'site': [r'^(SITEID|SITENO|中心(编号|号)?)$'], 'center': [r'^(SITENAME|中心名称|研究中心)$'],
     'visit': [r'^(VISIT|VISITNAME|FOLDERNAME|访视(名称)?|访视阶段)$', r'^(数据节|FOLDER)$'], 'date': [r'(DAT|DTC|日期)$'], 'tpt': [r'(TPT|时间点)$'],
     'time': [r'(TIM|TIME|时间)$'],
     'met': [r'^(IEYN|IEORRES)$', r'是否满足.{0,10}(入选|标准)|符合.{0,6}入选.{0,10}排除'], 'crit': [r'^(IETESTCD|IETEST)$', r'标准编号|条款编号|标准序号'],
     'ie_cat': [r'^IECAT$', r'标准类型|标准类别'], 'ie_ver': [r'^IEVER$', r'方案版本'],
     'icf': [r'^(DSICDAT|ICFDAT)$', r'知情同意书?签署日期'], 'rescreen': [r'(RSCRYN|是否.{0,3}重复筛选|是否.{0,3}重新筛选)'], 'prev_sid': [r'(首次筛选.{0,6}编号|DSSUBJID)'], 'eot_d': [r'(EOTDAT|末次(给药|服药)日期|治疗结束.*日期|终止治疗.*日期)'], 'eot_why': [r'(EOTREAS|终止治疗.*原因|治疗结束.*原因)', r'(DSDECOD|DSTERM|退出原因|终止原因|未完成原因)'],
+    'eot_early_d': [r'提前(结束|终止)治疗.{0,2}日期'], 'eot_early': [r'是否提前(结束|终止)治疗(?!研究)|EOTYN$'], 'eos_early': [r'是否提前(结束|终止|退出).{0,8}(研究|试验|随访)|EOSYN$'],
+    'grp': [r'(研究分组|随机分组|治疗组别|^组别$|ACTARM|DSRANDG|^ARMC?D?$)'],
     'eos_d': [r'(EOSDAT|DSSTDAT|研究结束.*日期|完成/?退出日期|退出(研究|试验)?日期)'], 'eos_done': [r'(EOSCOMP|DSCOMYN|是否完成)'], 'eos_why': [r'(EOSREAS|DSREAS|研究结束原因|未完成.*原因)'], 'age': [r'^(AGE|年龄)'], 'sex': [r'^(SEX|性别)'], 'rand': [r'(RANDNO|RANNUM|随机号)'], 'rand_d': [r'(RANDAT|随机日期)'], 'status': [r'^(受试者状态)$', r'(RANYN|是否筛选成功并随机)'], 'ht': [r'(HEIGHT|身高)'], 'wt': [r'^(WEIGHT|体重)'],
     # F-A：具体变量/事件名称列先于通用「名称$」——访视名称/页面名称是结构性元数据，不是事件术语
     #（RUX 实证：term 落到 VISIT 后 AE/CM/MH 全表「共同页」）；lookbehind 挡住 访视/页面/表单/中心/研究 名称。
@@ -97,7 +99,7 @@ FIELD_SYN = {  # normalized field → variable/label patterns (first match wins)
     'link_mh': [r'(MHNO$|相关(既往)?病史)'], 'link_ae': [r'(AENO$|相关不良事件)'], 'reason_disease': [r'与研究疾病相关'],
     'cat': [r'(DVCAT|偏离(类别|分类))'], 'text': [r'(质疑内容|QUERYTEXT|TEXT)'], 'form': [r'^(FORM|表单|CRF页)'],
 }
-DOMAIN_FIELDS = {'subjects': ['sid', 'site', 'center', 'icf', 'rescreen', 'prev_sid', 'age', 'sex', 'ht', 'wt', 'rand', 'rand_d', 'status', 'eot_d', 'eot_why', 'eos_d', 'eos_done', 'eos_why'], 'visits': ['sid', 'visit', 'date', 'done', 'win_lo', 'win_hi'],
+DOMAIN_FIELDS = {'subjects': ['sid', 'site', 'center', 'icf', 'rescreen', 'prev_sid', 'age', 'sex', 'ht', 'wt', 'rand', 'rand_d', 'status', 'eot_d', 'eot_why', 'eos_d', 'eos_done', 'eos_why', 'eot_early', 'eot_early_d', 'eos_early', 'grp'], 'groups': ['sid', 'grp', 'strat'], 'visits': ['sid', 'visit', 'date', 'done', 'win_lo', 'win_hi'],
                  'exposure': ['sid', 'visit', 'start', 'end', 'dose_plan', 'dose_act', 'miss_qty', 'extra_qty', 'dose', 'time', 'fast'], 'ae': ['sid', 'term', 'pt', 'soc', 'llt', 'start', 'end', 'grade', 'serious', 'aesi', 'rel', 'action', 'outcome', 'aware', 'rpt', 'gchg'],
                  'mh': ['sid', 'term', 'start', 'end', 'ongoing'], 'cm': ['sid', 'term', 'start', 'end', 'ongoing', 'dose', 'freq', 'route', 'indication'],
                  'proc': ['sid', 'term', 'start', 'end'], 'findings': ['sid', 'visit', 'date', 'time', 'tpt', 'test', 'value', 'unit', 'lo', 'hi', 'clin', 'desc', 'link',

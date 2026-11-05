@@ -20,7 +20,7 @@ from collections import Counter, defaultdict
 
 import ext_rules
 from monitor_v5 import crit_items
-from common import ae_action, days, dose_state, dshow, fmt, is_dosing, is_full_date, yes, zero_dose
+from common import ae_action, days, dose_state, dshow, fmt, is_dosing, is_full_date, not_done, yes, zero_dose
 
 # (分类码, 名称, 层面, 说明, CDISC DVCAT（SDTM CT C225352；与 TransCelerate 7 类一一对应）)
 TAXONOMY = [
@@ -656,7 +656,7 @@ class _PD:
                     e['sheets'].append(sh)
 
         for r in sm:
-            if r['sid'] not in C.pop or str(r.get('done') or '').startswith('否'):
+            if r['sid'] not in C.pop or not_done(r.get('done')):
                 continue
             ts = _dt(r.get('date'), r.get('time'))
             td = _dt(r.get('dose_date') or r.get('date'), r.get('dose_time')) if r.get('dose_time') else \

@@ -207,6 +207,11 @@ def yes(v):
     return str(v).strip().lower() in ('是', 'y', 'yes', '1', 'true', '有', '√')
 
 
+def not_done(v):
+    """「是否进行/是否发生」字段记为未做：否、否（未进行）、N/No、未发生/未进行/未做/未查。全仓统一口径（工程审阅：原三处判法不一）。"""
+    return bool(re.match(r'^\s*(否|N\b|No\b|Not\b|未发生|未进行|未做|未查|未检)', str(v or ''), re.I))
+
+
 def fmt(x, nd=2):
     if x is None:
         return '—'

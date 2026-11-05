@@ -88,8 +88,8 @@ def main():
                 ERR.append(f'KZ.kri value {bad[0]} should be [分子, 分母] of a defined KRI')
                 break
     for row in (KZ.get('ops') or {}).get('due') or []:
-        if len(row) != 11:
-            ERR.append(f'ops.due row has {len(row)} fields (expected 11)')
+        if len(row) != 12:
+            ERR.append(f'ops.due row has {len(row)} fields (expected 12: …, EDC 记为未进行 0/1)')
             break
     if 'cred' in KZ and not isinstance((KZ['cred'] or {}).get('sites'), dict):
         ERR.append('KZ.cred.sites should be dict')

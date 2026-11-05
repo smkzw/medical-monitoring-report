@@ -33,7 +33,7 @@ import openpyxl
 from common import clin_code, dump_json, load_json, norm_date, open_workbook_lenient, parse_desc_links, parse_links, parse_typed_links, to_num, yes
 from inspect_listing import STRUCT_OK, guess, is_meta_col, is_struct_col
 
-DATE_FIELDS = {'date', 'start', 'end', 'icf', 'eot_d', 'eos_d', 'rand_d', 'fd', 'ld', 'aware', 'rpt'}
+DATE_FIELDS = {'date', 'start', 'end', 'icf', 'eot_d', 'eos_d', 'rand_d', 'fd', 'ld', 'aware', 'rpt', 'win_lo', 'win_hi'}
 NUM_FIELDS = {'age', 'bmi', 'ht', 'wt', 'lo', 'hi'}
 BOOL_FIELDS = {'serious', 'aesi', 'ongoing_b', 'dili'}   # V6：dili 也是「是/否」——原样字符串「否」在下游 bool() 为真（D002 全部 AE 标 DILI）
 EVENT_DOMS = ('ae', 'mh', 'cm', 'proc', 'pd')      # 带 term 的事件型域
@@ -88,8 +88,10 @@ def catalog_map(sheet_rows, names):
             continue
         ncol = max(len(r) for r in body)
         head = ' '.join(str(x) for x in (rows[0] or ()) if x)
-        named = bool(re.fullmatch(r'TOC|目录|Contents?|表单目录|DOMAIN_NAME', str(n).strip(), re.I) or re.search(r'表单名称|Form[\s_]*Name', head, re.I))
-        need = 1 if named else 3                     # 明确的目录页（表名/表头）只要求 1 张表对上；其余要 ≥3 张
+        # 表名就是目录（TOC/DOMAIN_NAME…）→ 1 张表对上即可；只有表头含「表单名称」→ 至少 2 张（工程审阅：单行 SAE 报告表
+        # 的「关联表单」填 AE 会被误判为目录页）；其余 ≥3 张
+        need = 1 if re.fullmatch(r'TOC|目录|Contents?|表单目录|DOMAIN_NAME', str(n).strip(), re.I) else \
+            2 if re.search(r'表单名称|Form[\s_]*Name', head, re.I) else 3
         for j in range(ncol):
             vals = [str(r[j]).strip() if j < len(r) and r[j] not in (None, '') else '' for r in body]
             hit = [v for v in vals if v in names and v != n]
@@ -105,7 +107,8 @@ def catalog_map(sheet_rows, names):
                 if nm:
                     m.setdefault(code, nm)
             if len(m) >= need:
-                out.update(m)
+                for k, v in m.items():
+                    out.setdefault(k, v)                 # 多个目录页：先到先得（与工作台 detect.catalog_map 同口径）
                 break
     return out
 

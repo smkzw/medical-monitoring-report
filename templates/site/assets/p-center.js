@@ -47,9 +47,9 @@ function draw(site){
   /* 方案偏离 */
   K.table(document.getElementById('cpd'),{rows:POT,h:'320px',onRow:r=>K.showPD(r.id),cols:[{k:'grade',t:'分级',f:r=>K.pdGrade(r.grade)},{k:'sid',t:'受试者',f:r=>K.sid(r.sid)},{k:'title',t:'偏离',ns:1,f:r=>`<span class="small">${K.esc(r.title)}：${K.esc(String(r.fact||'').slice(0,70))}</span>`}]});
   /* 访视与录入 */
-  const vr=due.filter(d=>d[6]!=='ok').map(d=>({sid:d[0],v:d[2],lo:d[3],hi:d[4],got:d[5],st:d[6]}));
+  const vr=due.filter(d=>d[6]!=='ok').map(d=>({sid:d[0],v:d[2],lo:d[3],hi:d[4],got:d[5],st:d[6],nd:d[11]}));
   document.getElementById('cv').innerHTML=`<div id="cvv"></div><div class="sec-t"><h2>疑似录入错误</h2><span class="muted small">${ent.length} 条</span></div><div id="cve"></div>`;
-  K.table(document.getElementById('cvv'),{rows:vr,h:'200px',onRow:r=>{if(r.st==='overdue')K.showVis({sid:r.sid,site,v:r.v,lo:r.lo,hi:r.hi})},cols:[{k:'sid',t:'受试者',f:r=>K.sid(r.sid)},{k:'v',t:'访视',f:r=>K.p(r.v,'blu')},{k:'st',t:'情况',f:r=>(r.st==='overdue'?K.p('逾期未见记录','org'):K.p('超窗','yel'))},{k:'lo',t:'方案窗',f:r=>`<span class="small nowrap">${r.lo} ~ ${r.hi}</span>`}]});
+  K.table(document.getElementById('cvv'),{rows:vr,h:'200px',onRow:r=>{if(r.st==='overdue')K.showVis({sid:r.sid,site,v:r.v,lo:r.lo,hi:r.hi})},cols:[{k:'sid',t:'受试者',f:r=>K.sid(r.sid)},{k:'v',t:'访视',f:r=>K.p(r.v,'blu')},{k:'st',t:'情况',f:r=>(r.st==='overdue'?(r.nd?K.p('EDC 记为未进行','red'):K.p('逾期未见记录','org')):K.p('超窗','yel'))},{k:'lo',t:'方案窗',f:r=>`<span class="small nowrap">${r.lo} ~ ${r.hi}</span>`}]});
   K.table(document.getElementById('cve'),{rows:ent,h:'200px',onRow:r=>K.showEnt(r),cols:[{k:'sid',t:'受试者',f:r=>K.sid(r.sid)},{k:'test',t:'指标',f:r=>K.esc(r.test)},{k:'raw',t:'录入值',f:r=>`${K.esc(r.raw)} ${K.esc(r.unit)}`}]});
   /* 数据质量 */
   const cf=CRD?K.credFlags(site,CRD.sites[site]):[],tl=TL&&TL.sites?TL.sites[site]:null;

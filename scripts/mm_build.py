@@ -23,7 +23,7 @@ import ext_rules
 import monitor_v5
 import raw_export
 import pd_rules
-from common import ae_action, cn_quotes, cs_plain, days, dose_state, dshow, dump_json, fmt, is_dosing, parse_links, is_full_date, load_json, move_word, open_workbook_lenient, quantile, result_state, state_meets, study_day, yes, zero_dose
+from common import ae_action, cn_quotes, cs_plain, days, dose_state, dshow, dump_json, fmt, is_dosing, parse_links, is_full_date, load_json, move_word, not_done, open_workbook_lenient, quantile, result_state, state_meets, study_day, yes, zero_dose
 
 AGG_EXCL = set()
 
@@ -153,7 +153,7 @@ def load(study_p, norm_p):
         setattr(C, dom, load_json(N / f'{dom}.json', []) or [])
     # V6 运营审阅（RUX S10001 W8 等 5 个访视 SV「访视是否发生=否」被当成已完成，生成 45 条「已完成访视但缺少评估」）：
     # 访视页记录为未发生的访视不算已完成访视——不进访视完成/超窗/SoA 完成度，按缺失访视处理（留在 C.visits_missed 供展示）
-    C.visits_missed = [v for v in C.visits if re.match(r'^\s*(否|N|No|未发生|未进行)\s*$', str(v.get('done') or ''), re.I)]
+    C.visits_missed = [v for v in C.visits if not_done(v.get('done'))]
     if C.visits_missed:
         C.visits = [v for v in C.visits if v not in C.visits_missed]
     # V6 医学审阅（RUX P0010：开放期 IGA=0 按方案停药，01-20 的「研究药物发放」被当成给药报「终止治疗后仍有给药」）：
@@ -263,6 +263,14 @@ def build_subjects(C):
     C.subj = {}
     for s in sorted(C.subjects, key=lambda x: x['sid']):
         sid = s['sid']
+        # V6 运营审阅（RUX）：「是否提前结束研究/治疗」与「是否完成」问法相反；提前结束治疗日期优先作治疗结束日
+        s = dict(s)
+        if s.get('eos_early') not in (None, '') and s.get('eos_done') in (None, ''):
+            s['eos_done'] = '否' if yes(s['eos_early']) else '是'
+        if is_full_date(s.get('eot_early_d')):
+            s['eot_d'] = s['eot_early_d']
+        if yes(s.get('eot_early')) and not s.get('eot_why'):
+            s['eot_why'] = '提前结束治疗'
         e = sorted([x for x in ex[sid] if is_full_date(x.get('start')) and is_dosing(x)], key=lambda x: x['start'])   # 0 剂量与暂停/停药区间不算首/末次给药
         fd = e[0]['start'] if e else s.get('fd')
         ld = max([x.get('end') or x['start'] for x in e if is_full_date(x.get('end') or x['start'])], default=None) if e else s.get('ld')
@@ -277,7 +285,7 @@ def build_subjects(C):
             s = dict(s, edc_status=st)
             st = '提前退出'
         C.subj[sid] = dict(s, fd=fd, ld=ld, status=st, lo=lastobs.get(sid) or ld or fd,
-                           strat=s.get('strat') or g.get('strat'), grp=s.get('grp') or g.get('grp'),
+                           strat=s.get('strat') or g.get('strat'), grp=arm_name(s.get('grp') or g.get('grp')),
                            site=str(s.get('site') or sid[:2]), center=s.get('center') or '')
     def _end(spec):  # {"ref": "ld"|"fd"|"lo"|"eos_d", "days": N} → last date of the window (None = open)
         if not spec:
@@ -386,7 +394,7 @@ def build_events(C):
                'pre': _pre_dose(a.get('start'), s['fd']), '_rel': related,
                '_aesi_term': bool(aesi_hit), '_aesi_def': aesi_hit, 'pt': a.get('pt') or '', 'soc': a.get('soc') or '',
                'rpt': a.get('rpt') or '', 'aware': a.get('aware') or '', 'sae_crit': a.get('sae_crit') or '',
-               'rno': str(a.get('no') if a.get('no') is not None else '').strip(), 'gchg': a.get('gchg') or ''}
+               'gchg': a.get('gchg') or ''}
         rec['te'] = (not rec['pre']) and bool(s['fd']) and (not C.teEnd.get(sid) or not is_full_date(rec['s']) or rec['s'] <= C.teEnd[sid])
         # V6 R13：开始日期缺失/无法解析（如 D002「是」）→ TEAE 判定待定：暂按 TEAE 计（不漏报，常见 SAP 最坏情形口径），并发日期核对
         _ps = partial_date(rec['s'])
@@ -426,9 +434,9 @@ def build_events_dup(C):
             continue
         grp.sort(key=lambda x: x.get('row') or 0)
         # V6 医学审阅（RUX S01017 肝功能异常 2→3→1 级、S01029 SAE 肺炎 2→3 级）：「严重程度有变化」的子记录（同一事件拆多行、
-        # 主字段相同、记录号各不相同或标志为是）不是重复录入——同一事件只计一次，但不发「重复记录核对」
-        rnos = [x.get('rno') for x in grp]
-        if any(re.match(r'^\s*(是|Y|Yes|1)\s*$', str(x.get('gchg') or ''), re.I) for x in grp) or (all(rnos) and len(set(rnos)) == len(grp)):
+        # 主字段相同、EDC「严重程度是否变化」标为是）不是重复录入——同一事件只计一次，但不发「重复记录核对」。
+        # 工程审阅：只认该标志；记录号各不相同不能当证据（同一 AE 录两次，记录号本来就不同）
+        if any(re.match(r'^\s*(是|Y|Yes|1)\s*$', str(x.get('gchg') or ''), re.I) for x in grp):
             for x in grp:
                 x['dup_n'], x['dup_rows'], x['dup_kind'] = len(grp), [y.get('row') for y in grp], 'sub'
             for x in grp[1:]:
@@ -1773,6 +1781,14 @@ def _ie_label(r):
     return f"{kind} {no}".strip()
 
 
+def arm_name(g):
+    """分组名归一：去掉随机系统导出的组名尾缀标记（RUX 受试者报表「磷酸芦可替尼乳膏治疗组Y / 安慰剂组N」——Y/N 含义待项目确认，
+    不拆成四组）。"""
+    if g in (None, ''):
+        return g
+    return re.sub(r'(组|arm|group)\s*[YN]$', r'\1', str(g).strip(), flags=re.I)
+
+
 def ie_fail_reasons(C):
     """入排标准页（ie 域）：不满足的标准 → {sid: '排除标准 5、入选标准 4'}（筛选失败原因；V6 用户审阅 RUX 第 4 条：49 名筛败者原因全显示「未注明」）。"""
     rows = getattr(C, 'ie', []) or []
@@ -2604,7 +2620,7 @@ def build_soa(C):
         sh = f.get('group') or f['sheet']
         names.setdefault(sh, f.get('group') or sh)
         sheet2grp.setdefault(f['sheet'], sh)
-        k = 1 if str(f.get('done') or '').startswith('否') else 0
+        k = 1 if not_done(f.get('done')) else 0
         recs[sh][f['visit']][k].add(f['sid'])
         if not k and is_full_date(f.get('date')):
             rdates[sh][f['sid']].add(f['date'])

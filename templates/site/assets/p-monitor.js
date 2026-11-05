@@ -13,7 +13,7 @@ const by=(arr,f)=>arr.reduce((m,x)=>{const k=f(x);(m[k]=m[k]||[]).push(x);return
 const PDP=((D.pd||{}).potential)||[];
 const end=s=>[s.eos_d,s.eot_d].filter(d=>d&&d.length>=10).sort()[0]||'';
 /* 访视推算在后端（ops.due）：[sid, site, 访视, 窗起, 窗止, 实际, 状态, 研究日, 目标日, −窗, +窗] */
-const visRows=(O.due||[]).map(d=>({sid:d[0],site:d[1],v:d[2],lo:d[3],due:d[4],got:d[5],st:d[6],sd:d[7],t:d[8],mi:d[9],pl:d[10]}));
+const visRows=(O.due||[]).map(d=>({sid:d[0],site:d[1],v:d[2],lo:d[3],due:d[4],got:d[5],st:d[6],sd:d[7],t:d[8],mi:d[9],pl:d[10],nd:d[11]}));
 const UP=(O.upcoming||[]).map(u=>({sid:u[0],site:u[1],v:u[2],lo:u[3],hi:u[4],tg:u[5]}));
 const KR=D.kri,CRD=D.cred,TL=(window.KZS||{}).timeliness;
 const tabs=[['enr','入组与进度',SU.length],['vis','访视执行',visRows.filter(r=>r.st!=='ok').length],['dose','给药与知情'],['dq','退出与数据质量'],
@@ -69,7 +69,7 @@ function vis(){
     <div class="hd mt"><h2>未来 14 天应到访视</h2><span class="sub">${UP.length} 次</span></div><div id="ut"></div></div></div>`;
   const rowsV=()=>visRows.filter(r=>r.st!=='ok');
   const tb=K.table(document.getElementById('vt'),{rows:rowsV(),sort:'due',dir:1,h:'420px',onRow:r=>{if(r.st==='overdue')K.showVis({sid:r.sid,site:r.site,v:r.v,lo:r.lo,hi:r.due})},cols:[{k:'sid',t:'受试者',f:r=>K.sid(r.sid)},{k:'site',t:'中心',f:r=>K.p(r.site,'sq mono')},{k:'v',t:'访视',f:r=>K.p(r.v,'blu')},
-    {k:'st',t:'情况',f:r=>(r.st==='overdue'?K.p(daily?'逾期未见记录（可能未录入）':'逾期未见记录','org'):K.p('超窗','yel'))},{k:'due',t:'方案窗',f:r=>`<span class="nowrap small">${r.lo} ~ ${r.due}</span>`},{k:'got',t:'实际',f:r=>r.got?`${r.got} <span class="xs faint">D${r.sd}</span>`:'—'}]});
+    {k:'st',t:'情况',f:r=>(r.st==='overdue'?(r.nd?K.p('EDC 记为未进行','red'):K.p(daily?'逾期未见记录（可能未录入）':'逾期未见记录','org')):K.p('超窗','yel'))},{k:'due',t:'方案窗',f:r=>`<span class="nowrap small">${r.lo} ~ ${r.due}</span>`},{k:'got',t:'实际',f:r=>r.got?`${r.got} <span class="xs faint">D${r.sd}</span>`:'—'}]});
   K.table(document.getElementById('ut'),{rows:UP,sort:'tg',dir:1,h:'260px',cols:[{k:'sid',t:'受试者',f:r=>K.sid(r.sid)},{k:'site',t:'中心',f:r=>K.p(r.site,'sq mono')},{k:'v',t:'访视',f:r=>K.p(r.v,'blu')},{k:'tg',t:'目标日',f:r=>`<span class="nowrap small">${r.tg}</span>`},{k:'lo',t:'方案窗',f:r=>`<span class="nowrap small">${r.lo} ~ ${r.hi}</span>`}]});
   pane.querySelectorAll('tr[data-site]').forEach(tr=>tr.onclick=()=>location.href='center.html#c='+tr.dataset.site);
 }

@@ -18,7 +18,7 @@ from pathlib import Path
 from common import open_workbook_lenient
 
 PII = re.compile(r'姓名|缩写|initials?|身份证|证件号|电话|手机|住址|家庭地址|联系方式|邮箱', re.I)
-SID_HDR = re.compile(r'^(受试者(编号|号|代码)?|参与者(编号|号)?|筛选号|SUBJID|USUBJID|Subject\s*ID|Participant\s*ID)$', re.I)
+SID_HDR = re.compile(r'^(受试者(筛选)?(编号|号|代码)?|参与者(编号|号)?|筛选号|SUBJID|USUBJID|Subject\s*ID|Participant\s*ID)$', re.I)
 MAX_CELL = 300
 FLAG_HDR = re.compile(r'^(Flag|变更标记|数据状态|记录状态)$', re.I)
 DELETED = re.compile(r'delet|删除|作废', re.I)

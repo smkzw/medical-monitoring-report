@@ -2483,7 +2483,7 @@ class V5FixPemDenominator(unittest.TestCase):
     def _C(efficacy=()):
         from types import SimpleNamespace
         subj = {'S1': {'site': '01', 'fd': '2026-01-01', 'status': '已入组'}}
-        due = [['S1', '01', 'W8', '2026-02-23', '2026-03-01', '2026-02-25', 'ok', 56, 57, 3, 3]]
+        due = [['S1', '01', 'W8', '2026-02-23', '2026-03-01', '2026-02-25', 'ok', 56, 57, 3, 3, 0]]
         return SimpleNamespace(
             A={'pd': {'criticalVisits': ['W8'], 'criticalItems': 'EASI评分'}, 'visitWindows': {'W8': [57, 3, 3]}},
             subj=subj, S=subj, pop={'S1'}, visits=[], efficacy=list(efficacy), findings=[],
@@ -3588,6 +3588,41 @@ class AttributionNearTests(unittest.TestCase):
         self.assertEqual(cons_attribution([a, b], False), [])
         b2 = dict(b, date='2026-05-08')
         self.assertEqual(len(cons_attribution([a, b2], False)), 1)
+
+
+class Eng2Tests(unittest.TestCase):
+    """V6 第二轮工程审阅：AE 子记录只认标志、未做口径统一、EDC 计划窗日期规范化、目录页判定。"""
+    def test_ae_dup_needs_flag(self):
+        from types import SimpleNamespace
+        from mm_build import build_events_dup
+        a = {'sid': 'S1', 't': '肺炎', 'pt': '肺炎', 's': '2026-01-02', 'e': '', 'g': '2', 'sae': False}
+        C = SimpleNamespace(aes=[{**a, 'row': 3, 'gchg': ''}, {**a, 'row': 4, 'gchg': ''}])
+        build_events_dup(C)
+        self.assertEqual(len(C.ae_dup), 1)                 # 同一 AE 录两次（记录号自然不同）仍是重复
+        C = SimpleNamespace(aes=[{**a, 'row': 3, 'gchg': '是'}, {**a, 'row': 4, 'gchg': ''}])
+        build_events_dup(C)
+        self.assertEqual((len(C.ae_dup), C.aes[1].get('dup_kind')), (0, 'sub'))
+
+    def test_not_done(self):
+        from common import not_done
+        for v in ('否', '否（未进行）', 'N', 'No', 'Not done', '未进行', '未查'):
+            self.assertTrue(not_done(v), v)
+        for v in ('是', '', None, 'NA', 'Normal', '正常'):
+            self.assertFalse(not_done(v), v)
+
+    def test_window_dates_normalized(self):
+        from normalize_listing import conv
+        import datetime as dt
+        self.assertEqual(conv('win_lo', dt.datetime(2024, 7, 9), {}), '2024-07-09')
+        self.assertEqual(conv('win_hi', '2024/07/09', {}), '2024-07-09')
+
+    def test_catalog_header_only_needs_two(self):
+        from normalize_listing import catalog_map
+        names = {'AE', 'SAE', 'LB1', 'TOC'}
+        sae = [('受试者', '关联表单', '表单名称'), ('S1', 'AE', '不良事件')]
+        self.assertEqual(catalog_map({'SAE': sae}, names), {})          # 单行 SAE 报告不是目录
+        toc = [('代码', '名称'), ('AE', '不良事件')]
+        self.assertEqual(catalog_map({'TOC': toc}, names), {'AE': '不良事件'})
 
 
 if __name__ == '__main__':
