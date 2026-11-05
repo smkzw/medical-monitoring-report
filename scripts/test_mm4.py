@@ -3704,6 +3704,28 @@ class Eng2Tests(unittest.TestCase):
         w = worse_vs_base({'value': 4.87, 'hi': 4.8, 'grade': 0, 'mid': 'lab:甘油三酯'}, {'value': 4.04, 'hi': 5.2, 'grade': 0}, 0.2)
         self.assertTrue(w.startswith('较基线升高 21%'), w)                                # D002 Q039：原值升高 21%，不能写 30%
 
+    def test_prohibited_route_and_unknown_end(self):
+        from types import SimpleNamespace
+        from collections import defaultdict
+        import mm_build
+        C = SimpleNamespace(A={'prohibited': [{'name': '系统性皮质类固醇', 're': '甲泼尼龙|布地奈德|倍氯米松', 'route': 'systemic'},
+                                              {'name': '外用皮质类固醇', 're': '莫米松|布地奈德', 'route': 'topical'}]},
+                            pop={'S1'}, subj={'S1': {'fd': '2024-06-01', 'ld': '2024-12-01', 'lo': '', 'icf': '2024-05-20', 'site': '01'}},
+                            cm_by=defaultdict(list), others=[], tl=defaultdict(dict), proc=[])
+        cm = lambda t, rt, s_, e, ong=False: {'t': t, 'rt': rt, 's': s_, 'e': e, 'ong': ong, 'why': '', 'sh': 'CM', 'row': 1, 'wb': ''}
+        C.cm_by['S1'] = [cm('注射用甲泼尼龙', '静脉滴注', '2024-07-01', '2024-07-02'), cm('吸入用布地奈德混悬液', '吸入', '2024-07-01', '2024-07-01'),
+                         cm('丙酸倍氯米松鼻气雾剂', '', '2024-07-01', '2024-07-05'), cm('糠酸莫米松乳膏', '外用', '2018-01-01', 'uk-uk-uk')]
+        orig = mm_build.oth_qkey
+        mm_build.oth_qkey = lambda *a, **k: ''
+        try:
+            mm_build.cm_checks(C)
+        finally:
+            mm_build.oth_qkey = orig
+        hit = [o['sum'] for o in C.others if o['cat'] == '禁限用药核对']
+        self.assertEqual(len(hit), 1, hit)
+        self.assertIn('甲泼尼龙', hit[0])
+        self.assertTrue(any(o['cat'] == '用药日期核对' for o in C.others))
+
     def test_catalog_header_only_needs_two(self):
         from normalize_listing import catalog_map
         names = {'AE', 'SAE', 'LB1', 'TOC'}

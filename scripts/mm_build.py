@@ -2008,6 +2008,7 @@ def overlap(c, a, b):
 
 _TOPICAL = re.compile(r'外用|局部|皮肤|软膏|乳膏|霜|凝胶|洗剂|搽剂|酊|贴|滴眼|滴鼻|吸入|喷雾|topical|cream|ointment|gel|lotion', re.I)
 _SYSTEMIC = re.compile(r'系统|全身|口服|静脉|注射|systemic', re.I)
+_NONDERMAL = re.compile(r'吸入|雾化|气雾|喷鼻|鼻喷|滴鼻|鼻用|鼻.{0,2}喷雾|滴眼|眼用|眼膏|滴耳|inhal|nasal|ophthalm', re.I)
 
 
 def restricted_checks(C):
@@ -2051,7 +2052,8 @@ def cm_checks(C):
     rescue_re = re.compile(r'补救|rescue', re.I)
     for P in C.A.get('prohibited', []):  # {"name","re","window":[daysBeforeFd, 'ld'|daysAfterFd], "pr"}
         pre = re.compile(P['re'], re.I)
-        systemic_only = bool(_SYSTEMIC.search(P.get('name') or '')) and not _TOPICAL.search(P.get('name') or '')
+        systemic_only = P.get('route') == 'systemic' or (not P.get('route') and bool(_SYSTEMIC.search(P.get('name') or '')) and not _TOPICAL.search(P.get('name') or ''))
+        topical_only = P.get('route') == 'topical'          # 「外用皮质类固醇」：只认外用/局部给药的记录（静脉激素归系统性条目）
         for sid in sorted(C.pop):
             s = C.subj[sid]
             if not s['fd']:
@@ -2062,9 +2064,20 @@ def cm_checks(C):
             for c in C.cm_by[sid]:
                 if pre.search(c['t']) and overlap(c, a, b):
                     # 「系统治疗」类禁用药不匹配外用/局部给药；按方案作为补救治疗使用的由补救规则（CM-02/03）核查，不按禁用药报
-                    if systemic_only and (_TOPICAL.search(c.get('rt') or '') or _TOPICAL.search(c['t'])):
-                        continue
+                    if systemic_only and (_TOPICAL.search(c.get('rt') or '') or _TOPICAL.search(c['t']) or _NONDERMAL.search(f"{c.get('rt') or ''} {c['t']}")):
+                        continue                 # 眼用/吸入/鼻用等局部给药不是系统性用药
+                    unk_end = not c['ong'] and not is_full_date(c['e']) and is_full_date(c['s']) and c['s'] < (s.get('icf') or s['fd'])
+                    if topical_only and (not (_TOPICAL.search(c.get('rt') or '') or _TOPICAL.search(c['t']))
+                                         or _NONDERMAL.search(f"{c.get('rt') or ''} {c['t']}")):
+                        continue                 # 「外用」＝皮肤局部；吸入/鼻用/眼用激素不属于（RUX 方案明确允许吸入型糖皮质激素）
                     if rescue and rescue_re.search(c.get('why') or '') and (not is_full_date(c['s']) or c['s'] >= s['fd']):
+                        continue
+                    if unk_end:
+                        # 入组前开始、停药日期未知且未标持续（RUX：2014–2019 年的既往外用激素，结束「uk」）：不能据此判与治疗期重叠——
+                        # 只请核实停药日期（低优先级、不进偏离）
+                        add_other(C, sid, '用药日期核对', 2,
+                                  f"合并用药「{c['t']}」（{c['s']}~停药日期未知）属于{P['name']}，未标持续，请核实停药日期是否在首剂（{s['fd']}）之前",
+                                  None, c['s'], c['sh'], c['row'], c['t'], bkey=f"{c['t']}|{c['s']}|unkend", wb=c.get('wb') or '')
                         continue
                     add_other(C, sid, P.get('cat', '禁限用药核对'), P.get('pr', 4),
                               f"合并用药「{c['t']}」（{c['s'] or '?'}~{'持续' if c['ong'] else c['e'] or '?'}）属于{P['name']}，与{('首剂前 %d 天至' % w0) if w0 else ''}治疗期重叠；用药原因：{c['why'] or '—'}",
