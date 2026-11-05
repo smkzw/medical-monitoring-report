@@ -72,7 +72,7 @@ K.profile=async(el,sc)=>{
     ${tbl([['给药后新开始的用药',groups.map(cmNew)]])}${sub?cmList(MC.cm.filter(r=>r[0]===sub.id),fdOf[sub.id]):tbl(topTerms(MC.cm,1).map(t=>[K.esc(t),groups.map(g=>termPct(MC.cm,1,t,g))]))}</div></div>
   ${microCard}
   <div class="card mb"><div class="sec-t" style="margin-top:0"><h2>检验异常</h2><span class="muted small">风险层（受试者×指标，按当前阈值）· 基线→基线后最差（参考范围）</span><span class="sp"></span><a class="small" href="safety.html#tab=lab${site&&!sub?'&c='+site:''}">检验异常明细 ›</a></div>
-   <div class="grid g2"><div>${tbl(LAY.filter(([k])=>K.lab.some(x=>x.risk===k)).map(([k,l])=>[`<a href="safety.html#tab=lab&risk=${k}">${l}</a>`,groups.map(g=>layCell(g,k))]))}</div>
+   <div class="grid ${groups.length>2?'':'g2'}"><div style="min-width:0;overflow-x:auto">${tbl(LAY.filter(([k])=>K.lab.some(x=>x.risk===k)).map(([k,l])=>[`<a href="safety.html#tab=lab&risk=${k}">${l}</a>`,groups.map(g=>layCell(g,k))]))}</div>
    <div>${tbl([['基线正常 → 基线后异常（新发）',groups.map(g=>sub&&g[0]==='本例'?`<b>${shiftN(g,'new')}</b> 项指标`:`<b>${shiftN(g,'new')}</b> <span class="xs muted">（每例 ${(shiftN(g,'new')/(g[1].length||1)).toFixed(2)}）</span>`)],
        ['基线已异常 → 同向加重 ≥30%',groups.map(g=>sub&&g[0]==='本例'?`<b>${shiftN(g,'worse')}</b> 项指标`:`<b>${shiftN(g,'worse')}</b> <span class="xs muted">（每例 ${(shiftN(g,'worse')/(g[1].length||1)).toFixed(2)}）</span>`)]])}
     <div class="xs muted mt">新发异常最多的指标</div>${tbl(topShift.map(([m])=>[`<a href="javascript:void 0" data-pm="${K.esc(m.id)}">${K.esc(m.label)}</a>`,groups.map(g=>{const n=shiftN(g,'new',m.id);return sub&&g[0]==='本例'?(n?K.p('新发','org'):'—'):`${n}（${pct(n,g[1].length)}）`})]))}</div></div></div>
