@@ -629,6 +629,12 @@ def worse_vs_base(r, b, t_base, disease=False):
     if bv == 0:                                      # 基线为 0（如乙肝表面抗原 0→199.68）：现超出范围即视为加重
         return '基线为 0，现超出参考范围' if above else None
     pct = (v - bv) / abs(bv)
+    # V6 医学审阅（RUX S13007：参考上限由 20.5 改为 26.0，按 ×ULN 看并无变化）：前后参考范围不同（>5%）时按相对参考边界的倍数比较
+    bhi, blo = ref_hi(b) if isinstance(b, dict) else None, (b.get('lo') if isinstance(b, dict) else None)
+    if above and hi and bhi and abs(bhi - hi) / hi > 0.05 and bv:
+        pct = (v / hi - bv / bhi) / abs(bv / bhi)
+    elif below and lo and blo and abs(blo - lo) / lo > 0.05 and bv:
+        pct = (v / lo - bv / blo) / abs(bv / blo)
     if disease:
         from monitor_v5 import abs_floor
         fl = abs_floor(bv, r.get('unit'))

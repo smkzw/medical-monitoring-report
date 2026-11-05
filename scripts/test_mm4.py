@@ -3568,5 +3568,15 @@ class IbRiskFamilyTests(unittest.TestCase):
         self.assertFalse(risk_term_re('皮肤恶性肿瘤').search('肺癌'))
 
 
+class WorseRangeChangeTests(unittest.TestCase):
+    """V6 医学审阅：前后参考范围不同时按 ×ULN 比较是否加重（RUX S13007 上限 20.5→26.0）。"""
+
+    def test_uln_ratio(self):
+        from ext_rules import worse_vs_base
+        b = {'value': 25.0, 'hi': 20.5, 'lo': 0}
+        self.assertIsNone(worse_vs_base({'value': 31.7, 'hi': 26.0, 'lo': 0}, b, 0.3))       # ×ULN 1.22 → 1.22，不加重
+        self.assertTrue(worse_vs_base({'value': 45.0, 'hi': 26.0, 'lo': 0}, b, 0.3))         # ×ULN 1.22 → 1.73，加重
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)

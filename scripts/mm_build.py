@@ -1096,7 +1096,20 @@ def build_labrows(C):
 
             dz_mh = bool(dz) and any(l[0] == 'MH' and dz.search(l[1] or '') for l in links)
             cs_ = [r for r in P if r.get('clin') == 2]
-            wf = next((w for w in (worse_vs_base(r, b, t_base) or ext_rules.qual_worse(r, b) or (dz_mh and ext_rules.stated_worse(r)) for r in cs_) if w), None)
+            # V6 医学审阅（RUX S03008 TBIL W8 36.78 而筛选期 35.02、S03045 W2 31.89 而筛选期 32.05）：基线只取一个点时，
+            # 给药前本就达到或超过该值的波动不算给药后加重——比较对象取给药前同向最差值
+            pre_v = [x['value'] for x in rows if not x.get('post') and x.get('value') is not None]
+            def _within_pre(r):
+                v = r.get('value')
+                if v is None or not pre_v:
+                    return False
+                hi_, lo_ = r.get('hi'), r.get('lo')
+                if hi_ is not None and v > hi_:
+                    return max(pre_v) >= v
+                if lo_ is not None and v < lo_:
+                    return min(pre_v) <= v
+                return False
+            wf = next((w for w in ((None if _within_pre(r) else worse_vs_base(r, b, t_base)) or ext_rules.qual_worse(r, b) or (dz_mh and ext_rules.stated_worse(r)) for r in cs_) if w), None)
             undet = None if wf else ('基线缺失，无法判断是否加重' if not b else
                                      '描述性结果，无法自动判断是否加重' if all(r.get('value') is None and ext_rules.qual_level(r.get('raw')) is None for r in cs_) else None)
             dae = disease_ae(sid, mid, [r for r in P if r.get('clin') == 2]) if wf and dz_mh else []
