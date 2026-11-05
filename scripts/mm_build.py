@@ -177,7 +177,7 @@ def load(study_p, norm_p):
             f['group'] = C.A['formNames'][f['sheet']]
     align_visit_codes(C)
     vis = C.cfg.setdefault('visits', {})
-    C.VIS = vis.get('order') or sorted({f['visit'] for f in C.findings if f.get('visit')})
+    C.VIS = complete_visit_order(C, vis.get('order') or [])
     vis['order'] = C.VIS
     C.UNS = set(vis.get('unsched', ['USV']))
     C.ET = set(vis.get('early', ['ET']))
@@ -192,6 +192,31 @@ def _vkey(code):
 
 _VCLASS = [re.compile(r'筛选|screen|^SCR$|^[WD]\s*-\s*\d', re.I), re.compile(r'提前|退出|^ET$|early', re.I),
            re.compile(r'计划外|^USV$|unsched', re.I)]
+
+
+def complete_visit_order(C, order):
+    """数据里出现、配置访视顺序里没有的访视名补进顺序（MY008：配置 V1–V17、数据 D84…；不在顺序里的访视全部落到同一个
+    「未知」序号，检验趋势/安全性概览/有效性图整片空白）。补入的按典型研究日（相对受试者最早记录日的中位天数）排序；
+    计划外/提前退出类排最后；配置里有但数据中没有的访视保留在原位置之后。数据访视都在配置里时顺序不变。"""
+    recs = [r for dom in ('visits', 'findings', 'efficacy') for r in getattr(C, dom) if r.get('visit') and is_full_date(r.get('date'))]
+    data_vis = {r['visit'] for dom in ('visits', 'findings', 'efficacy') for r in getattr(C, dom) if r.get('visit')}
+    if not order:
+        order = sorted(data_vis)
+    extra = [v for v in data_vis if v not in order]
+    if not extra:
+        return order
+    first = {}
+    for r in recs:
+        if r['sid'] not in first or r['date'] < first[r['sid']]:
+            first[r['sid']] = r['date']
+    offs = defaultdict(list)
+    for r in recs:
+        offs[r['visit']].append(days(r['date'], first[r['sid']]) or 0)
+    tail_rx = re.compile(r'计划外|^USV|unsched|提前|退出|^ET$|early', re.I)
+    keyed = [v for v in list(order) + extra if v in data_vis and offs.get(v) and not tail_rx.search(v)]
+    keyed.sort(key=lambda v: statistics.median(offs[v]))
+    tail = [v for v in list(order) + extra if v in data_vis and v not in keyed]
+    return keyed + tail + [v for v in order if v not in data_vis]
 
 
 def align_visit_codes(C):

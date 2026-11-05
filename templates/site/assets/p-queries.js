@@ -4,7 +4,7 @@ const dom=q=>K.domOf(q.cat);const domCol=d=>(K.DOM.find(x=>x[0]===d)||[])[2]||''
 const CROC={'冲突澄清':'red','同主题已查重':'yel','未见同问':'grn'};
 const subjN=new Set(Q.map(q=>q.sid)).size,ctrN=new Set(Q.map(q=>q.site)).size;
 const cnt=(arr,f)=>{const m={};arr.forEach(x=>{const k=f(x);m[k]=(m[k]||0)+1});return m};
-const byDom=cnt(Q,dom),bySite=cnt(Q,q=>q.site),byCro=cnt(Q,q=>q.cro),bySh=cnt(Q,q=>q.sh);
+const byDom=cnt(Q,dom),bySite=cnt(Q,q=>q.site),byCro=cnt(Q,q=>q.cro),bySh=cnt(Q,q=>K.shName(q.sh));   /* 按显示名归并（「edc:LB1」与「LB1」是同一数据页，运营复审：筛选项重复） */
 app.innerHTML=`
 <div class="kpis">
  <div class="kpi"><div class="l">申办方医学质疑</div><div class="v">${Q.length}<small>条</small></div><div class="s">${K.p(subjN+' 例','line')}${K.p(ctrN+' 中心','line')}</div></div>
@@ -28,7 +28,7 @@ const F={dom:null,cro:null,sh:null,site:null,s:''};
 const domOpts=K.DOM.filter(d=>byDom[d[0]]).map(d=>[d[0],`<i class="dot ${d[2]}"></i> ${d[0]}`,byDom[d[0]]]);
 const cD=K.chips(app.querySelector('#fdom'),domOpts,v=>{F.dom=v;draw()});
 const cC=K.chips(app.querySelector('#fcro'),Object.entries(byCro).map(([k,v])=>[k,k,v]),v=>{F.cro=v;draw()});
-K.chips(app.querySelector('#fsh'),Object.entries(bySh).sort((a,b)=>b[1]-a[1]).map(([k,v])=>[k,K.shName(k),v]),v=>{F.sh=v;draw()});
+K.chips(app.querySelector('#fsh'),Object.entries(bySh).sort((a,b)=>b[1]-a[1]).map(([k,v])=>[k,k,v]),v=>{F.sh=v;draw()});
 const sel=app.querySelector('#fctr');sel.onchange=()=>{F.site=sel.value||null;draw()};const ctrChips={set:v=>sel.value=v||''};
 app.querySelector('#qs').oninput=e=>{F.s=e.target.value.trim();draw()};
 const ctrs=Object.entries(bySite).sort((a,b)=>b[1]-a[1]);
@@ -39,13 +39,13 @@ const uniq=q=>q.parts.filter(p=>!p[1]).map(p=>K.hlNum(p[0])).join(' ');
 const tbl=K.table(app.querySelector('#qt'),{rows:[],noPage:true,h:'calc(100vh - 160px)',onRow:r=>K.showQ(r.id),
  group:r=>r.cat,groupHead:(g,r)=>{const n=cur.filter(q=>q.cat===g).length;const com=(D.qcommon[g]||[]);return `<div class="flex wrap"><i class="dot ${domCol(dom(r))}"></i><b>${K.catN(g)}</b>${K.p(n+' 条','line')}${K.p(dom(r),domCol(dom(r)))}<span class="sp"></span>${K.ibTags(g)}</div>${com.length?`<div class="qtpl">通用要求：${com.map(K.esc).join(' ')}</div>`:''}`},
  cols:[{k:'id',t:'编号',f:r=>K.qPill(r.id),w:'64px'},{k:'sid',t:'受试者',f:r=>K.sid(r.sid)+`<div class="xs faint">${K.esc(K.center(r.site))}</div>`,w:'110px'},
-  {k:'sh',t:'数据位置',f:r=>`${K.p(K.shName(r.sh),'sq')}<div class="xs muted">第 ${r.row} 行${r.ev.length>1?' · 涉及 '+r.ev.length+' 行':''}</div>`,w:'120px'},
+  {k:'sh',t:'数据位置',f:r=>`${K.p(K.shName(r.sh),'sq')}<div class="xs muted" title="导出表第 ${r.row} 行">${K.esc([r.v,r.d].filter(Boolean).join(' · '))||'第 '+r.row+' 行'}${r.ev.length>1?' · 涉及 '+r.ev.length+' 条记录':''}</div>`,w:'120px'},
   {k:'v',t:'访视',f:r=>`${r.v?K.p(r.v,'blu'):''}<div class="xs faint">${K.esc(r.d||'')}</div>`,w:'86px',s:r=>K.vi(r.v)},
   {k:'test',t:'对象',f:r=>`<span class="small">${K.esc(r.test||'—')}</span>`,w:'150px'},
   {k:'text',t:'个案事实与请求',f:r=>`<div class="small" style="line-height:1.6">${uniq(r)}${r.parts.some(p=>p[1])?` ${K.p('＋通用要求','line')}`:''}</div>`},
   {k:'cro',t:((K.cfg().query||{}).extShort||'外部')+'查重',f:r=>K.p(r.cro.replace('同主题',''),CROC[r.cro]),w:'96px'}]});
 let cur=[];
-function draw(){const s=F.s.toLowerCase();cur=Q.filter(q=>(!F.dom||dom(q)===F.dom)&&(!F.cro||q.cro===F.cro)&&(!F.sh||q.sh===F.sh)&&(!F.site||q.site===F.site)&&(!s||[q.id,q.sid,q.test,q.text,q.cat,q.sh].join(' ').toLowerCase().includes(s)))
+function draw(){const s=F.s.toLowerCase();cur=Q.filter(q=>(!F.dom||dom(q)===F.dom)&&(!F.cro||q.cro===F.cro)&&(!F.sh||K.shName(q.sh)===F.sh)&&(!F.site||q.site===F.site)&&(!s||[q.id,q.sid,q.test,q.text,q.cat,q.sh].join(' ').toLowerCase().includes(s)))
  .sort((a,b)=>oi(a.cat)-oi(b.cat)||a.cat.localeCompare(b.cat)||a.sid.localeCompare(b.sid)||a.id.localeCompare(b.id));
  app.querySelector('#qn').textContent=`${cur.length} 条 · ${new Set(cur.map(q=>q.cat)).size} 个主题 · ${new Set(cur.map(q=>q.sid)).size} 例`;tbl.set(cur);K.setHash({dom:F.dom,cro:F.cro,site:F.site,q:F.s})}
 const h=K.hash();if(h.q)app.querySelector('#qs').value=F.s=h.q;if(h.site){F.site=h.site;ctrChips.set(h.site)}if(h.dom){F.dom=h.dom;cD.set(h.dom)}if(h.cro){F.cro=h.cro;cC.set(h.cro)}
