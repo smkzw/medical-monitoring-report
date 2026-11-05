@@ -3541,5 +3541,18 @@ class ProtectiveAntibodyTests(unittest.TestCase):
         self.assertFalse(E.PROTECTIVE_AB.search('乙肝核心抗体（HBcAb）'))
 
 
+class BlindRawLayerTests(unittest.TestCase):
+    """V6 工程审阅 P0：盲态构建原始数据层不导出分组列（表头或取值形态识别；RUX 无表头「列8」带治疗组/安慰剂组）。夹具虚构。"""
+
+    def test_arm_column(self):
+        from raw_export import arm_column
+        self.assertTrue(arm_column('列8', ['A药治疗组', '安慰剂组', 'A药治疗组', '']))
+        self.assertTrue(arm_column('组别', ['1', '2']))
+        self.assertTrue(arm_column('随机分组', ['X']))
+        self.assertTrue(arm_column('列3', ['高剂量', '低剂量'], extra=['高剂量', '低剂量']))
+        self.assertFalse(arm_column('药物名称', ['AK120注射液/安慰剂', '布洛芬', '氯雷他定', '头孢']))
+        self.assertFalse(arm_column('GROUPID', ['301', '302']))
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)

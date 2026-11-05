@@ -22,6 +22,23 @@ SID_HDR = re.compile(r'^(受试者(编号|号|代码)?|参与者(编号|号)?|�
 MAX_CELL = 300
 FLAG_HDR = re.compile(r'^(Flag|变更标记|数据状态|记录状态)$', re.I)
 DELETED = re.compile(r'delet|删除|作废', re.I)
+# 盲态（V6 工程审阅 P0：RUX 受试者报表无表头的「列8」带着全部受试者的治疗组/安慰剂组，原始数据页可见）：
+# 分组列按表头或取值形态识别，盲态构建整列不导出（只记列名，不记取值）
+ARM_HDR = re.compile(r'分组|组别|治疗组|随机(分)?组|\bARMC?D?\b|ACTARM|TRT0?1[AP]|TRTP|RANDG|treatment\s*(arm|group)', re.I)
+ARM_VAL = re.compile(r'(安慰剂|placebo|对照组|治疗组|试验组|剂量组|低剂量|高剂量|\barm\s*[A-Z0-9]\b)', re.I)
+
+
+def arm_column(label, vals, extra=()):
+    """分组列判定：表头像分组；或取值 2–8 种、≥80% 非空值像组名（含安慰剂/对照组/治疗组…或等于项目分组名）。"""
+    if ARM_HDR.search(label or ''):
+        return True
+    v = [x for x in vals if x]
+    d = set(v)
+    if not v or not (2 <= len(d) <= 8):
+        return False
+    ex = {e for e in extra if e}
+    hit = sum(1 for x in v if ARM_VAL.search(x) or x in ex)
+    return hit >= 0.8 * len(v)
 
 
 def _cell(v):
@@ -70,6 +87,8 @@ def export_raw(C, out):
     idx = {'sheets': {}, 'subs': defaultdict(list), 'dropped': []}
     per_sub = defaultdict(dict)
     dropped = set()
+    bd = (C.cfg.get('blind') or {}) if isinstance(getattr(C, 'cfg', None), dict) else {}
+    blind_on, arm_names = bool(bd.get('on')), list(bd.get('groupNames') or bd.get('terms') or [])
     for alias, path in (src.get('workbooks') or {}).items():
         try:
             wb = open_workbook_lenient(path)[0]
@@ -104,6 +123,9 @@ def export_raw(C, out):
                     continue
                 if PII.search(lab):
                     dropped.add(lab)
+                    continue
+                if blind_on and arm_column(lab, [d[2][j] for d in data], arm_names):
+                    dropped.add(f"{lab}（盲态：分组）")
                     continue
                 vals = {d[2][j] for d in data}
                 if vals == {''}:
