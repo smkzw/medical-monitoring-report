@@ -196,6 +196,27 @@ def desc_mh_match(C, sid, r):
     return out
 
 
+def mh_explains(C, sid, mid, pts):
+    """未关联的 CS 点：受试者已有覆盖这些日期的同类病史（指标族词表 mhMatch／AE 族兜底，或研究者描述与病史术语互含）→ 返回该病史。
+    与 CSB 步骤 3 同口径（V6 第二轮医学审阅 RUX S03045：DBIL 判 CS 未关联，病史「血胆红素升高」持续中、数值在给药前波动内）。"""
+    if not (getattr(C, 'mh_by', None) or {}).get(sid):
+        return None
+    mhm = getattr(C, 'mhMatch', None)
+    if mhm is None:                                      # 检验层（build_labrows）早于 ext_rules.run 的 _load_lists：直接编译配置
+        mhm = [(re.compile(a), re.compile(b)) for a, b, *_ in (C.A.get('mhMatch') or [])]
+    rules = [tre for mre, tre in mhm if mre.search(mid)] or [tre for _, tre, _w in ae_match_rows(C, mid)]
+    for r in pts:
+        d = r.get('date')
+        for m in C.mh_by[sid]:
+            cover = (not m.get('s') or not d or m['s'] <= d) and (m.get('ong') == '是' or not m.get('e') or not is_full_date(d) or m['e'] >= d)
+            if cover and any(t.search(m.get('t') or '') for t in rules):
+                return m
+        hit = desc_mh_match(C, sid, r)
+        if hit:
+            return next((m for m in C.mh_by[sid] if str(m['n']) == str(hit[0]['no'])), None)
+    return None
+
+
 _SPECIMEN = re.compile(r'鼻(分泌物|涂片|黏膜|拭子)?|痰|尿|粪|大便|脑脊液|关节液|胸水|腹水|皮损|阴道分泌物|白带')
 
 

@@ -1067,6 +1067,16 @@ def build_labrows(C):
                 if orphan:
                     risk = 'CSX'
                     ctx.append('CS 结果未关联且不在已关联事件期间：' + '、'.join(f"{r.get('visit')}（{r.get('date')}）" for r in orphan[:3]))
+            if risk == 'CSX' and not real_links(links):
+                mh_ = ext_rules.mh_explains(C, sid, mid, cs_pts)
+                if mh_ is not None:
+                    t_base_ = float(C.cfg['thresholds'].get('base', 0.3))
+                    wf_ = next((w for w in (worse_vs_base(r, b, t_base_, pre=pre_v) for r in cs_pts if r['post']) if w), None) if b else None
+                    if not wf_ and b:
+                        risk = 'MHL'                     # 病史延续：不作风险，提示可补关联（与 CSB 步骤 3「病史可解释」同口径）
+                        ctx.append(f"未关联，但病史「{mh_['t']}」覆盖该期间，较基线未明显加重（病史延续，可请研究者补关联）")
+                    else:
+                        ctx.append(f"病史有「{mh_['t']}」" + (f"，但给药后较基线加重（{wf_}）" if wf_ else "，基线缺失无法判断是否加重") + "，检验页未关联")
             ibg = next((bb for a, bb in (C.A.get('indicationBackground') or []) if re.search(a, mid)
                         and ext_rules.bg_applies(bb, mid, P[0].get('sheet', '') if P else '')), None) if risk == 'CSX' else None
             if ibg:
