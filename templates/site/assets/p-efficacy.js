@@ -67,8 +67,13 @@ function draw(){
   if(ORD)return;
   document.getElementById('t3').innerHTML=`<b style="color:var(--ink)">个体轨迹</b> · ${hc?`橙色加粗 = ${hc} 中心，其余淡化`:'选择中心后加粗显示该中心'} · 深红 = 异常列表受试者 · 点击线进入参与者资料`;
   const anS=new Set(AN.filter(a=>a.c==='red'||a.c==='org').map(a=>a.sid));
+  /* 非盲构建有分组：叠加各组中位数（随机对照试验看组间差异；盲态构建 grp 已在构建端清空，不出现） */
+  const ARMC=['#407AAA','#587B3B','#7A5195','#A85F34'],armOf=sid=>(K.subBy(sid)||{}).grp,arms=[...new Set(E.map(e=>armOf(e.sid)).filter(Boolean))].sort();
+  const armMed=()=>arms.length<2?[]:arms.map((g,i)=>({type:'line',name:g+' 中位数',data:V.map(v=>{const xs=E.filter(e=>armOf(e.sid)===g).map(e=>val(e,cur,v)).filter(x=>x!=null);return xs.length?K.ycl(BR,K.median(xs)):null}),
+    connectNulls:true,symbol:'diamond',symbolSize:7,lineStyle:{width:3,color:ARMC[i%4]},itemStyle:{color:ARMC[i%4]},z:6,silent:true}));
+  if(arms.length>1)document.getElementById('t3').innerHTML+=` · 粗线＝各组中位数：${arms.map((g,i)=>`<b style="color:${ARMC[i%4]}">${K.esc(g)}</b>`).join('、')}`;
   K.chart('#c3',{grid:{left:44,right:20,top:12,bottom:24},tooltip:{trigger:'item',formatter:p=>`${p.seriesName} · ${V[p.dataIndex]||''} ${fmtM(cur,p.data&&p.data.raw!=null?p.data.raw:p.value)}`},xAxis:{type:'category',data:V,...K.axis,boundaryGap:false},yAxis:{type:'value',scale:true,...K.axis,...K.ybOpt(BR)},
-   series:E.map(e=>{const h=hc&&e.site===hc,a=anS.has(e.sid),dim=hc&&!h;const col=h?'#FF9900':a?'#8B0000':dim?'#D5D8DD':'#E6C9A0';return {type:'line',name:e.sid,data:V.map(v=>{const x=val(e,cur,v);return x==null?null:{value:K.ycl(BR,x),raw:x,...K.ysym(BR,x)}}),connectNulls:true,symbol:'circle',symbolSize:h?5:a&&!dim?4:0,lineStyle:{width:h?2.4:a&&!dim?1.4:1,color:col,opacity:h?.95:dim?(a?.5:.3):a?.9:.45},itemStyle:{color:col},z:h?4:a?3:1,emphasis:{focus:'series',lineStyle:{width:3}}}})}).off('click');
+   series:E.map(e=>{const h=hc&&e.site===hc,a=anS.has(e.sid),dim=hc&&!h;const col=h?'#FF9900':a?'#8B0000':dim?'#D5D8DD':'#E6C9A0';return {type:'line',name:e.sid,data:V.map(v=>{const x=val(e,cur,v);return x==null?null:{value:K.ycl(BR,x),raw:x,...K.ysym(BR,x)}}),connectNulls:true,symbol:'circle',symbolSize:h?5:a&&!dim?4:0,lineStyle:{width:h?2.4:a&&!dim?1.4:1,color:col,opacity:h?.95:dim?(a?.5:.3):a?.9:.45},itemStyle:{color:col},z:h?4:a?3:1,emphasis:{focus:'series',lineStyle:{width:3}}}}).concat(armMed())}).off('click');
   echarts.getInstanceByDom(document.getElementById('c3')).on('click',p=>go(p.seriesName));
 }
 draw();
