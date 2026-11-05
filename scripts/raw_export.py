@@ -134,7 +134,9 @@ def export_raw(C, out):
                     const[lab] = next(iter(vals))
                     continue
                 keep.append(j)
-            idx['sheets'][key] = {'name': ws.title, 'wb': alias, 'mapped': meta is not None, 'domain': (meta or {}).get('domain') or '',
+            # V6（MY008 运营审阅：原始数据页目录只有 LB1/DS3 代码）：有表单目录时显示「中文名（代码）」
+            fnm = (src.get('formNames') or {}).get(ws.title)
+            idx['sheets'][key] = {'name': f"{fnm}（{ws.title}）" if fnm and fnm != ws.title else ws.title, 'sheet': ws.title, 'wb': alias, 'mapped': meta is not None, 'domain': (meta or {}).get('domain') or '',
                                   'cols': [labels[j] for j in keep], 'const': const, 'hl': [c for c in dict.fromkeys(labels) if c in hl],
                                   'n': len(data), 'nsub': len({d[0] for d in data})}
             for sid, rn, vals in data:

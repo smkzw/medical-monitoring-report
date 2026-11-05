@@ -3654,6 +3654,24 @@ class Eng2Tests(unittest.TestCase):
         ecg = {'desc': '右束支传导阻滞', 'value': None, 'date': '2024-01-05'}
         self.assertEqual([m['no'] for m in ext_rules.desc_mh_match(C, 'S1', ecg)], [3])
 
+    def test_arm_specific_visits(self):
+        from types import SimpleNamespace
+        from monitor_v5 import arm_specific_visits
+        subj = {f'A{i}': {'grp': 'A组', 'fd': '2024-01-01'} for i in range(6)}
+        subj.update({f'B{i}': {'grp': 'B组', 'fd': '2024-01-01'} for i in range(6)})
+        visits = [{'sid': f'A{i}', 'visit': 'D21', 'date': '2024-01-21'} for i in range(5)] + \
+                 [{'sid': s, 'visit': 'D28', 'date': '2024-01-28'} for s in subj]
+        C = SimpleNamespace(subj=subj, visits=visits)
+        self.assertEqual(arm_specific_visits(C), {('D21', 'B组')})
+        C2 = SimpleNamespace(subj={k: {**v, 'grp': None} for k, v in subj.items()}, visits=visits)
+        self.assertEqual(arm_specific_visits(C2), set())        # 盲态（无分组）不推断
+
+    def test_pow10_and_elig_units(self):
+        from mm_build import _elig_x
+        E = {'on': 'val', 'unit': '×10^9/L', 'op': '<', 'v': 100}
+        self.assertEqual(_elig_x(E, {'value': 0.15, 'unit': '×10^12/L'}), 150.0)
+        self.assertIsNone(_elig_x(E, {'value': 8.0, 'unit': '', 'test': '网织红细胞计数百分比'}))
+
     def test_catalog_header_only_needs_two(self):
         from normalize_listing import catalog_map
         names = {'AE', 'SAE', 'LB1', 'TOC'}

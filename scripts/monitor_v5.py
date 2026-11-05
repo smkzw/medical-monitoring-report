@@ -163,6 +163,9 @@ def visit_due(C, cutoff):
             if is_full_date(v.get('win_lo')) and is_full_date(v.get('win_hi')):     # V6：EDC 系统计划窗（同 visit_window_checks 口径）
                 syswin[(v['sid'], v['visit'], v['date'])] = (str(v['win_lo'])[:10], str(v['win_hi'])[:10])
     missed = {(v['sid'], v.get('visit')) for v in getattr(C, 'visits_missed', [])}   # EDC 访视页记为「未进行」的访视
+    arm_skip = arm_specific_visits(C, rec)
+    if arm_skip:
+        C._visit_arm = [f"{v}（{a}{'' if str(a).endswith('组') else '组'}无该访视）" for v, a in sorted(arm_skip)]
     order = sorted((k for k in W if k not in unmapped), key=lambda k: (_win(W[k])[0] is None, _win(W[k])[0] or 0))
     horizon = _add(cutoff, 14) if is_full_date(cutoff) else ''
     due, up = [], []
@@ -183,6 +186,8 @@ def visit_due(C, cutoff):
                 continue                                       # 锚点未发生（如末次给药锚定而仍在治疗）→ 不推算
             lo, hi = _add(ad, t - base - mi), _add(ad, t - base + pl)
             code = v if v in rec[sid] or v not in alias else alias[v]
+            if (code, s.get('grp')) in arm_skip:
+                continue                                       # 组别专属访视（见上）
             pool = [d for d in rec[sid].get(code, []) if (code, d) not in taken]
             got = min(pool, key=lambda d: abs(days(d, ad) + base - t)) if pool else ''
             if got and code != v and not (lo <= got <= hi) and len(rec[sid].get(code, [])) > 1:
@@ -208,6 +213,31 @@ def visit_due(C, cutoff):
             # 第 12 列：逾期且 EDC 已记为未进行（不是「没录入」，是「确认没做」——CRA 不用再追录入，转方案偏离/缺失核实）
             due.append([sid, s['site'], v, lo, hi, got, st, sd, t, mi, pl, 1 if not got and ((sid, v) in missed or (sid, code) in missed) else 0])
     return due, up
+
+
+def arm_specific_visits(C, rec=None):
+    """组别专属访视（V6，MY008 运营审阅：D21「仅限依库珠单抗组」，另一组 34 人全报逾期）：有分组时按数据判——
+    某访视在一组已给药者中有记录 ≥50%、在另一组（≥5 人）为 0 → {(访视代码, 组别)}：该组不推算逾期/缺失。
+    盲态构建无分组 → 空集（不据此推断分组）。rec：{sid: {访视: [日期]}}，缺省按 C.visits 统计。结果缓存在 C 上。"""
+    if getattr(C, '_arm_skip', None) is not None:
+        return C._arm_skip
+    if rec is None:
+        rec = defaultdict(dict)
+        for v in C.visits:
+            if v.get('visit'):
+                rec[v['sid']].setdefault(v['visit'], []).append(v.get('date'))
+    arms = defaultdict(list)
+    for sid_, s_ in C.subj.items():
+        if s_.get('grp') and is_full_date(s_.get('fd')):
+            arms[s_['grp']].append(sid_)
+    out = set()
+    if len(arms) >= 2:
+        for code_ in {v for x in rec for v in rec[x]}:
+            cov = {a: sum(1 for x in ids if code_ in rec.get(x, {})) / len(ids) for a, ids in arms.items()}
+            if max(cov.values()) >= .5:
+                out |= {(code_, a) for a, ids in arms.items() if cov[a] == 0 and len(ids) >= 5}
+    C._arm_skip = out
+    return out
 
 
 _EARLY = re.compile(r'提前|退出|脱落|中止|终止|失访|撤回')
@@ -701,6 +731,7 @@ def finalize(C):
     cut = C.ops.get('cutoff') or ''
     C.ops['due'], C.ops['upcoming'] = visit_due(C, cut)
     C.ops['visitAlias'], C.ops['visitUnmapped'] = getattr(C, '_visit_alias', {}), getattr(C, '_visit_unmapped', [])
+    C.ops['visitArm'] = getattr(C, '_visit_arm', [])          # 组别专属访视（不推算逾期）
     C.ops['fresh'] = freshness(C, cut)
     C.ops['fu'] = followup(C, cut)
     C.ops['planned'] = C.ops.get('planned') or planned_n(C)

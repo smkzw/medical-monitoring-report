@@ -179,7 +179,7 @@ K._rsw={};window.KZ_RAWS=(k,d)=>{K._rsc={k,d};(K._rsw[k]||[]).forEach(f=>f(d));d
 K.rawSheet=async k=>{if(K._rsc&&K._rsc.k===k)return K._rsc.d;const I=await K.rawIdx();const m=I&&I.sheets[k];if(!m||m.f==null)return null;
   return new Promise(res=>{(K._rsw[k]=K._rsw[k]||[]).push(res);if(K._rsw[k].length>1)return;K._js('data/rs/'+m.f+'.js').then(ok=>{if(!ok){res(null);delete K._rsw[k]}})})};
 /* 证据表单键归一：完整 id 直接用；只给表单名（旧证据）时按名称唯一匹配 */
-K.rawKey=(I,sh)=>{if(!I||!sh)return null;if(I.sheets[sh])return sh;const nm=String(sh).replace(/^[^:]*:/,'');const ks=Object.keys(I.sheets).filter(k=>I.sheets[k].name===nm);return ks.length?ks[0]:null};
+K.rawKey=(I,sh)=>{if(!I||!sh)return null;if(I.sheets[sh])return sh;const nm=String(sh).replace(/^[^:]*:/,'');const ks=Object.keys(I.sheets).filter(k=>(I.sheets[k].sheet||I.sheets[k].name)===nm);return ks.length?ks[0]:null};
 /* 原始行表格：meta＝表单目录项，rows＝[[行号,…值]]，hit＝命中行号集合（加粗＋命中列高亮） */
 /* 列顺序：判定相关列（hl）在前，其余内容列居中，EDC 系统元数据列（研究中心/受试者状态/页面…）放最后 */
 K.RAW_META=/^(MM comment|Flag|研究中心|中心编号|中心名称|试验中心.*|受试者状态|页面.*|数据节|Instance.*|数据块|Block.*|数据页|最后修改时间|项目编号|项目名称|表单编号|表单集.*|行号|记录号|GROUPID|是否失活|数据库版本|访视OID|表单OID)$/i;

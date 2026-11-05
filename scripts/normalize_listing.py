@@ -114,7 +114,9 @@ def catalog_map(sheet_rows, names):
 
 
 def form_names(book):
-    """EDC 导出常带目录页（表单代码 → 表单名称），用于把 LBCH、OTH、LB3 等代码显示成中文表单名。"""
+    """EDC 导出常带目录页（表单代码 → 表单名称），用于把 LBCH、OTH、LB3 等代码显示成中文表单名。结果缓存在 book 上。"""
+    if getattr(book, '_form_names', None) is not None:
+        return book._form_names
     names = set(book.wb.sheetnames)
     rows = {}
     for n in book.wb.sheetnames:
@@ -122,7 +124,11 @@ def form_names(book):
         if ws.max_row and ws.max_row > 2000:              # 数据表不可能是目录页；只取较小的表扫描
             continue
         rows[n] = list(ws.iter_rows(min_row=1, max_row=400, values_only=True))
-    return catalog_map(rows, names)
+    try:
+        book._form_names = catalog_map(rows, names)
+    except AttributeError:                                # 不可挂属性的 book 对象：不缓存
+        return catalog_map(rows, names)
+    return book._form_names
 
 
 def col_index(ref, labels, vars_):
@@ -263,12 +269,15 @@ def read_spec(spec, books, M, dom=None):
     flag_i = next((i for i, lb in enumerate(labels)
                    if _AE_FLAG_RX.search(lb) and re.search(r'不良事件|AE', lb, re.I) and not _AE_FLAG_BAD.search(lb)), None) if dom == 'ae' else None
     term_is = [i for i, lb in enumerate(labels) if _AE_TERM_RX.search(lb) and not re.search(r'编码|CODE|版本|语言', lb, re.I)]
-    crit_is = [i for i, lb in enumerate(labels) if _SAE_CRIT_RX.search(lb) and not re.search(r'请说明|描述', lb)
-               and i not in set(cols.values())]
+    crit_is = [i for i, lb in enumerate(labels) if _SAE_CRIT_RX.search(lb) and not re.search(r'请说明|描述|Code Value|编码值', lb, re.I)
+               and i not in set(cols.values())]       # V6（MY008）：「…(Code Value)」编码副本列不重复计入 SAE 标准
+    si = cols.get('sid')
+    hdr_sid = {str(x).strip() for x in ((labels[si] if si is not None and si < len(labels) else None),
+                                         (vars_[si] if si is not None and si < len(vars_) else None)) if x}
     for rown, r in data:
         rec = {k: conv(k, r[i] if i is not None and i < len(r) else None, M) for k, i in cols.items()}
-        if not rec.get('sid'):
-            continue
+        if not rec.get('sid') or str(rec['sid']).strip() in hdr_sid:
+            continue              # V6（MY008 MH1）：表中间重复导出的表头行（受试者列＝「SUBJID」）不是记录
         if flag_i is not None and term_is and flag_i < len(r):
             fv = '' if r[flag_i] is None else str(r[flag_i]).strip().lower()
             if fv in _AE_NO_VALS and all(i >= len(r) or r[i] in (None, '') for i in term_is):
@@ -394,6 +403,10 @@ def findings(spec, books, M):
     lay = spec.get('layout', 'long')
     alias = spec.get('wb', next(iter(books)))
     flag_tests = _bool_flag_tests(spec, books[alias], M, lay)
+    # V6（MY008 工程审阅：PE/MO/XT/LB 等单项检查表没有检查项列，整表 3000 余行被 `if not f['test']` 丢掉）：
+    # 长表未绑检查项列时，检查项＝表单名（目录页中文名优先），记录不丢
+    no_test_col = lay == 'long' and not (spec.get('cols') or {}).get('test')
+    form_nm = (form_names(books[alias]).get(spec['sheet']) or spec['sheet']) if no_test_col else ''
     for rec, r, labels, vars_ in read_spec(spec, books, M):
         loc = str(rec.get('loc') or '').strip()       # V6：测量部位限定词（DXA 腰椎/股骨颈/全髋）拼进检查名
         base = {k: rec.get(k) for k in ('sid', 'visit', 'date', 'time', 'tpt', 'sheet', 'row', 'done', 'wb', 'reason', 'reason_text', '_chg',
@@ -408,6 +421,8 @@ def findings(spec, books, M):
             items = [dict(rec)]
             if not str(items[0].get('test') or '') and items[0].get('metric'):
                 items[0]['test'] = items[0]['metric']   # efficacy 窄表（const metric）：测试名回落到 metric，记录不丢
+            elif no_test_col and not str(items[0].get('test') or ''):
+                items[0]['test'] = form_nm
         else:
             items = []
             for test, tc in spec['tests'].items():
@@ -466,6 +481,8 @@ def findings(spec, books, M):
                 continue
             if isinstance(f['unit'], str) and f['unit']:
                 f['unit'] = f['unit'].replace('μ', 'µ')   # F10：μ 两种写法归一（U+03BC → U+00B5，与分级表键一致）
+            if isinstance(f['unit'], str) and re.search(r'10\s*[Ee]\s*\d', f['unit']):
+                f['unit'] = re.sub(r'(?<![\d.])10\s*[Ee]\s*(\d+)', r'10^\1', f['unit'])   # V6（MY008）：10E12/L＝×10^12/L
             if isinstance(f['unit'], str) and '10^' in f['unit']:
                 # 单位科学计数归一（一处分叉收口）：运算符统一为 ×——大小写 x/X、全半角乘号 ＊/×/✕/⨯ 及其与
                 # 数字间的空格都收（SAR 实测 *10^9/L、x10^9/L、×10^9/L 混存）；数字直接粘 10^（星号在复制/导出链

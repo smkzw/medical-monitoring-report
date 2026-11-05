@@ -700,19 +700,22 @@ def worse_vs_base(r, b, t_base, disease=False, pre=None):
     pct = (v - bv) / abs(bv)
     # V6 医学审阅（RUX S13007：参考上限由 20.5 改为 26.0，按 ×ULN 看并无变化）：前后参考范围不同（>5%）时按相对参考边界的倍数比较
     bhi, blo = ref_hi(b) if isinstance(b, dict) else None, (b.get('lo') if isinstance(b, dict) else None)
-    if above and hi and bhi and abs(bhi - hi) / hi > 0.05 and bv:
-        pct = (v / hi - bv / bhi) / abs(bv / bhi)
-    elif below and lo and blo and abs(blo - lo) / lo > 0.05 and bv:
-        pct = (v / lo - bv / blo) / abs(bv / blo)
+    uln_based = False
+    # 第二轮 MY008 审阅（网织红 5% 对基线 6.76%、参考范围不同，写成「升高 48%」）：按 ×ULN 比较只在原始数值同向变化时用
+    if above and hi and bhi and abs(bhi - hi) / hi > 0.05 and bv and v > bv:
+        pct, uln_based = (v / hi - bv / bhi) / abs(bv / bhi), True
+    elif below and lo and blo and abs(blo - lo) / lo > 0.05 and bv and v < bv:
+        pct, uln_based = (v / lo - bv / blo) / abs(bv / blo), True
+    how = '（按参考范围倍数）' if uln_based else ''
     if disease:
         from monitor_v5 import abs_floor
         fl = abs_floor(bv, r.get('unit'))
         if fl is not None and abs(v - bv) < fl:
             return None
     if above and pct >= t_base:
-        return f"较基线升高 {pct * 100:.0f}%"
+        return f"较基线升高 {pct * 100:.0f}%{how}"
     if below and -pct >= t_base:
-        return f"较基线降低 {-pct * 100:.0f}%"
+        return f"较基线降低 {-pct * 100:.0f}%{how}"
     return None
 
 

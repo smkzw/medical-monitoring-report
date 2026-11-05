@@ -388,14 +388,16 @@ class _PD:
         self.ran['VIS-02'] = 'ran'
         if not is_full_date(self.cutoff):
             return
+        from monitor_v5 import arm_specific_visits
+        arm_skip = arm_specific_visits(C)
         for sid in sorted(C.dosed):
             s = C.subj[sid]
             et_d = min((v['date'] for v in C.visits if v['sid'] == sid and v.get('visit') in C.ET and is_full_date(v.get('date'))), default=None)
             # 研究结束日期 / （可选）治疗结束日期 / 提前退出访视日期：之后不再期待计划访视
             stop = min([d for d in (s.get('eos_d'), s.get('eot_d') if self.P.get('stopAtEot') else None, et_d) if is_full_date(d)] or [self.cutoff])
             for vis, spec in W.items():
-                if vis in have[sid]:
-                    continue
+                if vis in have[sid] or (vis, s.get('grp')) in arm_skip:
+                    continue                              # 组别专属访视（monitor_v5.arm_specific_visits）：该组不期待
                 if isinstance(spec, dict):
                     t, plus, anc = spec.get('target'), spec.get('plus', 0), spec.get('anchor', 'fd')
                 else:
