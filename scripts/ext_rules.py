@@ -677,7 +677,20 @@ def within_pre(r, pre, tol=0.10):
     return False
 
 
-def worse_vs_base(r, b, t_base, disease=False, pre=None):
+def disease_dir(C, mid, sheet=''):
+    """该指标作为研究疾病表现时的不利方向：方案/IB 抽取的疾病表现（analysis.indicationBackground，模型标 ↑/↓）→ 'high'/'low'/None。
+    用户 2026-11-05：网织红细胞下降对 PNH 是好转，不算「加重」。"""
+    for a, note in (C.A.get('indicationBackground') or []):
+        try:
+            if re.search(a, mid) and bg_applies(note, mid, sheet):
+                head = str(note).split('：')[0]
+                return 'high' if '↑' in head else 'low' if '↓' in head else None
+        except re.error:
+            continue
+    return None
+
+
+def worse_vs_base(r, b, t_base, disease=False, pre=None, ddir=None):
     """D14/D19 较基线加重：分级升高（0→1 级不单独算，见 grade_up），或超出范围且同向较基线变化 ≥T_base。
     返回说明文本或 None；仅临床意义 NCS→CS 的判定波动不算加重。
     V6 R3（审阅者 2026-11-02）：disease=True（研究疾病本身的表现，如嗜酸粒细胞）时，小基数指标的相对变化须同时达到
@@ -686,7 +699,9 @@ def worse_vs_base(r, b, t_base, disease=False, pre=None):
         return None
     if within_pre(r, pre):                           # pre＝给药前数值（pre_values）；给药前本就到过这个水平 → 不算加重
         return None
-    if grade_up(b.get('grade'), r.get('grade'), r.get('value'), b.get('value')):
+    if grade_up(b.get('grade'), r.get('grade'), r.get('value'), b.get('value')) and \
+            not (ddir in ('high', 'low') and isinstance(r.get('value'), (int, float)) and isinstance(b.get('value'), (int, float))
+                 and ((ddir == 'high') != (r['value'] > b['value']))):
         return f"等级 {b.get('grade') or 0}→{r.get('grade')} 级"
     v, bv = r.get('value'), b.get('value')
     if v is None or bv is None:
@@ -695,6 +710,10 @@ def worse_vs_base(r, b, t_base, disease=False, pre=None):
     above, below = hi is not None and v > hi, lo is not None and v < lo
     d = metric_dir(r.get('mid'))                     # 只按不利方向判加重：HDL 升高、ALT 降低都不算
     above, below = above and d != 'down', below and d != 'up'
+    if ddir in ('high', 'low'):                      # 研究疾病表现：只有疾病不利方向的变化才算加重（网织红细胞下降＝好转）
+        above, below = above and ddir == 'high' and v > bv, below and ddir == 'low' and v < bv
+        if not (above or below):
+            return None
     if bv == 0:                                      # 基线为 0（如乙肝表面抗原 0→199.68）：现超出范围即视为加重
         return '基线为 0，现超出参考范围' if above else None
     pct = (v - bv) / abs(bv)
@@ -706,16 +725,20 @@ def worse_vs_base(r, b, t_base, disease=False, pre=None):
         pct, uln_based = (v / hi - bv / bhi) / abs(bv / bhi), True
     elif below and lo and blo and abs(blo - lo) / lo > 0.05 and bv and v < bv:
         pct, uln_based = (v / lo - bv / blo) / abs(bv / blo), True
-    how = '（按参考范围倍数）' if uln_based else ''
+    # D002 自检（Q039 4.04→4.87 写「升高 30%」、实际 21%）：文字里的百分比必须是原始数值的变化；参考范围变了时另注按边界倍数计的幅度
+    raw = (v - bv) / abs(bv)
+    lim = ('上限', bhi, hi) if above else ('下限', blo, lo)
+    how = (f"（参考{lim[0]}由 {fmt(lim[1])} 变为 {fmt(lim[2])}，按相对{lim[0]}的倍数计{'升高' if pct > 0 else '降低'} {abs(pct) * 100:.0f}%）"
+           if uln_based else '')
     if disease:
         from monitor_v5 import abs_floor
         fl = abs_floor(bv, r.get('unit'))
         if fl is not None and abs(v - bv) < fl:
             return None
     if above and pct >= t_base:
-        return f"较基线升高 {pct * 100:.0f}%{how}"
+        return f"较基线{'升高' if raw >= 0 else '降低'} {abs(raw) * 100:.0f}%{how}"
     if below and -pct >= t_base:
-        return f"较基线降低 {-pct * 100:.0f}%{how}"
+        return f"较基线{'降低' if raw <= 0 else '升高'} {abs(raw) * 100:.0f}%{how}"
     return None
 
 
@@ -1060,7 +1083,7 @@ def m23_csb(C):
     exempt = dp.get('confirmed') is True and str(dp.get('quote') or '').strip()
     handled = set()                                      # M01/M02 已产 query 或已判通过的 CS 行
     for g in C.labrows:
-        if g['risk'] in ('CSX', 'MH', 'MHL', 'MHU', 'CSX_AE', 'AE', 'DIS', 'DISW', 'CSI'):
+        if g['risk'] in ('CSX', 'MH', 'MHL', 'MHU', 'CSX_AE', 'AE', 'DIS', 'DISW', 'DISL', 'CSI'):
             for p in g['pts']:
                 handled.add((g['sid'], p[7], p[8]))
     candidates, seen = [], set()

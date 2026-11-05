@@ -55,7 +55,7 @@ function tabLab(){
   const cfL=K.chgBar(document.getElementById('chg-lab'),'lab',()=>draw(),'检验异常');
   K.chips(document.getElementById('grp'),groups.map(g=>[g,g,lab.filter(x=>x.grp===g).length]),v=>{st.grp=v||'';draw()},{all:'全部分组'});
   document.getElementById('cat').onchange=e=>{st.cat=e.target.value;draw()};document.getElementById('site').onchange=e=>{st.site=e.target.value;draw()};document.getElementById('q').oninput=e=>{st.q=e.target.value.trim();draw()};
-  const order={CSX:0,DISW:1,MH:2,NCS2:3,NA2:3,G2NF:3,NA:4,MHU:4,CSI:4,'MHX-T':5,AE:6,MHL:7,DIS:8,NCS:9,REL:5};
+  const order={CSX:0,DISW:1,MH:2,NCS2:3,NA2:3,G2NF:3,NA:4,MHU:4,CSI:4,'MHX-T':5,AE:6,MHL:7,DIS:8,DISL:7,NCS:9,REL:5};
   const ord=r=>r.risk==='REL'&&(r.bind||'none')!=='none'?10:(order[r.risk]??11);
   const tb=K.table(document.getElementById('tb'),{rows:[],h:'640px',pageSize:80,cols:[
     {k:'risk',t:'风险',s:r=>-ord(r),f:r=>K.risk(r.risk)+(r.risk==='REL'?' '+K.p(...K.relBind(r)):'')+(r.pdId?' '+K.pdPill(r.pdId):'')+K.dpill('lab',r)+(r.ctq?K.p('关键','solid-red',r.ctq):'')},

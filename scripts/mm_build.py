@@ -1046,6 +1046,22 @@ def micro_rows(C):
     return out
 
 
+def disease_gate(C, mid, pts, b):
+    """研究疾病归因异常已判「较基线加重」后是否发质疑（用户 2026-11-05）：有 CTCAE 分级的指标只在最差 ≥3 级或分级上升
+    （同 ext_rules.grade_up：已 ≥1 级再升级或升到 ≥2 级、且变化 ≥5%）时发；其余列「研究疾病指标波动」清单。无分级的指标 → 发（≥T_base 已满足）。
+    返回 (是否发质疑, 说明)。"""
+    if not C.metric[mid].get('gcode'):
+        return True, ''
+    post = [r for r in pts if r.get('post')]
+    worst = max(post, key=lambda r: r.get('grade') or 0, default=None)
+    mg, bg = (worst or {}).get('grade') or 0, (b or {}).get('grade') or 0
+    if mg >= 3:
+        return True, f'达 {mg} 级'
+    if worst and ext_rules.grade_up(bg, mg, worst.get('value'), (b or {}).get('value')):
+        return True, f'分级 {bg}→{mg} 级'
+    return False, f'最差 {mg} 级、分级未上升：列入研究疾病指标波动清单（不发质疑）'
+
+
 def build_labrows(C):
     doms = set(C.A.get('labDomains', ['lab', 'vs', 'ecg']))
     match = [(re.compile(a), re.compile(b), w) for a, b, w in C.A.get('aeMatch', [])]  # [metricRe, aeTermRe, ±days]
@@ -1112,10 +1128,17 @@ def build_labrows(C):
         if anycs and dis_only:
             # 用户 2026-10-27：归因研究疾病不算「未关联」；只有较基线明显加重、且未记录「研究疾病加重」类 AE 才作为风险
             t_base = float(C.cfg['thresholds'].get('base', 0.3))
-            wf = (next((w for w in (worse_vs_base(r, r.get('base') or b, t_base, disease=True, pre=pre_v) for r in cs_pts if r['post']) if w), None) if b else None) or \
-                next((w for w in map(ext_rules.stated_worse, cs_pts) if w), None)      # 研究者备注写明加重：研究者判定优先
+            ddir = ext_rules.disease_dir(C, mid, P[0].get('sheet', '') if P else '')
+            wsys = next((w for w in (worse_vs_base(r, r.get('base') or b, t_base, disease=True, pre=pre_v, ddir=ddir) for r in cs_pts if r['post']) if w), None) if b else None
+            wst = None if wsys else next((w for w in map(ext_rules.stated_worse, cs_pts) if w), None)   # 研究者备注写明加重：研究者判定优先
+            wf = wsys or wst
             dae = disease_ae(sid, mid, cs_pts) if wf else []
             risk = 'DISW' if wf and not dae else 'DIS'
+            if risk == 'DISW' and wsys:
+                gq, gwhy = disease_gate(C, mid, cs_pts, b)
+                if not gq:
+                    risk = 'DISL'
+                    ctx.append(gwhy)
             ctx.append('研究者归因：研究疾病' + (f'；给药后较基线加重（{wf}）' if wf else '；基线缺失，无法判断是否加重' if not b else '；较基线未明显加重') +
                        (f"；已记录研究疾病加重 AE「{dae[0]['t']}」（{dae[0]['s']}，未关联，提示关联）{ext_rules.onset_note(C, mid, dae[0], cs_pts)}" if dae else
                         '；未见覆盖该期间的研究疾病加重类 AE' if wf else ''))
@@ -1150,7 +1173,8 @@ def build_labrows(C):
                 if b is None:
                     ctx.append(f'研究疾病表现（{nm}）；基线缺失，无法判断是否较基线加重')
                 else:
-                    wf = next((w for w in (worse_vs_base(r, r.get('base') or b, float(C.cfg['thresholds'].get('base', 0.3)), disease=True, pre=pre_v) for r in cs_pts if r['post']) if w), None)
+                    ddir = ext_rules.disease_dir(C, mid, P[0].get('sheet', '') if P else '')
+                    wf = next((w for w in (worse_vs_base(r, r.get('base') or b, float(C.cfg['thresholds'].get('base', 0.3)), disease=True, pre=pre_v, ddir=ddir) for r in cs_pts if r['post']) if w), None)
                     dae = disease_ae(sid, mid, cs_pts) if wf else []
                     if wf and dae:
                         risk = 'DIS'
@@ -1158,6 +1182,10 @@ def build_labrows(C):
                                    f"{ext_rules.onset_note(C, mid, dae[0], cs_pts)}")
                     elif wf:
                         ctx.append(f'研究疾病表现（{nm}），但较基线进一步加重：{wf}')
+                        gq, gwhy = disease_gate(C, mid, cs_pts, b)
+                        if not gq:
+                            risk = 'DISL'
+                            ctx.append(gwhy)
                     else:                                # 用户 2026-10-27：疾病本身的表现、较基线没有进一步加重 → 不作为风险
                         risk = 'DIS'
                         ctx.append(f'研究疾病表现（{nm}）：较基线未进一步加重，按疾病表现处理（不发 query）')

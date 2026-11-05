@@ -3682,6 +3682,28 @@ class Eng2Tests(unittest.TestCase):
         self.assertEqual(C.cfg['visits']['order'], ['V1', 'D-3至D-1', 'D21'])
         self.assertIn('D21', C.A['visitWindows'])
 
+    def test_disease_direction_and_gate(self):
+        from types import SimpleNamespace
+        from ext_rules import worse_vs_base, disease_dir
+        C = SimpleNamespace(A={'indicationBackground': [['^lab:.*网织红细胞', '网织红细胞计数代偿性增高↑：溶血后代偿']]})
+        self.assertEqual(disease_dir(C, 'lab:网织红细胞计数百分比'), 'high')
+        b = {'value': 6.76, 'hi': 2.0, 'grade': 0}
+        down = {'value': 3.0, 'hi': 2.0, 'grade': 0, 'mid': 'lab:网织红细胞计数百分比'}
+        up = {'value': 12.0, 'hi': 2.0, 'grade': 0, 'mid': 'lab:网织红细胞计数百分比'}
+        self.assertIsNone(worse_vs_base(down, b, 0.3, disease=True, ddir='high'))    # 下降＝好转，不算加重
+        self.assertTrue(worse_vs_base(up, b, 0.3, disease=True, ddir='high'))
+        from mm_build import disease_gate
+        C2 = SimpleNamespace(metric={'lab:N': {'gcode': 'ANC'}, 'lab:R': {}})
+        pts = [{'post': True, 'grade': 2, 'value': 1.2}]
+        self.assertFalse(disease_gate(C2, 'lab:N', pts, {'grade': 2, 'value': 1.4})[0])   # 有分级、2 级未上升 → 清单
+        self.assertTrue(disease_gate(C2, 'lab:N', [{'post': True, 'grade': 3, 'value': 0.8}], {'grade': 2, 'value': 1.4})[0])
+        self.assertTrue(disease_gate(C2, 'lab:R', pts, None)[0])                          # 无分级 → 发（≥30% 已满足）
+
+    def test_pct_wording_uses_raw_change(self):
+        from ext_rules import worse_vs_base
+        w = worse_vs_base({'value': 4.87, 'hi': 4.8, 'grade': 0, 'mid': 'lab:甘油三酯'}, {'value': 4.04, 'hi': 5.2, 'grade': 0}, 0.2)
+        self.assertTrue(w.startswith('较基线升高 21%'), w)                                # D002 Q039：原值升高 21%，不能写 30%
+
     def test_catalog_header_only_needs_two(self):
         from normalize_listing import catalog_map
         names = {'AE', 'SAE', 'LB1', 'TOC'}

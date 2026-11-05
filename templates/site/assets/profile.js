@@ -43,7 +43,7 @@ K.profile=async(el,sc)=>{
   const fdOf=Object.fromEntries(S.map(s=>[s.id,s.fd]));
   const cmNew=g=>{const I=ids(g),xs=MC.cm.filter(r=>I.has(r[0])&&r[2]&&fdOf[r[0]]&&r[2].slice(0,10)>=fdOf[r[0]]);return sub&&g[0]==='本例'?`${xs.length} 条`:`${new Set(xs.map(r=>r[0])).size} 例（${pct(new Set(xs.map(r=>r[0])).size,g[1].length)}）`};
   /* ---------- 检验异常：风险层（每例）＋基线→基线后最差（参考范围 L/N/H） ---------- */
-  const LAY=[['CSX','CS未关联'],['MH','仅关联病史·加重'],['DISW','研究疾病·加重'],['NCS2','NCS·≥2级'],['NA2','未评价·≥2级'],['G2NF','≥2级·无评价字段'],['NA','超范围未评价'],['CSI','判定不一致'],['REL','显著变化·未关联']];
+  const LAY=[['CSX','CS未关联'],['MH','仅关联病史·加重'],['DISW','研究疾病·加重'],['DISL','研究疾病指标波动（清单）'],['NCS2','NCS·≥2级'],['NA2','未评价·≥2级'],['G2NF','≥2级·无评价字段'],['NA','超范围未评价'],['CSI','判定不一致'],['REL','显著变化·未关联']];
   const layCell=(g,k)=>{const I=ids(g),n=K.lab.filter(x=>I.has(x.sid)&&x.risk===k&&(k!=='REL'||K.relRisk(x))).length;return sub&&g[0]==='本例'?`<b>${n}</b>`:`<b>${n}</b> <span class="xs muted">（每例 ${(n/(g[1].length||1)).toFixed(2)}）</span>`};
   const si=Object.fromEntries((T.subjects||[]).map((x,i)=>[x[0],i]));
   const cls=r=>r[13]!=null&&r[3]>r[13]?'H':r[12]!=null&&r[3]<r[12]?'L':'N';
