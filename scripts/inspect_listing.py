@@ -99,7 +99,7 @@ FIELD_SYN = {  # normalized field → variable/label patterns (first match wins)
     'link_mh': [r'(MHNO$|相关(既往)?病史)'], 'link_ae': [r'(AENO$|相关不良事件)'], 'reason_disease': [r'与研究疾病相关'],
     'cat': [r'(DVCAT|偏离(类别|分类))'], 'text': [r'(质疑内容|QUERYTEXT|TEXT)'], 'form': [r'^(FORM|表单|CRF页)'],
 }
-DOMAIN_FIELDS = {'subjects': ['sid', 'site', 'center', 'icf', 'rescreen', 'prev_sid', 'age', 'sex', 'ht', 'wt', 'rand', 'rand_d', 'status', 'eot_d', 'eot_why', 'eos_d', 'eos_done', 'eos_why', 'eot_early', 'eot_early_d', 'eos_early', 'grp'], 'groups': ['sid', 'grp', 'strat'], 'visits': ['sid', 'visit', 'date', 'done', 'win_lo', 'win_hi'],
+DOMAIN_FIELDS = {'subjects': ['sid', 'site', 'center', 'icf', 'rescreen', 'prev_sid', 'age', 'sex', 'ht', 'wt', 'rand', 'rand_d', 'status', 'eot_d', 'eot_why', 'eos_d', 'eos_done', 'eos_why', 'eot_early', 'eot_early_d', 'eos_early', 'grp'], 'groups': ['sid', 'grp', 'strat'], 'visits': ['sid', 'visit', 'date', 'done', 'nd', 'win_lo', 'win_hi'],
                  'exposure': ['sid', 'visit', 'start', 'end', 'dose_plan', 'dose_act', 'miss_qty', 'extra_qty', 'dose', 'time', 'fast'], 'ae': ['sid', 'term', 'pt', 'soc', 'llt', 'start', 'end', 'grade', 'serious', 'aesi', 'rel', 'action', 'outcome', 'aware', 'rpt', 'gchg'],
                  'mh': ['sid', 'term', 'start', 'end', 'ongoing'], 'cm': ['sid', 'term', 'start', 'end', 'ongoing', 'dose', 'freq', 'route', 'indication'],
                  'proc': ['sid', 'term', 'start', 'end'], 'findings': ['sid', 'visit', 'date', 'time', 'tpt', 'test', 'value', 'unit', 'lo', 'hi', 'clin', 'desc', 'link',

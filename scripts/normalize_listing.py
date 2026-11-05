@@ -278,6 +278,9 @@ def read_spec(spec, books, M, dom=None):
         rec = {k: conv(k, r[i] if i is not None and i < len(r) else None, M) for k, i in cols.items()}
         if not rec.get('sid') or str(rec['sid']).strip() in hdr_sid:
             continue              # V6（MY008 MH1）：表中间重复导出的表头行（受试者列＝「SUBJID」）不是记录
+        if 'nd' in rec:           # 「未做」勾选列（1/是/√＝未做）→ done=否（与「是否进行」同口径）
+            if yes(rec.pop('nd')):
+                rec['done'] = '否'
         if flag_i is not None and term_is and flag_i < len(r):
             fv = '' if r[flag_i] is None else str(r[flag_i]).strip().lower()
             if fv in _AE_NO_VALS and all(i >= len(r) or r[i] in (None, '') for i in term_is):
