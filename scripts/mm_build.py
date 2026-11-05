@@ -445,7 +445,8 @@ def build_events(C):
         rec = {'n': (a.get('no') if use_ae_no else None) or len(C.ae_by[sid]) + 1, 't': term, 'c': cat, 's': a.get('start') or '', 'e': a.get('end') or '',
                'g': gtxt(a.get('grade')), 'sae': bool(a.get('serious')), 'aesi': bool(a.get('aesi')),
                'dili': yes(a.get('dili')) if isinstance(a.get('dili'), str) else bool(a.get('dili')), 'rel': rel or '—', 'act': a.get('action') or '—', 'out': a.get('outcome') or '—',
-               'cm': a.get('cm') or '', 'wd': a.get('withdraw') or '', 'row': a['row'], 'sh': a['sheet'], 'wb': a.get('wb') or '', 'sid': sid, 'site': s['site'], 'fd': s['fd'] or '',
+               # wd：只有「是」才算导致退出（「否」曾是真值 → AE 列表几乎全部标「退出治疗」，MY008/SAR/D001）
+               'cm': a.get('cm') or '', 'wd': '是' if yes(a.get('withdraw')) else '', 'row': a['row'], 'sh': a['sheet'], 'wb': a.get('wb') or '', 'sid': sid, 'site': s['site'], 'fd': s['fd'] or '',
                'pre': _pre_dose(a.get('start'), s['fd']), '_rel': related,
                '_aesi_term': bool(aesi_hit), '_aesi_def': aesi_hit, 'pt': a.get('pt') or '', 'soc': a.get('soc') or '',
                'rpt': a.get('rpt') or '', 'aware': a.get('aware') or '', 'sae_crit': a.get('sae_crit') or '',
