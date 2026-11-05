@@ -1862,10 +1862,19 @@ def entry_errors(C):
 
     def ucanon(u):                                       # 等价单位写法视为相同（U/L＝IU/L，×10^9/L＝10^9/L，µ＝μ＝u，前导/尾随装饰斜杠：/fL＝fL/＝fL）
         u = re.sub(r'\s|×|\*', '', str(u or '')).lower().replace('µ', 'u').replace('μ', 'u').replace('秒', 's').strip('/')
+        u = {'ng/ml': 'ug/l', 'ug/ml': 'mg/l', 'pg/ml': 'ng/l', 'mmol/l': 'mmol/l', 'meq/l': 'mmol/l'}.get(u, u)   # 数值等价的单位写法（铁蛋白 ug/L＝ng/mL）
         return '' if u in ('na', 'n/a', '/', '-', '—', '无', '') else re.sub(r'^iu', 'u', u).replace('/iu', '/u')
+    series = []
     for (sid, mid), rows in C.F.items():
         if mid.split(':')[0] not in ('lab', 'vs', 'ecg') or skip.search(C.metric[mid]['label']):
             continue
+        # MY008 第 8 轮运营复审：本地/中心实验室两张表的同名指标（网织红中心记小数 0.108、本地记百分数 10.8%）合成一条序列 →
+        # 互判对方「疑似小数点错位」约 50 条。按表单分开比较（同一检测来源内部才可比）
+        by_sh = defaultdict(list)
+        for r in rows:
+            by_sh[r.get('sheet')].append(r)
+        series += [(sid, mid, rs) for rs in by_sh.values()]
+    for sid, mid, rows in series:
         num = [r for r in sorted(rows, key=lambda r: (r.get('date') or '', r.get('time') or '', r.get('row') or 0))
                if isinstance(r.get('value'), (int, float)) and r['value'] > 0]
         units = Counter(ucanon(r.get('unit')) for r in num if ucanon(r.get('unit')))

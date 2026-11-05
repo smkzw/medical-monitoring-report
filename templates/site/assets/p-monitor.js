@@ -24,7 +24,8 @@ const pane=document.getElementById('pane');
 const R={enr,vis,dose,dq,kri,time,cred,ent};
 const cname=s=>`${K.p(s,'sq mono')} ${K.esc((CN[s]||'').length>12?CN[s].slice(0,12)+'…':CN[s]||'')}`;
 /* 一列各中心比率着色：期望＝整体率×分母，泊松上尾、按列 Benjamini–Hochberg 校正（与风险页热力图同口径） */
-const colCells=(rows,all)=>{const f=K.colFlags(rows,all);return rows.map(([n,d],i)=>d?`<span style="${(f[i]||{}).style||''};padding:1px 6px;border-radius:4px" title="本中心 ${(n/d*100).toFixed(0)}%，整体 ${(all*100).toFixed(0)}% · ${K.esc(K.qTip(f[i]))}">${n} <span class="xs muted">${(n/d*100).toFixed(0)}%</span></span>`:'·')};
+/* per=true：分子是计数、分母是人数（质疑数/给药人数）——显示「每例 x.x」而不是百分比（MY008 运营复审：「142 592%」无意义） */
+const colCells=(rows,all,per)=>{const f=K.colFlags(rows,all),fm=x=>per?`每例 ${x.toFixed(1)}`:`${(x*100).toFixed(0)}%`;return rows.map(([n,d],i)=>d?`<span style="${(f[i]||{}).style||''};padding:1px 6px;border-radius:4px" title="本中心 ${fm(n/d)}，整体 ${fm(all)} · ${K.esc(K.qTip(f[i]))}">${n} <span class="xs muted">${fm(n/d)}</span></span>`:'·')};
 /* ---------- 入组与进度（含入组预测） ---------- */
 function enr(){
   const st=k=>SU.filter(s=>s.status===k).length,n=SU.length,dosed=SU.filter(s=>s.fd);
@@ -97,7 +98,7 @@ function dq(){
   const QS=by(D.queries,q=>q.site),SUB=Object.fromEntries(SU.map(s=>[s.id,s.site])),CRO=by(D.cro,c=>SUB[c[2]]||'');
   const oc=cat=>by(D.others.filter(o=>o.cat===cat),o=>o.site),date=oc('日期完整性核对'),rng=oc('参考范围缺失核对'),ENT=by(O.entry||[],e=>e.site);
   const qAll=D.queries.length/(ds.length||1),FR=O.fresh||{};
-  const sq=sites.filter(si=>ds.some(s=>s.site===si)||(QS[si]||[]).length),qC=colCells(sq.map(si=>[(QS[si]||[]).length,ds.filter(s=>s.site===si).length]),qAll);
+  const sq=sites.filter(si=>ds.some(s=>s.site===si)||(QS[si]||[]).length),qC=colCells(sq.map(si=>[(QS[si]||[]).length,ds.filter(s=>s.site===si).length]),qAll,true);
   pane.innerHTML=`<div class="grid g12"><div class="card"><div class="hd"><h2>提前退出 / 终止治疗原因</h2><span class="sub">${wd.length} 例</span></div><table class="t"><tbody>${Object.entries(why).sort((a,b)=>b[1].length-a[1].length).map(([k,v])=>`<tr><td class="small">${K.esc(k)}</td><td class="num">${v.length}</td><td class="small">${v.slice(0,6).map(s=>K.sid(s.id)+(s.fd&&end(s)?` <span class="xs faint">D${dd(end(s),s.fd)+1}</span>`:'')).join('　')}</td></tr>`).join('')||'<tr><td class="empty">无</td></tr>'}</tbody></table></div>
    <div class="card"><div class="hd"><h2>各中心数据质量</h2><span class="sub">申办方质疑按给药人数校正着色 · 数据新鲜度＝数据截止 − 最近一条记录</span></div><table class="t heat"><thead><tr><th>中心</th><th class="num">给药</th><th class="num">申办方质疑</th><th class="num">CRO 质疑</th><th class="num">日期完整性</th><th class="num">参考范围缺失</th><th class="num">疑似录入错误</th><th class="num">最近记录</th></tr></thead><tbody>
     ${sq.map((si,i)=>{const n=ds.filter(s=>s.site===si).length,f=FR[si];
