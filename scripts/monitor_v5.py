@@ -156,9 +156,12 @@ def visit_due(C, cutoff):
     alias, unmapped = visit_alias(C, W)
     C._visit_alias, C._visit_unmapped = alias, unmapped
     rec = defaultdict(lambda: defaultdict(list))
+    syswin = {}
     for v in C.visits:
         if v.get('visit') and is_full_date(v.get('date')):
             rec[v['sid']][v['visit']].append(v['date'])
+            if is_full_date(v.get('win_lo')) and is_full_date(v.get('win_hi')):     # V6：EDC 系统计划窗（同 visit_window_checks 口径）
+                syswin[(v['sid'], v['visit'], v['date'])] = (str(v['win_lo'])[:10], str(v['win_hi'])[:10])
     order = sorted((k for k in W if k not in unmapped), key=lambda k: (_win(W[k])[0] is None, _win(W[k])[0] or 0))
     horizon = _add(cutoff, 14) if is_full_date(cutoff) else ''
     due, up = [], []
@@ -189,17 +192,24 @@ def visit_due(C, cutoff):
                 st_ = (s.get('eos_d') if is_full_date(s.get('eos_d')) else '') if base == 0 and isinstance(spec, dict) and spec.get('anchor') == 'ld' else stop
                 if st_ and st_ <= hi:
                     continue                                   # V6（CRA）：访视窗关闭前已退出/结束研究 → 不算逾期
+                if _GONE.search(str(s.get('eos_why') or '')) or _GONE.search(str(s.get('eot_why') or '')):
+                    continue                                   # V6 运营审阅：失访/拒绝随访/撤回知情已有记录 → 不是「逾期待追」
                 if not cutoff or hi >= cutoff:
                     if horizon and not e and s.get('status') not in ENDED and lo <= horizon:
                         up.append([sid, s['site'], v, lo, hi, _add(ad, t - base)])
                     continue
             sd = days(got, ad) + base if is_full_date(got) else None
             st = 'overdue' if not got else ('out' if sd is not None and (sd < t - mi or sd > t + pl) else 'ok')
+            sw = syswin.get((sid, code, got)) if got else None
+            if sw:                                             # 有 EDC 系统窗：窗与超窗判定以它为准
+                lo, hi = sw
+                st = 'ok' if lo <= got <= hi else 'out'
             due.append([sid, s['site'], v, lo, hi, got, st, sd, t, mi, pl])
     return due, up
 
 
 _EARLY = re.compile(r'提前|退出|脱落|中止|终止|失访|撤回')
+_GONE = re.compile(r'失访|拒绝|撤回|撤销知情|退出研究|死亡')
 
 
 def _stop(s):

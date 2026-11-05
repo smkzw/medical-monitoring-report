@@ -223,7 +223,7 @@ class ReviewFindings(unittest.TestCase):
                          [])                                                     # 非严重感染不标（用户 2026-10-28）
         self.assertEqual(ib_match(C, {'t': '严重感染', 'pt': '感染', 'soc': '感染及侵染类疾病', 'sae': True, 'g': '3级'}), ['IB重要潜在风险·严重感染'])
         self.assertEqual(ib_match(C, {'t': '中性粒细胞计数升高', 'pt': '', 'soc': '各类检查', 'sae': False, 'g': '1级'}), [])
-        self.assertEqual(ib_match(C, {'t': '肺炎', 'pt': '肺炎', 'soc': '感染及侵染类疾病', 'sae': False, 'g': '3级'}), ['IB重要潜在风险·严重感染（同SOC，严重/≥3级）'])
+        self.assertEqual(ib_match(C, {'t': '肺炎', 'pt': '肺炎', 'soc': '感染及侵染类疾病', 'sae': False, 'g': '3级'}), ['IB重要潜在风险·严重感染'])   # V6 事件族直接命中
 
 
 class QualLevel(unittest.TestCase):
@@ -989,8 +989,10 @@ class IbUmbrellaDowngrade(unittest.TestCase):
         """回归守卫：第②级同 SOC（真实器官系统 SOC、严重/≥3 级过滤）不受伞形降级影响。"""
         from mm_build import ib_match
         C = self._C([{'term': '严重感染', 'label': 'IB重要潜在风险', 're': '', 'pt': '感染', 'soc': '感染及侵染类疾病', 'labs': []}])
+        # V6：风险事件族（感染→肺炎等）使「肺炎」直接命中「严重感染」，同 SOC 兜底不再需要；严重/≥3 级过滤不变
         self.assertEqual(ib_match(C, {'t': '肺炎', 'pt': '肺炎', 'soc': '感染及侵染类疾病', 'sae': True, 'g': '2级'}),
-                         ['IB重要潜在风险·严重感染（同SOC，严重/≥3级）'])
+                         ['IB重要潜在风险·严重感染'])
+        self.assertEqual(ib_match(C, {'t': '肺炎', 'pt': '肺炎', 'soc': '感染及侵染类疾病', 'sae': False, 'g': '1级'}), [])
 
     def test_cell_suffix_no_false_share(self):
         """回归守卫：淋巴细胞×中性粒细胞不因「细胞」误共享（公共前缀锚定）。"""
@@ -3552,6 +3554,18 @@ class BlindRawLayerTests(unittest.TestCase):
         self.assertTrue(arm_column('列3', ['高剂量', '低剂量'], extra=['高剂量', '低剂量']))
         self.assertFalse(arm_column('药物名称', ['AK120注射液/安慰剂', '布洛芬', '氯雷他定', '头孢']))
         self.assertFalse(arm_column('GROUPID', ['301', '302']))
+
+
+class IbRiskFamilyTests(unittest.TestCase):
+    """V6 医学审阅：IB 风险名括注里的临床表现＋事件族参与匹配（RUX 带状疱疹/卡波西水痘样疹 ↔ 局部免疫抑制效应（皮肤感染））。"""
+
+    def test_family(self):
+        from mm_build import risk_term_re
+        r = risk_term_re('局部免疫抑制效应（皮肤感染）')
+        self.assertTrue(r.search('颈部带状疱疹') and r.search('卡波西水痘样疹'))
+        self.assertFalse(r.search('上呼吸道感染'))                         # 皮肤感染族不扩到呼吸道
+        self.assertTrue(risk_term_re('皮肤恶性肿瘤').search('基底细胞癌'))
+        self.assertFalse(risk_term_re('皮肤恶性肿瘤').search('肺癌'))
 
 
 if __name__ == '__main__':

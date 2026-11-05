@@ -20,7 +20,7 @@ from collections import Counter, defaultdict
 
 import ext_rules
 from monitor_v5 import crit_items
-from common import days, dose_state, dshow, fmt, is_dosing, is_full_date, yes, zero_dose
+from common import ae_action, days, dose_state, dshow, fmt, is_dosing, is_full_date, yes, zero_dose
 
 # (分类码, 名称, 层面, 说明, CDISC DVCAT（SDTM CT C225352；与 TransCelerate 7 类一一对应）)
 TAXONOMY = [
@@ -113,6 +113,7 @@ RULES = {
     'SAFE-02': ('SAFE', 'SAE/AESI 报告超时', '重要', 'CRA 核实', '报告日期 − 获知日期 > 方案时限', 'AE（获知/报告日期）'),
     'SAFE-03': ('SAFE', '达到方案需记录 AE 的标准但未见 AE 记录', '待判定', '发 query', '达到方案规定需记录 AE/AESI 的阈值，但时间窗内未见对应 AE', '检验/检查＋AE'),
     'WD-01': ('WD', '已达方案停药标准仍继续用药', '重要', 'CRA 核实', '方案规定的永久停药标准触发后仍有给药', '检验＋给药'),
+    'WD-02': ('WD', '已达方案中断标准但未见暂停给药', '待判定', 'CRA 核实', '方案规定需中断研究药物的检验标准触发后 7 天内未见暂停/停药记录（给药记录或 AE 措施），其后仍有给药；部分方案限于研究者判断与研究药物相关时', '检验＋给药＋AE'),
 }
 RULE_DV = {'ICF-01': 'INFORMED CONSENT SIGNED/DATED AFTER STUDY PROCEDURES INITIATED',
     'ICF-02': 'INFORMED CONSENT NOT SIGNED/DATED PER LOCAL REGULATORY GUIDELINES',
@@ -137,7 +138,8 @@ RULE_DV = {'ICF-01': 'INFORMED CONSENT SIGNED/DATED AFTER STUDY PROCEDURES INITI
     'SAFE-01': '（潜在）ADVERSE EVENT(S) NOT REPORTED',
     'SAFE-02': 'SERIOUS ADVERSE EVENT(S) REPORTED LATE',
     'SAFE-03': '（潜在）ADVERSE EVENT(S) NOT REPORTED',
-    'WD-01': 'SUBJECT MET STUDY INTERVENTION WITHDRAWAL CRITERIA BUT WAS NOT WITHDRAWN'}
+    'WD-01': 'SUBJECT MET STUDY INTERVENTION WITHDRAWAL CRITERIA BUT WAS NOT WITHDRAWN',
+    'WD-02': 'SUBJECT MET STUDY INTERVENTION INTERRUPTION CRITERIA BUT WAS NOT INTERRUPTED'}
 # 只能由源文件核查/外部系统确认的 PD（页面如实标注「需 SDV」，不从 listing 推断）
 NOT_DETECTABLE = [
     ('ICF', '知情同意书原件是否存在、签名/日期/时间要素是否完整、执行人是否获授权、版本是否经伦理批准'),
@@ -536,6 +538,27 @@ class _PD:
                          date=_last_dose(e), src=[[_sh(o, 'sh'), o['row'], o.get('test') or ''], [_sh(e), e['row'], '给药']],
                          grade='待判定' if o['_rule'].get('stopCond') else None,
                          why=('方案停药标准带前提（' + o['_rule']['stopCond'] + '…）：需核实前提是否满足') if o['_rule'].get('stopCond') else '')
+        # V6 医学审阅（RUX S01017 W16 ALT 3.1×ULN 31 天后才暂停、S17003 NEU 1.35 未暂停，偏离清单无此类规则）：中断标准未执行
+        irs = [o for o in C.others if 'interrupt' in (o.get('_rule', {}).get('acts') or []) and not o['_rule'].get('stop') and is_full_date(o.get('d'))]
+        self.ran['WD-02'] = 'ran' if any('interrupt' in (R.get('acts') or []) for R in C.A.get('thresholdRules') or []) else 'unconfigured'
+        seen_wd2 = set()
+        for o in sorted(irs, key=lambda x: (x['sid'], x['d'])):
+            sid, d = o['sid'], o['d']
+            key = (sid, o['_rule'].get('id') or o['_rule'].get('label'))
+            if sid not in C.dosed or key in seen_wd2:
+                continue
+            ex = [e for e in C.exposure if e['sid'] == sid and is_full_date(e.get('start'))]
+            paused = any(dose_state(e) in ('paused', 'withdrawn') and days(e['start'], d) is not None and -1 <= days(e['start'], d) <= 7 for e in ex)
+            ae_int = any(ae_action(a.get('act')) in ('interrupted', 'withdrawn') and is_full_date(a.get('s')) and abs(days(a['s'], d) or 99) <= 7
+                         for a in C.ae_by.get(sid, []))
+            later = [e for e in ex if is_dosing(e) and (_last_dose(e) or '') > (d[:10] if d else '') and (days(_last_dose(e), d) or 0) > 7]
+            if paused or ae_int or not later:
+                continue
+            seen_wd2.add(key)
+            lab = o['_rule'].get('label') or o['cat']
+            self.add('WD-02', sid, f"{o.get('test')} {o.get('v') or ''}（{d}）达到方案中断标准（{lab}），其后 7 天内未见暂停给药记录，给药持续至 {_last_dose(later[-1])}",
+                     date=d, src=[[_sh(o, 'sh'), o['row'], o.get('test') or ''], [_sh(later[0]), later[0]['row'], '给药']], grade='待判定',
+                     why='方案要求达此标准时中断研究药物；是否以研究者判断与研究药物相关为前提、是否已复查确认，需结合源文件核实')
         dz = P.get('dosing') or {}
         if dz:
             self.ran['IP-01'] = 'ran'

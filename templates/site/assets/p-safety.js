@@ -109,7 +109,7 @@ function tabAE(){
   K.chips(document.getElementById('cc'),cats.map(c=>[c,c,aes.filter(a=>a.c===c).length]),v=>{st.c=v;draw()},{all:'全部类别',value:st.c});
   ['g','rel','site'].forEach(k=>document.getElementById(k).onchange=e=>{st[k]=e.target.value;draw()});document.getElementById('aesi').onchange=e=>{st.aesi=e.target.checked;draw()};document.getElementById('pre').onchange=e=>{st.pre=e.target.checked;draw()};
   const tb=K.table(document.getElementById('tb'),{rows:[],h:'600px',pageSize:100,sort:'s',dir:1,cols:[
-   {k:'sid',t:'受试者',f:r=>K.sid(r.sid)},{k:'t',t:'AE 术语',f:r=>`<b style="color:var(--ink)">${K.esc(r.t)}</b> ${K.p(r.c,'line')}${K.dpill('ae',r)}${r.dup?' '+K.p(`重复×${r.dup_n||2}`,'yel'):''}`},{k:'ib',t:'IB/类效应',ns:1,f:r=>(r.ib&&r.ib.length)?r.ib.map(t=>K.p(t,/同SOC/.test(t)?'line':'red')).join(''):K.ibTags(r.c)},
+   {k:'sid',t:'受试者',f:r=>K.sid(r.sid)},{k:'t',t:'AE 术语',f:r=>`<b style="color:var(--ink)">${K.esc(r.t)}</b> ${K.p(r.c,'line')}${K.dpill('ae',r)}${r.dup?' '+K.p(r.dup_kind==='sub'?`严重程度变化×${r.dup_n||2}`:`重复×${r.dup_n||2}`,r.dup_kind==='sub'?'line':'yel'):''}`},{k:'ib',t:'IB/类效应',ns:1,f:r=>(r.ib&&r.ib.length)?r.ib.map(t=>K.p(t,/同SOC/.test(t)?'line':'red')).join(''):K.ibTags(r.c)},
    {k:'s',t:'开始 → 结束',f:r=>`<span class="nowrap">${r.s} <span class="xs faint">${K.studyDay(r.s,r.fd)}</span></span><br><span class="xs muted">${r.e||'持续'}</span>`},
    {k:'g',t:'等级',f:r=>K.p(r.g,r.g==='3级'?'solid-red':r.g==='2级'?'red':'yel')+((r.chg||[]).length?' '+K.p('变更→'+r.chg.join('→'),'line'):'')},
    {k:'rel',t:'相关性',f:r=>K.p(r.rel,rel(r.rel)?'blu':'')},

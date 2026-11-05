@@ -23,7 +23,7 @@ import ext_rules
 import monitor_v5
 import raw_export
 import pd_rules
-from common import ae_action, cn_quotes, days, dshow, dump_json, fmt, is_dosing, parse_links, is_full_date, load_json, move_word, open_workbook_lenient, quantile, result_state, state_meets, study_day, yes, zero_dose
+from common import ae_action, cn_quotes, days, dose_state, dshow, dump_json, fmt, is_dosing, parse_links, is_full_date, load_json, move_word, open_workbook_lenient, quantile, result_state, state_meets, study_day, yes, zero_dose
 
 AGG_EXCL = set()
 
@@ -151,6 +151,11 @@ def load(study_p, norm_p):
     for dom in ('subjects', 'visits', 'exposure', 'ae', 'mh', 'cm', 'proc', 'findings', 'efficacy', 'pd', 'extq', 'groups',
                 'icf', 'sample', 'dispense', 'ie'):   # mm4：知情同意记录 / 样本采集 / 发药回收（可选域）；V6：入排标准页
         setattr(C, dom, load_json(N / f'{dom}.json', []) or [])
+    # V6 运营审阅（RUX S10001 W8 等 5 个访视 SV「访视是否发生=否」被当成已完成，生成 45 条「已完成访视但缺少评估」）：
+    # 访视页记录为未发生的访视不算已完成访视——不进访视完成/超窗/SoA 完成度，按缺失访视处理（留在 C.visits_missed 供展示）
+    C.visits_missed = [v for v in C.visits if re.match(r'^\s*(否|N|No|未发生|未进行)\s*$', str(v.get('done') or ''), re.I)]
+    if C.visits_missed:
+        C.visits = [v for v in C.visits if v not in C.visits_missed]
     # 表单中文名：EDC 目录页 ＜ study.json analysis.formNames；分组名缺省（等于表单代码）时用中文名，避免页面出现「OTH」
     C.A['formNames'] = {**(C.src.get('formNames') or {}), **(C.A.get('formNames') or {})}
     for f in C.findings:
@@ -258,6 +263,11 @@ def build_subjects(C):
             st = '筛选失败' if not fd and not s.get('rand') else ('完成试验' if str(s.get('eos_done')) in ('是', 'Y') else
                                                                  '提前退出' if s.get('eos_d') else '治疗结束' if s.get('eot_d') else '已入组')
         g = groups.get(sid, {})
+        # V6 运营审阅（RUX：监查页「提前退出 0」而 KRI 12/192）：EDC 受试者状态对所有出组者都写「完成试验」，
+        # 提前退出以治疗/研究结束页的原因为准（与 KRI 同一判定 monitor_v5._early_wd）；EDC 原状态留在 edc_status
+        if st not in ('筛选失败',) and fd and monitor_v5._early_wd(dict(s, status=st)) and not monitor_v5._EARLY.search(str(st)):
+            s = dict(s, edc_status=st)
+            st = '提前退出'
         C.subj[sid] = dict(s, fd=fd, ld=ld, status=st, lo=lastobs.get(sid) or ld or fd,
                            strat=s.get('strat') or g.get('strat'), grp=s.get('grp') or g.get('grp'),
                            site=str(s.get('site') or sid[:2]), center=s.get('center') or '')
@@ -367,7 +377,8 @@ def build_events(C):
                'cm': a.get('cm') or '', 'wd': a.get('withdraw') or '', 'row': a['row'], 'sh': a['sheet'], 'wb': a.get('wb') or '', 'sid': sid, 'site': s['site'], 'fd': s['fd'] or '',
                'pre': _pre_dose(a.get('start'), s['fd']), '_rel': related,
                '_aesi_term': bool(aesi_hit), '_aesi_def': aesi_hit, 'pt': a.get('pt') or '', 'soc': a.get('soc') or '',
-               'rpt': a.get('rpt') or '', 'aware': a.get('aware') or '', 'sae_crit': a.get('sae_crit') or ''}
+               'rpt': a.get('rpt') or '', 'aware': a.get('aware') or '', 'sae_crit': a.get('sae_crit') or '',
+               'rno': str(a.get('no') if a.get('no') is not None else '').strip(), 'gchg': a.get('gchg') or ''}
         rec['te'] = (not rec['pre']) and bool(s['fd']) and (not C.teEnd.get(sid) or not is_full_date(rec['s']) or rec['s'] <= C.teEnd[sid])
         # V6 R13：开始日期缺失/无法解析（如 D002「是」）→ TEAE 判定待定：暂按 TEAE 计（不漏报，常见 SAP 最坏情形口径），并发日期核对
         _ps = partial_date(rec['s'])
@@ -406,6 +417,15 @@ def build_events_dup(C):
         if len(grp) < 2:
             continue
         grp.sort(key=lambda x: x.get('row') or 0)
+        # V6 医学审阅（RUX S01017 肝功能异常 2→3→1 级、S01029 SAE 肺炎 2→3 级）：「严重程度有变化」的子记录（同一事件拆多行、
+        # 主字段相同、记录号各不相同或标志为是）不是重复录入——同一事件只计一次，但不发「重复记录核对」
+        rnos = [x.get('rno') for x in grp]
+        if any(re.match(r'^\s*(是|Y|Yes|1)\s*$', str(x.get('gchg') or ''), re.I) for x in grp) or (all(rnos) and len(set(rnos)) == len(grp)):
+            for x in grp:
+                x['dup_n'], x['dup_rows'], x['dup_kind'] = len(grp), [y.get('row') for y in grp], 'sub'
+            for x in grp[1:]:
+                x['dup'] = True
+            continue
         C.ae_dup.append({'sid': fp[0], 'term': grp[0]['t'], 'start': fp[2], 'rows': [x.get('row') for x in grp], 'recs': grp})
         for x in grp:
             x['dup_n'] = len(grp)
@@ -471,6 +491,33 @@ LAB_ALIAS = {'CK': '肌酸激酶|CK|CPK', 'CPK': '肌酸激酶|CK|CPK', 'HGB': '
              'TBIL': '总胆红素', 'TG': '甘油三酯', 'TC': '总胆固醇', 'LDL': '低密度脂蛋白', 'CREA': '肌酐', 'QTCF': 'QTc'}
 
 
+# V6 医学审阅（RUX 带状疱疹×2、卡波西水痘样疹未被提示，IB 列有「局部免疫抑制效应（皮肤感染）」）：风险名常把临床表现写在括注里，
+# 且一个风险对应一族 AE 术语——按医学常识的事件族扩展（不含研究特定词）
+_RISK_FAMILY = [
+    (r'皮肤感染', r'疱疹|带状|水痘|卡波西|真菌|癣|毛囊炎|疖|痈|脓疱|蜂窝织炎|丹毒|疣|皮肤感染|传染性软疣'),
+    (r'感染', r'感染|疱疹|带状|水痘|真菌|癣|毛囊炎|蜂窝织炎|脓肿|肺炎|结核|败血|脓毒'),
+    (r'皮肤(恶性)?肿瘤|非黑色素瘤|皮肤癌', r'基底细胞癌|鳞状细胞癌|黑色素瘤|皮肤癌|皮肤恶性'),
+    (r'恶性肿瘤|恶性肿|淋巴瘤', r'癌|恶性|肉瘤|淋巴瘤|白血病|黑色素瘤'),
+    (r'血栓|栓塞', r'血栓|栓塞|梗死|梗塞|卒中|中风'),
+    (r'心血管|心脏不良|MACE', r'心肌梗|心衰|心力衰竭|卒中|梗死|心源性'),
+    (r'过敏|超敏', r'过敏|超敏|荨麻疹|血管性水肿'),
+]
+
+
+def risk_term_re(term):
+    """IB 风险名 → AE 术语正则：风险名本体＋括注里的临床表现＋事件族。"""
+    t = str(term or '')
+    core = re.sub(r'^(严重|重要|重度)|[（(].*?[)）]', '', t).strip()
+    paren = [x.strip() for x in re.findall(r'[（(]([^）)]+)[）)]', t) for x in re.split(r'[、，,/]', x) if len(x.strip()) >= 2]
+    alts = [re.escape(x) for x in [core] + paren if len(x) >= 2]
+    full = ' '.join([core] + paren)
+    for fam, rx_ in _RISK_FAMILY:
+        if re.search(fam, full):
+            alts.append(rx_)
+            break
+    return re.compile('|'.join(alts)) if alts else None
+
+
 def _exp_list(C):
     if not hasattr(C, '_exp'):
         C._exp = []
@@ -484,8 +531,7 @@ def _exp_list(C):
                     pat = re.escape(str(a))
                 if pat:
                     labs.append((re.compile(pat, re.I), d))
-            core = re.sub(r'^(严重|重要|重度)|[（(].*?[)）]', '', str(e.get('term') or '')).strip()   # 只按风险名本身匹配（PT 另做相等比较）
-            C._exp.append({**e, '_re': re.compile(re.escape(core)) if len(core) >= 2 else None, '_labs': labs})
+            C._exp.append({**e, '_re': risk_term_re(e.get('term')), '_labs': labs})
     return C._exp
 
 
@@ -1290,6 +1336,34 @@ def threshold_ask(R, o):
     return (f"方案规定此时需{'，并'.join(need)}，" if need else '') + f"请确认{'及'.join(ask)}{tail}。"
 
 
+def thr_handled(C, sid, r, R, rows):
+    """阈值规则要求的处理（复查 / 中断或停药）在记录中是否都已见到：都见到 → 返回说明；缺任一项 → None（照常发质疑）。
+    复查＝同指标在命中后 ≤（复查时限天数＋1）天内另有一次测量；中断/停药＝命中前 1 天至后 7 天内有暂停/停药的给药记录，
+    或同期 AE 的研究药物措施为暂停/停药。"""
+    acts = set(R.get('acts') or []) | ({'stop'} if R.get('stop') else set())
+    need = acts & {'retest', 'interrupt', 'stop'}
+    if not need or not is_full_date(r.get('date')):
+        return None
+    done = []
+    if 'retest' in need:
+        lim = int(-(-float(R.get('retestH') or 48) // 24)) + 1
+        rt = [x for x in rows if x is not r and is_full_date(x.get('date')) and 0 <= (days(x['date'], r['date']) or 0) <= lim
+              and (x.get('date'), x.get('row')) != (r.get('date'), r.get('row')) and x.get('value') is not None]
+        rt = [x for x in rt if days(x['date'], r['date']) > 0 or (x.get('time') and r.get('time') and x['time'] > r['time'])]
+        if not rt:
+            return None
+        done.append(f"{rt[0]['date']} 已复查（{rt[0].get('raw')} {rt[0].get('unit') or ''}）".replace(' ）', '）'))
+    if need & {'interrupt', 'stop'}:
+        ex = [e for e in (getattr(C, 'exposure', None) or []) if e.get('sid') == sid and dose_state(e) in ('paused', 'withdrawn') and is_full_date(e.get('start'))
+              and -1 <= (days(e['start'], r['date']) or 99) <= 7]
+        ae = [a for a in (getattr(C, 'ae_by', None) or {}).get(sid, []) if ae_action(a.get('act')) in ('interrupted', 'withdrawn') and is_full_date(a.get('s'))
+              and abs(days(a['s'], r['date']) or 99) <= 7]
+        if not ex and not ae:
+            return None
+        done.append(f"{ex[0]['start']} 起暂停/停用研究药物" if ex else f"AE“{ae[0]['t']}”（{ae[0]['s']}）对研究药物采取了暂停/停药措施")
+    return '；'.join(done)
+
+
 def threshold_rules(C):
     """analysis.thresholdRules: protocol-defined numeric triggers (AESI/AE/stopping/eligibility-like) evaluated per finding.
     不同阈值（3×ULN 报告、5×ULN 停药）是不同判据，各自出信号（mm5 审阅修正口径，V6 不改）；只修文案里漏出的正则写法。"""
@@ -1335,6 +1409,10 @@ def threshold_rules(C):
                             pr = min(pr, 2)
                     else:
                         ctx.append('未见对应 AE 记录')
+                hd = thr_handled(C, sid, r, R, rows)
+                if hd:                                   # V6 医学审阅（RUX S01003/S01007 NEU<1.5 均已当天暂停、次日复查并录 AE，仍被要求「确认复查与处理」）
+                    pr = min(pr, 1)                      # 记录显示已按方案处理 → 只作提示，不发质疑
+                    ctx.append('记录显示已按方案处理：' + hd)
                 thr_l = thr_rhs(R) if not R.get('sum') else str(R.get('label', f"{R.get('op', '>=')}{R['v']}")).replace('|', '/')
                 b = r.get('base') or {}
                 # V6（用户审阅 RUX 第 21 条）：不写「达到方案阈值」——写清检查值相对方案标准的关系（「低于 1.5×10^9/L」）
@@ -1659,7 +1737,7 @@ def build_ops(C):
         subs.append([sid, s['site'], s['status'], s.get('icf') or '', first.get(sid, ''), s.get('rand') or '', s.get('rand_d') or '',
                      s['fd'] or '', s['ld'] or '', s.get('eot_d') or '', s.get('eot_why') or '', s.get('eos_d') or '', s.get('eos_why') or '',
                      1 if str(s.get('rescreen') or '').strip() in ('是', 'Y', '1', 'True', 'true') else 0, s.get('prev_sid') or '',
-                     sfw.get(sid, '')])
+                     sfw.get(sid, '') or (sf_fallback(C, sid, s) if s['status'] == '筛选失败' else '')])
     alld = [d for d in (f.get('date') for f in C.findings) if is_full_date(d)]
     C.ops = {'subs': subs, 'vis': dict(vis), 'win': C.A.get('visitWindows') or {}, 'planned': (C.S.get('study') or {}).get('planned'),
              'cutoff': C.cfg.get('study', {}).get('cutoff') or (max(alld) if alld else ''), 'stage': C.cfg.get('dataStage') or '',
@@ -1691,6 +1769,17 @@ def ie_fail_reasons(C):
             if lab not in out[r['sid']]:
                 out[r['sid']].append(lab)
     return {k: '、'.join(v) for k, v in out.items()}
+
+
+def sf_fallback(C, sid, s):
+    """筛败原因的兜底（V6 运营审阅：入排页记「满足全部标准」的 7 例显示「未注明」）：筛选结束/研究结束页原因 → 入排页全部满足的矛盾提示。"""
+    why = str(s.get('eos_why') or s.get('eot_why') or '').strip()
+    if why:
+        return why
+    rows = [r for r in (getattr(C, 'ie', []) or []) if r.get('sid') == sid]
+    if rows and all(re.match(r'^(是|Y|Yes|满足|符合)', str(r.get('met') or '').strip(), re.I) for r in rows):
+        return '入排页记录满足全部标准，筛败原因未记录（请核对）'
+    return ''
 
 
 def ie_checks(C):
@@ -2101,6 +2190,14 @@ def visit_window_checks(C):
         inv[c_].append(k_)
     for v in C.visits:
         sid = v['sid']
+        # V6 运营审阅（RUX W28 60 条与 EDC 判定不一致）：访视页有 EDC 系统生成的计划最早/最晚日期时以它为准（中心实际执行的窗口），
+        # 方案推算只在没有系统窗时使用
+        lo_s, hi_s = v.get('win_lo'), v.get('win_hi')
+        if sid in C.pop and is_full_date(lo_s) and is_full_date(hi_s) and is_full_date(v.get('date')):
+            if not (str(lo_s)[:10] <= str(v['date'])[:10] <= str(hi_s)[:10]):
+                add_other(C, sid, '访视超窗核对', 2, f"{v['visit']} 实际 {v['date']}，EDC 计划窗 {str(lo_s)[:10]} ~ {str(hi_s)[:10]}",
+                          v['visit'], v['date'], v['sheet'], v['row'], wb=v.get('wb') or '')
+            continue
         key = v.get('visit') if v.get('visit') in W else (inv[v.get('visit')][0] if len(inv.get(v.get('visit')) or []) == 1 else None)
         if sid not in C.pop or key is None:
             continue
@@ -2255,8 +2352,23 @@ def build_queries(C):
             cat, ft, ask = T.get('CSX_DIS', T['CSX'])
             ft = ft.replace('{bg}', re.sub(r'[↑↓]|（医学常识）$', '', bg.split('：')[0]))
         P = [p for p in g['pts'] if (g['risk'] in ('NCS2', 'NA2', 'G2NF') and (p[4] or 0) >= 2) or (g['risk'] not in ('NCS2', 'NA2', 'G2NF') and p[5] == 2)] or g['pts']
+        wf_pt = None
         if g['risk'] in ('MH', 'DISW') or bg:          # 加重类：以较基线变化最大的那次为主，数值与「较基线」必须是同一个点（D001 QC：曾写成 0.68 较 0.60 升高 63%）
             P = sorted(P, key=lambda x: -abs(x[6] or 0))
+            # V6 医学审阅（RUX Q007：W24 1.69 写成「较基线 1.51 加重 1→2 级」，2 级其实来自 W4 1.44）：
+            # 加重说明必须就所写的这一个点重新计算，并优先写真正满足「加重」的那次（等级高者优先，其次变化幅度）
+            rows_ = C.F[(g['sid'], g['mid'])]
+            b0 = next((r.get('base') for r in rows_ if r.get('base')), None)
+            sc = []
+            for x in P:
+                fx = next((r for r in rows_ if r['sheet'] == x[7] and r['row'] == x[8]), None)
+                w_ = fx and b0 and (worse_vs_base(fx, b0, float(C.cfg['thresholds'].get('base', 0.3))) or ext_rules.qual_worse(fx, b0))
+                if w_:
+                    sc.append(((fx.get('grade') or 0), abs(x[6] or 0), x, w_))
+            if sc:
+                sc.sort(key=lambda t: (-t[0], -t[1]))
+                P = [sc[0][2]] + [x for x in P if x is not sc[0][2]]
+                wf_pt = sc[0][3]
         p = P[0]
         f = next((r for r in C.F[(g['sid'], g['mid'])] if r['sheet'] == p[7] and r['row'] == p[8]), {})
         mh = '、'.join(l[1] for l in g['rel'] if l[0] == 'MH')
@@ -2267,7 +2379,9 @@ def build_queries(C):
         btxt = f"基线{b_[1]}{p[3]}{'（正常）' if len(b_) > 3 and b_[3] == 0 else ''}，" if b_ and b_[1] not in (None, '') else ''
         move = move_word(bv, cv, f.get('lo'), f.get('hi'))   # F06：低于下限不写「升高至」（偏离方向与基线方向分离表述）
         wf = next((m.group(1) for c in g['ctx'] for m in [re.search(r'较基线(?:进一步)?加重[（：]([^）；]+)', c)] if m), '较基线明显加重')
-        if p[6] is not None and re.search(r'较基线(升高|降低)', wf):   # 百分比按所写的这一次计算
+        if wf_pt:
+            wf = wf_pt
+        elif p[6] is not None and re.search(r'较基线(升高|降低)', wf):   # 百分比按所写的这一次计算
             wf = f"较基线{'升高' if p[6] > 0 else '降低'} {abs(p[6]):.0f}%"
         fact = fill(ft, visit=p[0], date=p[1], test=g['test'], raw=p[2], unit=p[3], lo=fmt(f.get('lo')) if f.get('lo') is not None else '—',
                     hi=fmt(f.get('hi')) if f.get('hi') is not None else '—', gtxt=f"，{C.GL} {p[4]}级" if p[4] else '', grade=p[4], gterm=f.get('gterm', ''), rng=rng, gl=C.GL,
