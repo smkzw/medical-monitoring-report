@@ -7,7 +7,9 @@ const study=()=>((K.cfg().study||{}).code||'');
 const LS={get:(k,d)=>{try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}},set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
 
 /* ---------- 研究层面容忍限度（QTL）与 KRI：默认档＋严格/宽松可选，所选档位存本浏览器（按研究），全报告联动 ---------- */
-K.kri=()=>D().kri||null;
+/* V6 运营审阅：KRI「申办方质疑」构建时只数程序质疑；页面载入后并入了工作台 AI/CSB 质疑（KZ.qx）→ 按页面实际质疑重算，口径与总览一致 */
+K.kri=()=>{const k=D().kri;if(!k||k._qfix)return k||null;k._qfix=true;const qs=D().queries||[];if(k.study&&k.study.q){const S=K.subs(),site=Object.fromEntries(S.map(x=>[x.id,x.site]));
+  k.study.q=[qs.length,k.study.q[1]];const by={};qs.forEach(q=>{const st=q.site||site[q.sid];by[st]=(by[st]||0)+1});Object.entries(k.sites||{}).forEach(([st,v])=>{if(v&&v.q)v.q=[by[st]||0,v.q[1]]})}return k};
 K.QTLN={strict:'严格',std:'标准',loose:'宽松'};
 K._qtlLS='kz.qtl:'+study();
 K.qtlTier=()=>{const k=K.kri();return LS.get(K._qtlLS,null)||Z().qtlTier||(k&&k.tierDefault)||'std'};
@@ -87,7 +89,9 @@ K.risks=()=>{if(K._risk)return K._risk;const Dd=D(),O=Dd.ops||{},out=[];
     add({kind:'vis',x:v,base:O.stage==='daily'?(late>14?20:8):25,roles:['cra'],sid:v.sid,site:v.site,title:`${v.v} 访视逾期未见记录`,why:`方案窗 ${v.lo} ~ ${v.hi}，已过窗 ${late} 天${O.stage==='daily'?'（日常监查：可能尚未录入）':''}`,tag:['访视','blu'],open:()=>K.showVis(v)})});
   const CR=K.centerRisk();
   CR.centers.forEach(c=>{CR.cats.forEach(([k,grp,l,,desc])=>{const x=(CR.cell[k]||{})[c.site];if(!x||!K.qlt(x.qu,.10))return;const t={site:c.site,k};
-      add({kind:'ctr',x:t,base:K.qlt(x.qu,.05)?48:36,roles:grp==='检验'||grp==='AE'?['mm','pm']:['cra','pm'],sid:'',site:c.site,title:`中心 ${c.site}「${l}」偏高`,why:`${desc}：观察 ${x.o}，按${CR.unit}推算期望 ${x.e.toFixed(1)}`,tag:['中心','org'],
+      /* V6 运营审阅：项目经理排名按影响大小——超出期望的倍数与绝对超出数都参与（此前全部 36/48 平分、按中心号排列） */
+      const mag=Math.min(1.8,Math.max(1,1+Math.log2(Math.max(1,x.o/Math.max(x.e,.5)))/3))+Math.min(.6,Math.max(0,x.o-x.e)/40);
+      add({kind:'ctr',x:t,base:Math.round((K.qlt(x.qu,.05)?48:36)*mag),roles:grp==='检验'||grp==='AE'?['mm','pm']:['cra','pm'],sid:'',site:c.site,title:`中心 ${c.site}「${l}」偏高`,why:`${desc}：观察 ${x.o}，按${CR.unit}推算期望 ${x.e.toFixed(1)}`,tag:['中心','org'],
         open:()=>K.showSite('ctr',t,`${c.site} ${K.esc(K.center(c.site))} · ${l}偏高`,`<div class="box small">${K.esc(desc)}：观察 ${x.o}，期望 ${x.e.toFixed(1)}（${K.qTip(x)}）。</div><div class="mt"><a class="small" href="safety.html#tab=ov">中心总览热力图 ›</a></div>`)})});
     const x=(CR.cell.ae||{})[c.site];if(x&&K.qlt(x.ql,.10)){const t={site:c.site,k:'ae-low'};
       add({kind:'ctr',x:t,base:40,roles:['mm','cra','pm'],sid:'',site:c.site,title:`中心 ${c.site} AE 报告偏少`,why:`TEAE 观察 ${x.o}，按${CR.unit}推算期望 ${x.e.toFixed(1)}：可能漏报`,tag:['中心','blu'],
@@ -95,7 +99,7 @@ K.risks=()=>{if(K._risk)return K._risk;const Dd=D(),O=Dd.ops||{},out=[];
   K.qtlRows().forEach(r=>{if(r.st!=='exceed'&&r.st!=='warn')return;
     add({kind:'qtl',x:{k:r.k},base:r.st==='exceed'?85:45,roles:['pm','cra','mm'],sid:'',site:'',title:`研究层面「${r.l}」${r.st==='exceed'?'超出':'接近'}容忍限度`,why:`当前 ${K.kriFmt(r.k,r.v)}（${r.nd[0]}/${r.nd[1]}），限度 ≤${r.lim}%（${K.QTLN[K.qtlTier()]}档）`,tag:['容忍限度',r.st==='exceed'?'solid-red':'org'],open:()=>location.href='monitor.html#tab=kri'})});
   const KR=K.kri();if(KR)Object.entries(KR.sites).forEach(([site,v])=>KR.defs.filter(d=>d.qtl).forEach(d=>{const nd=v[d.k];if(!nd||nd[1]<5||(KR.na||{})[d.k])return;const s=K.qtlState(d.k,nd);if(s.st!=='exceed')return;
-    add({kind:'kri',x:{site,k:d.k},base:38,roles:['pm','cra'],sid:'',site,title:`中心 ${site}「${d.l}」超出研究层面限度`,why:`${K.kriFmt(d.k,s.v)}（${nd[0]}/${nd[1]}），限度 ≤${s.lim}%`,tag:['KRI','org'],open:()=>location.href='center.html#c='+site})}));
+    add({kind:'kri',x:{site,k:d.k},base:Math.round(38*Math.min(2,Math.max(1,s.lim>0?s.v/s.lim:1))*Math.min(1.5,1+nd[0]/60)),roles:['pm','cra'],sid:'',site,title:`中心 ${site}「${d.l}」超出研究层面限度`,why:`${K.kriFmt(d.k,s.v)}（${nd[0]}/${nd[1]}），限度 ≤${s.lim}%`,tag:['KRI','org'],open:()=>location.href='center.html#c='+site})}));
   if(Dd.cred)Object.entries(Dd.cred.sites).forEach(([site,v])=>K.credFlags(site,v).forEach(f=>{const t={site,k:f.k};
     add({kind:'cred',x:t,base:32,roles:['cra'],sid:'',site,title:`中心 ${site} ${f.l}`,why:f.why,tag:['可信度','yel'],open:()=>K.showSite('cred',t,`${site} ${K.esc(K.center(site))} · ${f.l}`,`<div class="box small">${K.esc(f.why)}</div><div class="note small mt">${K.esc(Dd.cred.note||'')}</div><div class="mt"><a class="small" href="monitor.html#tab=cred">数据可信度 ›</a></div>`)})}));
   Object.entries(O.fresh||{}).forEach(([site,f])=>{if(!(f[2]&&f[1]!=null&&f[1]>30))return;const t={site};

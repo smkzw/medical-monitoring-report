@@ -156,6 +156,14 @@ def load(study_p, norm_p):
     C.visits_missed = [v for v in C.visits if re.match(r'^\s*(否|N|No|未发生|未进行)\s*$', str(v.get('done') or ''), re.I)]
     if C.visits_missed:
         C.visits = [v for v in C.visits if v not in C.visits_missed]
+    # V6 医学审阅（RUX P0010：开放期 IGA=0 按方案停药，01-20 的「研究药物发放」被当成给药报「终止治疗后仍有给药」）：
+    # 受试者有实际给药/医嘱记录时，发放/回收（药物清点）类表单不参与首末次给药与给药连续性判定，移入 dispense 域
+    _disp = re.compile(r'发放|回收|分发|返还|退还|清点|dispens|return|accountab', re.I)
+    adm = {e['sid'] for e in C.exposure if not _disp.search(str(e.get('sheet') or ''))}
+    moved = [e for e in C.exposure if _disp.search(str(e.get('sheet') or '')) and e['sid'] in adm]
+    if moved:
+        C.exposure = [e for e in C.exposure if not (_disp.search(str(e.get('sheet') or '')) and e['sid'] in adm)]
+        C.dispense = list(getattr(C, 'dispense', []) or []) + moved
     # 表单中文名：EDC 目录页 ＜ study.json analysis.formNames；分组名缺省（等于表单代码）时用中文名，避免页面出现「OTH」
     C.A['formNames'] = {**(C.src.get('formNames') or {}), **(C.A.get('formNames') or {})}
     for f in C.findings:
@@ -1875,6 +1883,9 @@ def cm_checks(C):
                               bkey=f"{c['t']}|{c['s']}", wb=c.get('wb') or '')
     for W in C.A.get('washout', []):  # {"name","re","days","ref":"icf"|"fd"}
         pre = re.compile(W['re'], re.I)
+        # V6 医学审阅（RUX P0007：他克莫司软膏为外用，适用 1 周洗脱，却按系统性免疫抑制剂 4 周报重要偏离）：与禁用药同口径——
+        # 「系统性」洗脱条目不匹配外用/局部给药（外用另有条目时由外用条目核查）
+        sys_only = bool(_SYSTEMIC.search(W.get('name') or '')) and not _TOPICAL.search(W.get('name') or '')
         for sid in sorted(C.pop):
             s = C.subj[sid]
             ref = s.get({'rand': 'rand_d'}.get(W.get('ref', 'fd'), W.get('ref', 'fd')))
@@ -1882,6 +1893,8 @@ def cm_checks(C):
                 continue
             a = (dt.date.fromisoformat(ref) - dt.timedelta(days=W['days'])).isoformat()
             for c in C.cm_by[sid]:
+                if sys_only and (_TOPICAL.search(c.get('rt') or '') or _TOPICAL.search(c['t'])):
+                    continue
                 if pre.search(c['t']) and (c['ong'] or (is_full_date(c['e']) and c['e'] >= a)) and (not is_full_date(c['s']) or c['s'] <= ref):
                     add_other(C, sid, W.get('cat', '入排洗脱用药核对'), W.get('pr', 3),
                               f"合并用药「{c['t']}」末次 {c['e'] or '持续'}，距{ {'icf': '知情', 'rand': '随机'}.get(W.get('ref'), '首剂')}（{ref}）不足 {W['days']} 天洗脱期（{W['name']}）",
