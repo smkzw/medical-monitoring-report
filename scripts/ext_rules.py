@@ -764,7 +764,7 @@ def _indication_names(C):
 
 def disease_kw(C):
     """研究疾病及其表现的关键词（方案适应症＋indicationBackground 名称），用于识别「研究疾病加重」类 AE 与研究疾病病史。"""
-    kws = set(_indication_names(C))
+    kws = set(_indication_names(C)) | {str(x) for x in (C.A.get('diseaseWorseTerms') or []) if len(str(x)) >= 2}   # 方案的加重写法（突破性溶血）
     for _, b in C.A.get('indicationBackground') or []:
         nm = re.sub(r'[（(].*?[)）]|[↑↓]|（医学常识）', '', str(b).split('：')[0]).strip()
         nm = re.sub(r'^(外周血|血清|血)|(增多|升高|降低|减少|异常)$', '', nm)
