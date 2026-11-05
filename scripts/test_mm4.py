@@ -3672,6 +3672,16 @@ class Eng2Tests(unittest.TestCase):
         self.assertEqual(_elig_x(E, {'value': 0.15, 'unit': '×10^12/L'}), 150.0)
         self.assertIsNone(_elig_x(E, {'value': 8.0, 'unit': '', 'test': '网织红细胞计数百分比'}))
 
+    def test_align_by_visit_code_column(self):
+        from types import SimpleNamespace
+        from mm_build import align_visit_codes
+        vis = [{'sid': 'S1', 'visit': 'D-3至D-1', 'vcode': 'V2'}, {'sid': 'S1', 'visit': 'D21', 'vcode': 'V6'}]
+        C = SimpleNamespace(visits=vis, findings=[], efficacy=[], exposure=[], cfg={'visits': {'order': ['V1', 'V2', 'V6']}},
+                            A={'visitWindows': {'V6': {'target': 21}}})
+        align_visit_codes(C)
+        self.assertEqual(C.cfg['visits']['order'], ['V1', 'D-3至D-1', 'D21'])
+        self.assertIn('D21', C.A['visitWindows'])
+
     def test_catalog_header_only_needs_two(self):
         from normalize_listing import catalog_map
         names = {'AE', 'SAE', 'LB1', 'TOC'}

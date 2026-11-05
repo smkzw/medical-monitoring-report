@@ -412,7 +412,7 @@ def findings(spec, books, M):
     form_nm = (form_names(books[alias]).get(spec['sheet']) or spec['sheet']) if no_test_col else ''
     for rec, r, labels, vars_ in read_spec(spec, books, M):
         loc = str(rec.get('loc') or '').strip()       # V6：测量部位限定词（DXA 腰椎/股骨颈/全髋）拼进检查名
-        base = {k: rec.get(k) for k in ('sid', 'visit', 'date', 'time', 'tpt', 'sheet', 'row', 'done', 'wb', 'reason', 'reason_text', '_chg',
+        base = {k: rec.get(k) for k in ('sid', 'visit', 'vcode', 'date', 'time', 'tpt', 'sheet', 'row', 'done', 'wb', 'reason', 'reason_text', '_chg',
                                         'reason_disease', 'reason_link', 'reason_other', 'flag')}
         if base.get('_chg') is None:
             base.pop('_chg')                          # 只有差异导出模式才带变更标记

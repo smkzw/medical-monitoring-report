@@ -197,10 +197,23 @@ def align_visit_codes(C):
         if _vkey(v):
             by[_vkey(v)].add(v)
     amap = {}
+    # V6（MY008：方案访视 V1–V17、listing 访视名「D-56至D-14」「D21」，同表另有访视代码列 VISTOID）：数据自带「访视代码↔访视名」
+    # 一一对应时直接按它改写配置（排序、访视窗、SoA、逾期推算都对上）
+    pairs, inv = defaultdict(set), defaultdict(set)
+    for dom in ('visits', 'findings', 'efficacy'):
+        for r in getattr(C, dom):
+            vc, vn = str(r.get('vcode') or '').strip(), r.get('visit')
+            if vc and vn:
+                pairs[vc].add(vn)
+                inv[vn].add(vc)
+    vmap = {k: next(iter(v)) for k, v in pairs.items() if len(v) == 1 and len(inv[next(iter(v))]) == 1}
 
     def m(c):
         if c in L or not isinstance(c, str):
             return c
+        if c in vmap:
+            amap[c] = vmap[c]
+            return vmap[c]
         k = _vkey(c)
         hit = by.get(k) or {v for kk, vs in by.items() if k and k < kk for v in vs}   # 精确同组，其次唯一的超集（V9/W18 ↔ W18/D127V9）
         if k and not hit:                                 # V6：再其次唯一的子集（方案「V5/W2/D15」↔ 数据只写「W2」；D002 616/616 假逾期）
