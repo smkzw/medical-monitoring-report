@@ -98,16 +98,22 @@ def _score_state(s):
     return None
 
 
+_QUAL_GRADE = re.compile(r'^[±]|[+＋]{1,4}|\d{1,2}\s*[+＋]$')   # 半定量分级（尿蛋白 1+/2+、±、+++）：定性非数值
+
+
 def num_state(raw):
     """统一文本→数值解析（F8，一处收口）：在 result_state（数值/科学计数/删失/定性）之上补内嵌分数/级别词形态。
     返回 (kind, v)：value / below / above / neg / pos；无法识别 → None。mapping 结果列、规则阈值、参考范围常量
-    三处都从这里取值（「<50」是删失界不是确切值、「<1*10^3」「1×10³」都是 ×10³）。"""
+    三处都从这里取值（「<50」是删失界不是确切值、「<1*10^3」「1×10³」都是 ×10³）。
+    半定量分级「1+」「2+」「±」「+++」是定性强度不是数值（ext1 真值：定性指标不进数值链）——返回 None 交定性路径。"""
     if raw is None or isinstance(raw, bool):
         return None
     if isinstance(raw, (int, float)):
         return None if (isinstance(raw, float) and math.isnan(raw)) else ('value', float(raw))
     s = str(raw).strip()
     if not s:
+        return None
+    if _QUAL_GRADE.fullmatch(s):
         return None
     st = _score_state(s)
     return st if st is not None else result_state(s)

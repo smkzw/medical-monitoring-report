@@ -3296,6 +3296,8 @@ class F8UnifiedNumericParse(unittest.TestCase):
         self.assertEqual(num_state('2-中度'), ('value', 2.0))
         self.assertEqual(num_state('轻度'), ('value', 1.0))
         self.assertIsNone(num_state('轻度升高说明'))          # 非裸分级词的描述文本不猜数值
+        for q in ('1+', '2+', '4+', '±', '+++', '1 +'):
+            self.assertIsNone(num_state(q), q)                # 半定量分级是定性强度不是数值（ext1 真值口径）
 
     def test_scientific_notation_forms(self):
         from common import num_state
