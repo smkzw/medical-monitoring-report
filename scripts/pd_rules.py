@@ -51,7 +51,7 @@ CAT_RE = [
     ('VIS', r'超窗|访视窗|时间窗|访视.{0,4}(缺失|未进行|未完成|遗漏)'),
     ('ASMT', r'漏做|未做|缺失|未进行|未完成|遗漏|检查|评估|量表|心电图|实验室'),
 ]
-GRADE_STD = [(r'严重|重要|重大|major|important|critical', '重要'), (r'轻微|一般|次要|minor|non', '一般')]
+GRADE_STD = [(r'严重|重要|重大|重度|major|important|critical', '重要'), (r'轻微|轻度|一般|次要|minor|non', '一般')]   # SAR 记录表「轻度/重度」
 # 既有引擎信号 → PD 分类（others.cat / labrows.risk）
 SIG_CAT = {'入排标准核对': ('ELIG', 'ELIG-01'), '入排洗脱用药核对': ('ELIG', 'ELIG-02'), '禁限用药核对': ('CM', 'CM-01'),
            '访视超窗核对': ('VIS', 'VIS-01')}
@@ -741,13 +741,16 @@ class _PD:
         extra = [(c, p) for p, c in (P.get('catMap') or [])]
         out = []
         for i, p in enumerate(C.pd):
-            text = f"{p.get('cat') or ''} {p.get('sub') or ''} {p.get('desc') or ''}"
-            code = _classify(text, extra)
+            # SAR 第 8 轮运营审阅：描述里交代背景（「…于 2025.9.10 随机，V5 超窗 12 天」）会让「随机」先命中 → 159 条错归「随机与盲态」、
+            # 40 条已登记超窗与潜在超窗对不上。先按记录表自带的类别/子类判，判不出再看描述
+            code = _classify(f"{p.get('cat') or ''} {p.get('sub') or ''}", extra)
+            if code == 'OTH':
+                code = _classify(f"{p.get('cat') or ''} {p.get('sub') or ''} {p.get('desc') or ''}", extra)
             s = C.subj.get(p['sid']) or {}
             out.append({'id': f"PD{i + 1:03d}", 'sid': p['sid'], 'site': s.get('site', p.get('site') or ''), 'cat': code,
                         'layer': TAX[code][2], 'rawCat': p.get('cat') or '', 'sub': p.get('sub') or '', 'desc': p.get('desc') or '',
                         'date': p.get('date') or '', 'grade': _grade_std(p.get('grade')) or '', 'rawGrade': p.get('grade') or '',
-                        'status': p.get('status') or '', 'src': [[_sh(p), p['row'], '方案偏离记录']], 'matched': []})
+                        'status': p.get('status') or '', 'visit': p.get('visit') or '', 'src': [[_sh(p), p['row'], '方案偏离记录']], 'matched': []})
         win = int(C.A.get('pdWindow', P.get('window', 30)))
         for it in self.items:
             if not C.pd:
@@ -761,6 +764,13 @@ class _PD:
                 if dd is None or abs(dd) <= win:
                     if best is None or (dd is not None and abs(dd) < best[0]):
                         best = (abs(dd) if dd is not None else 999, c)
+            if best is None and it.get('visit'):
+                # 兜底：同受试者、同访视、日期相差 ≤3 天（类别口径不同也视为同一事件）
+                for c in out:
+                    dd = days(c['date'], it['date']) if is_full_date(c['date']) and is_full_date(it['date']) else None
+                    if c['sid'] == it['sid'] and c.get('visit') and c['visit'] == it['visit'] and dd is not None and abs(dd) <= 3:
+                        best = (abs(dd), c)
+                        break
             if best:
                 it['status'], it['matched'] = '已记录', best[1]['id']
                 best[1]['matched'].append(it['rule'])

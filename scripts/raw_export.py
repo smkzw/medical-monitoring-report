@@ -118,14 +118,16 @@ def export_raw(C, out):
             keep = []
             const = {}
             hl = set((meta or {}).get('hl') or [])
+            # V6 第 8 轮医学审阅（SAR：分组表按组别排序，第 2–88 行安慰剂、89–176 行试验组）：盲态下含分组列的表，
+            # 只剔除分组列不够——原始行号（行序）本身就能还原分组。整表不进原始数据层；剔除记录不写列名（列名本身是分组用语）
+            if blind_on and any(arm_column(lab, [d[2][j] for d in data], arm_names) for j, lab in enumerate(labels) if j != sc):
+                dropped.add(f"表单「{ws.title}」整表（盲态：含分组信息，行序可推断分组）")
+                continue
             for j, lab in enumerate(labels):
                 if j == sc:
                     continue
                 if PII.search(lab):
                     dropped.add(lab)
-                    continue
-                if blind_on and arm_column(lab, [d[2][j] for d in data], arm_names):
-                    dropped.add(f"{lab}（盲态：分组）")
                     continue
                 vals = {d[2][j] for d in data}
                 if vals == {''}:

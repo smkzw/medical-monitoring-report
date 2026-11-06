@@ -96,7 +96,9 @@ def _raw_or_val(r):
 def _head(C, r):
     gtxt = f"；{C.GL} {r.get('grade')} 级" if r.get('grade') else ''
     rng = f"（参考范围 {_fmt_range(r.get('lo'), r.get('hi'))}{gtxt}）" if (r.get('lo') is not None or r.get('hi') is not None) else ''
-    return f"{r.get('visit', '')}（{dshow(r.get('date'))}）{C.metric[r['mid']]['label']} {_val(_raw_or_val(r), r.get('unit'))}{rng}"
+    v_ = _raw_or_val(r)
+    v_ = v_ if v_ not in (None, '') else (r.get('desc') or None)      # 无数值时写研究者描述（SAR 体检「鼻黏膜充血红肿」曾写成「（未填写）」）
+    return f"{r.get('visit', '')}（{dshow(r.get('date'))}）{C.metric[r['mid']]['label']} {_val(v_, r.get('unit'))}{rng}"
 
 
 # --------------------------------------------------------------------------- 词表

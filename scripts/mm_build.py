@@ -336,7 +336,9 @@ def build_subjects(C):
         g = groups.get(sid, {})
         # V6 运营审阅（RUX：监查页「提前退出 0」而 KRI 12/192）：EDC 受试者状态对所有出组者都写「完成试验」，
         # 提前退出以治疗/研究结束页的原因为准（与 KRI 同一判定 monitor_v5._early_wd）；EDC 原状态留在 edc_status
-        if st not in ('筛选失败',) and fd and monitor_v5._early_wd(dict(s, status=st)) and not monitor_v5._EARLY.search(str(st)):
+        if st not in ('筛选失败',) and fd and monitor_v5._early_wd(dict(s, status=st)) and st != '提前退出':
+            # SAR 第 8 轮运营审阅：EDC 写「脱落」时临床监查页（只认「提前退出」）恒为 0、总览却是 4——已给药者的提前出组状态统一为
+            # 「提前退出」，EDC 原文保留在 edc_status（页面可显示原文）
             s = dict(s, edc_status=st)
             st = '提前退出'
         C.subj[sid] = dict(s, fd=fd, ld=ld, status=st, lo=lastobs.get(sid) or ld or fd,
@@ -2136,6 +2138,9 @@ def cm_checks(C):
         pre = re.compile(P['re'], re.I)
         systemic_only = P.get('route') == 'systemic' or (not P.get('route') and bool(_SYSTEMIC.search(P.get('name') or '')) and not _TOPICAL.search(P.get('name') or ''))
         topical_only = P.get('route') == 'topical'          # 「外用皮质类固醇」：只认外用/局部给药的记录（静脉激素归系统性条目）
+        local_only = P.get('route') == 'local'              # 「吸入性/鼻用」：只认吸入、鼻喷等（SAR 外用乳膏、口服不算）
+        exc_re = re.compile(P['exceptRe'], re.I) if P.get('exceptRe') else None
+        exc_mh = re.compile(P['exceptMH'], re.I) if P.get('exceptMH') else None
         for sid in sorted(C.pop):
             s = C.subj[sid]
             if not s['fd']:
@@ -2149,6 +2154,12 @@ def cm_checks(C):
                     if systemic_only and (_TOPICAL.search(c.get('rt') or '') or _TOPICAL.search(c['t']) or _NONDERMAL.search(f"{c.get('rt') or ''} {c['t']}")):
                         continue                 # 眼用/吸入/鼻用等局部给药不是系统性用药
                     unk_end = not c['ong'] and not is_full_date(c['e']) and is_full_date(c['s']) and c['s'] < (s.get('icf') or s['fd'])
+                    if local_only and not _NONDERMAL.search(f"{c.get('rt') or ''} {c['t']}"):
+                        continue
+                    if exc_re and exc_re.search(c['t']):
+                        continue                 # 方案点名除外（SAR 背景药糠酸莫米松）
+                    if exc_mh and any(exc_mh.search(m.get('t') or '') for m in C.mh_by.get(sid, [])):
+                        continue                 # 以病史为条件的允许（SAR：合并哮喘者允许稳定剂量吸入激素）
                     if topical_only and (not (_TOPICAL.search(c.get('rt') or '') or _TOPICAL.search(c['t']))
                                          or _NONDERMAL.search(f"{c.get('rt') or ''} {c['t']}")):
                         continue                 # 「外用」＝皮肤局部；吸入/鼻用/眼用激素不属于（RUX 方案明确允许吸入型糖皮质激素）

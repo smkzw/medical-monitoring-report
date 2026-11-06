@@ -447,6 +447,9 @@ def findings(spec, books, M):
                         it[k] = conv(k, r[i] if i < len(r) else None, M)
                 if tc.get('clin') is not None:
                     it['_clin_col'] = str(tc['clin'])
+                for k_ in ('link', 'link_mh', 'link_ae', 'desc'):          # 记录级关联/描述对该行全部检查项生效（SAR 心电图 EGMHNO）
+                    if it.get(k_) in (None, '') and rec.get(k_) not in (None, ''):
+                        it[k_] = rec[k_]
                 items.append(it)
             items = _record_level_clin(items, spec)
         for it in items:

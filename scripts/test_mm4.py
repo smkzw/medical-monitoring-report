@@ -3559,6 +3559,31 @@ class BlindRawLayerTests(unittest.TestCase):
         self.assertFalse(arm_column('药物名称', ['AK120注射液/安慰剂', '布洛芬', '氯雷他定', '头孢']))
         self.assertFalse(arm_column('GROUPID', ['301', '302']))
 
+    def test_blind_sheet_with_arm_dropped_whole(self):
+        # SAR 第 8 轮：分组表按组别排序，原始行号即可还原分组 → 盲态整表不导出，剔除记录不含分组用语
+        import openpyxl
+        import tempfile
+        from types import SimpleNamespace
+        from raw_export import export_raw
+        with tempfile.TemporaryDirectory() as td:
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = 'GROUP'
+            ws.append(['受试者', '治疗组'])
+            for i, g in enumerate(['安慰剂组', '安慰剂组', '试验组', '试验组']):
+                ws.append([f'S{i + 1}', g])
+            ws2 = wb.create_sheet('AE')
+            ws2.append(['受试者', '不良事件名称'])
+            ws2.append(['S1', '头痛'])
+            f = Path(td) / 'g.xlsx'
+            wb.save(f)
+            C = SimpleNamespace(subj={f'S{i}': {} for i in range(1, 5)}, src={'workbooks': {'edc': str(f)}, 'sheets': {}},
+                                cfg={'blind': {'on': True}})
+            idx = export_raw(C, Path(td) / 'out')
+            self.assertNotIn('edc:GROUP', idx['sheets'])
+            self.assertIn('edc:AE', idx['sheets'])
+            self.assertFalse(any('治疗组' in d or '安慰剂' in d for d in idx['dropped']))
+
 
 class IbRiskFamilyTests(unittest.TestCase):
     """V6 医学审阅：IB 风险名括注里的临床表现＋事件族参与匹配（RUX 带状疱疹/卡波西水痘样疹 ↔ 局部免疫抑制效应（皮肤感染））。"""
