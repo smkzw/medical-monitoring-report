@@ -1523,6 +1523,8 @@ def thr_rhs(R):
     """规则的判据右侧：「ALT/AST > 5 ×ULN」→「超过 5×ULN」，「ANC < 1.5 ×10^9/L」→「低于 1.5×10^9/L」，CTCAE 级别 →「达到 CTCAE 3 级」。"""
     if R.get('on') == 'grade':
         return f"达到 CTCAE {int(R['v'])} 级"
+    if R.get('on') == 'chg_uln':
+        return f"较基线升高{'超过' if R.get('op') == '>' else '达到'} {fmt(R.get('v'))}×ULN"
     lab = str(R.get('label') or '')
     m = re.search(r'(?:>=|<=|≥|≤|>|<)\s*(.+)$', lab)
     rhs = (m.group(1) if m else fmt(R.get('v'))).replace(' ×', '×').strip()
@@ -1607,7 +1609,13 @@ def threshold_rules(C):
                 if vis and r.get('visit') not in vis:
                     continue
                 on = R.get('on', 'val')
+                b_ = r.get('base') or {}
+                if R.get('baseCond') and isinstance(b_.get('value'), (int, float)):
+                    b_abn = (b_.get('hi') is not None and b_['value'] > b_['hi']) or (b_.get('lo') is not None and b_['value'] < b_['lo'])
+                    if (R['baseCond'] == 'abn') != bool(b_abn):
+                        continue                         # 方案只对「基线异常/基线正常」一类受试者适用该阈值
                 x = {'val': r.get('value'), 'chg': r.get('chg'), 'pct': r.get('pct'),
+                     'chg_uln': (r['chg'] / r['hi']) if r.get('chg') is not None and r.get('hi') else None,
                      'uln': (r['value'] / r['hi']) if r.get('value') is not None and r.get('hi') else None,
                      'lln': (r['value'] / r['lo']) if r.get('value') is not None and r.get('lo') else None,
                      'grade': r.get('grade')}.get(on)                    # mm4：方案按 CTCAE 级别定义的阈值（如 3 级血细胞减少）
@@ -1642,7 +1650,8 @@ def threshold_rules(C):
                 thr_l = thr_rhs(R) if not R.get('sum') else str(R.get('label', f"{R.get('op', '>=')}{R['v']}")).replace('|', '/')
                 b = r.get('base') or {}
                 # V6（用户审阅 RUX 第 21 条）：不写「达到方案阈值」——写清检查值相对方案标准的关系（「低于 1.5×10^9/L」）
-                summ = fill(R.get('sum', '{visit}访视（{date}）{test} {value} {unit}，{thr}'), test=C.metric[mid]['label'], value=r.get('raw'),
+                dflt = '{visit}访视（{date}）{test} 由基线 {base} 升至 {value} {unit}，{thr}' if R.get('on') == 'chg_uln' else '{visit}访视（{date}）{test} {value} {unit}，{thr}'
+                summ = fill(R.get('sum', dflt), test=C.metric[mid]['label'], value=r.get('raw'),
                             unit=r.get('unit') or '', visit=r.get('visit'), date=dshow(r.get('date')), thr=thr_l,
                             base=b.get('raw'), chg=r.get('chg'), pct=None if r.get('pct') is None else round(r['pct'], 1), uln=r.get('hi'), lln=r.get('lo'))
                 add_other(C, sid, R['cat'], pr, summ, r.get('visit'), r.get('date'), r['sheet'], r['row'], C.metric[mid]['label'], r.get('clin'), rel, ctx, risk, R,

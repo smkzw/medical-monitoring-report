@@ -3772,6 +3772,10 @@ class Eng2Tests(unittest.TestCase):
         E.icf()                                          # 曾因 tag 未定义而崩溃（MY008 第 9 轮构建失败）
         self.assertFalse([p for p in E.items if p.get('rule') == 'ICF-01'])
 
+    def test_chg_uln_and_base_condition(self):
+        from mm_build import thr_rhs
+        self.assertEqual(thr_rhs({'on': 'chg_uln', 'op': '>=', 'v': 1.0}), '较基线升高达到 1×ULN')
+
     def test_catalog_header_only_needs_two(self):
         from normalize_listing import catalog_map
         names = {'AE', 'SAE', 'LB1', 'TOC'}
