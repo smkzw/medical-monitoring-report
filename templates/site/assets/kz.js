@@ -433,7 +433,7 @@ K.showQ=id=>{const q=K.qById(id);if(!q)return;const cro=D().cro.filter(c=>c[2]==
   const box=document.querySelector('.dr .ex-rows');const X=window.KZX;const ex=X&&Object.values(X.ex).find(e=>e.q===id);
   if(ex){box.innerHTML=K.listing(ex.rows);box.classList.remove('muted')}else{box.innerHTML=`<table class="t"><tbody>${q.ev.map(e=>`<tr><td>${K.p(K.shName(e[0]),'sq')}</td><td>行 ${e[1]}</td><td>${K.p(e[2],'blu')}</td><td>${K.esc(e[3])}</td></tr>`).join('')}</tbody></table>`}
   /* V6：有原始数据层时，证据记录改为就地原行（含前后行、可展开全表单），旧摘录收起 */
-  K.rawIdx().then(I=>{if(I&&(I.subs||{})[q.sid]){box.previousElementSibling.style.display='none';box.style.display='none'}});
+  K.rawIdx().then(I=>{if(I&&(I.subs||{})[q.sid]){const _p=box.previousElementSibling;if(_p)_p.style.display='none';box.style.display='none'}});
   K.seriesPanel(document.querySelector('.dr .q-series'),{sid:q.sid,tests:[q.test,...q.ev.map(e=>e[3])],hl:q.ev.map(e=>[e[0],e[1]])});
 };
 document.addEventListener('click',e=>{const q=e.target.closest('[data-q]');if(q){e.preventDefault();K.showQ(q.dataset.q)}});
