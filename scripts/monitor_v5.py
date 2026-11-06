@@ -474,6 +474,15 @@ def kri(C):
     fr = [f[1] for f in fresh.values() if f[1] is not None and f[2]]
     study['fresh'] = [statistics.median(fr) if fr else None, 1]
     defs = [{'k': k, 'l': l, 'g': g, 'u': u, 'dir': d, 'qtl': list(q) if q else None, 'note': n} for k, l, g, u, d, q, n in KRI_DEFS]
+    # F6②（V6 RUX）：提前退出率分子＝「提前退出或提前终止治疗」，与受试者状态分布的「提前退出」不是一套口径——
+    # 脚注写明「另 N 例仅提前终止治疗（未退出研究）」，两套数字可互推，不再无脚注并存（实证 12/192 vs 状态分布 8）。
+    wd_def = next((d for d in defs if d['k'] == 'wd'), None)
+    if wd_def is not None:
+        wd_ids = {x for x in dosed if _early_wd(S[x])}
+        exit_only = {x for x in wd_ids if re.search(r'退出|脱落|失访|撤回', str(S[x].get('status') or ''))}
+        term_only = len(wd_ids) - len(exit_only)
+        if term_only:
+            wd_def['note'] += f"；其中另 {term_only} 例仅提前终止治疗（未退出研究，仍在随访），未计入状态分布的「提前退出」"
     return {'defs': defs, 'tiers': QTL_TIERS, 'tierDefault': 'std', 'study': study, 'sites': out_sites, 'na': na,
             'pem': {'visits': sorted(cv), 'items': ci_hit},
             'source': '容忍限度为经验默认值，需研究团队确认（ICH E6(R3) §3.10.1.3 要求申办方预设可接受范围）'}

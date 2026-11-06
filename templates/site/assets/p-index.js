@@ -12,7 +12,14 @@ const fds=dosed.map(s=>s.fd).filter(Boolean).sort(),n90=cut?fds.filter(d=>K.days
 const addD=(d,n)=>{const x=new Date(d+'T00:00:00Z');x.setUTCDate(x.getUTCDate()+Math.round(n));return x.toISOString().slice(0,10)};
 const proj=planned&&cut&&dosed.length<planned&&n90>=3?addD(cut,(planned-dosed.length)/(n90/90)):null;
 const due=O.due||[],ov=due.filter(d=>d[6]==='overdue').length,oo=due.filter(d=>d[6]==='out').length,up=(O.upcoming||[]).length;
-const fresh=Object.entries(O.fresh||{}).filter(([,f])=>f[2]&&f[1]!=null&&f[1]>30);
+/* F6①（V6 RUX）：新鲜度如实——按分中心新鲜度数据生成（超限中心数如实写，含在研数为 0 的中心），
+ * 禁用「各中心数据均在 30 天内」无条件断言（实证：总览称均在 30 天内，监查页 12/19 中心超 30 天）。 */
+const freshAll=Object.entries(O.fresh||{}).filter(([,f])=>f[1]!=null);
+const fresh=freshAll.filter(([,f])=>f[2]&&f[1]>30);   // 待办/行动项仍只列仍有在研受试者的中心（可行动）
+const freshStale=freshAll.filter(([,f])=>f[1]>30);
+const freshSub=()=>!freshAll.length?'<span class="xs faint">无分中心新鲜度数据</span>'
+  :freshStale.length?K.p(`${freshStale.length}/${freshAll.length} 个中心 >30 天无新数据`,'org')
+  :K.p(`各中心数据均在 30 天内（${freshAll.length} 个中心）`,'grn');
 const kpi=(l,v,s,href,cls='')=>`<${href?'a':'div'} class="kpi ${cls}${href?' click':''}"${href?` href="${href}" style="text-decoration:none;color:inherit"`:''}><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></${href?'a':'div'}>`;
 const sec=(n,t,s)=>`<div class="sec-h"><span class="n">${n}</span><b>${t}</b><span class="s">${s}</span></div>`;
 app.innerHTML=`${K.knBar(D.knowledge)}
@@ -20,12 +27,12 @@ ${sec('一','综合数据',`研究进展与数据状态 · 数据截止 ${K.esc(
 ${(()=>{/* V6 首屏吸收：打开即见的关键事实条（结构不变，只把最需要先知道的四件事放在第一屏） */
   const qx=K.qtlRows?K.qtlRows().filter(r=>r.st==='exceed'):[],hi=K.riskFor?K.riskFor('all').filter(a=>a.score>=80).length:0,
     sae=S.reduce((a,s)=>a+s.sae,0),preg=oth.filter(o=>o.cat==='妊娠暴露核查').length,gap=oth.filter(o=>o.cat==='访视中断核对').length;
-  const f=(lab,v,u,href,risk)=>`<span class="f${risk?' risk':''}">${href?`<a href="${href}">`:''}${lab} <b>${v}</b> ${u}${href?'</a>':''}</span>`;
-  return `<div class="facts">${f('容忍限度超限',qx.length,'项','monitor.html#tab=kri',qx.length>0)}${f('高风险项',hi,'项','#rank',hi>0)}${f('SAE',sae,'例次','profile.html',sae>0)}${preg?f('妊娠暴露待追踪',preg,'例','safety.html#tab=oth',true):''}${gap?f('访视中断',gap,'例','safety.html#tab=oth',true):''}</div>`})()}
+  const f=(lab,v,u,href,risk,tip)=>`<span class="f${risk?' risk':''}"${tip?` title="${tip}"`:''}>${href?`<a href="${href}">`:''}${lab} <b>${v}</b> ${u}${href?'</a>':''}</span>`;
+  return `<div class="facts">${f('容忍限度超限',qx.length,'项','monitor.html#tab=kri',qx.length>0)}${f('高风险项',hi,'项','#rank',hi>0)}${f('SAE',sae,'例次','profile.html',sae>0,'例次＝治疗期（TEAE）SAE 记录数；完全重复导出第 2 份起、首剂前不计——与 AE 谱/中心矩阵同一口径')}${preg?f('妊娠暴露待追踪',preg,'例','safety.html#tab=oth',true):''}${gap?f('访视中断',gap,'例','safety.html#tab=oth',true):''}</div>`})()}
 <div class="kpis">
  ${kpi('筛选 / 随机并给药',`${m.n}<small>/ ${m.dosed} 例</small>`,Object.entries(st).map(([k,v])=>K.p(k+' '+v,K.STC[k]??'')).join(''),'monitor.html#tab=enr')}
  ${kpi('入组进度',planned?`${(dosed.length/planned*100).toFixed(0)}<small>% · ${dosed.length}/${planned}</small>`:`${dosed.length}<small>例给药</small>`,planned?(dosed.length>=planned?K.p('已达计划例数','grn'):proj?K.p('按近 90 天速率预计 '+proj+' 达成','line'):K.p('近 90 天入组不足 3 例，无法预测','line')):'<span class="xs faint">方案未给计划例数</span>','monitor.html#tab=enr','blu')}
- ${kpi('中心（有给药 / 全部）',`${D.centers.filter(c=>c.dosed).length}<small>/ ${D.centers.length}</small>`,fresh.length?K.p(fresh.length+' 个中心 >30 天无新数据','org'):K.p('各中心数据均在 30 天内','grn'),'center.html')}
+ ${kpi('中心（有给药 / 全部）',`${D.centers.filter(c=>c.dosed).length}<small>/ ${D.centers.length}</small>`,freshSub(),'center.html')}
  ${kpi('不良事件（给药者）',`${ae}<small>例次 · ${dosed.filter(s=>s.nae).length} 例</small>`,`${K.p('SAE '+S.reduce((a,s)=>a+s.sae,0),'grn')}${K.p('AESI '+S.reduce((a,s)=>a+s.aesi,0),'red')}${K.p('≥2级 '+S.filter(s=>s.maxg>=2).length+' 例','org')}`,'profile.html')}
  ${kpi('访视执行',`${due.length}<small>次应完成</small>`,due.length?`${K.p('逾期 '+ov,ov?'org':'line')}${K.p('超窗 '+oo,oo?'yel':'line')}${K.p('未来 14 天 '+up,'blu')}`:'<span class="xs faint">方案访视窗未配置</span>','monitor.html#tab=vis')}
  ${kpi('申办方医学质疑'+(QC.label?'（'+K.esc(QC.label)+'）':''),`${D.queries.length}<small>条</small>`,`${D.cro.length?K.p((QC.extShort||'外部质疑')+' '+D.cro.length+' 条已查重','line'):''}${K.p('冲突澄清 '+D.queries.filter(q=>q.cro==='冲突澄清').length,'red')}`,'queries.html','grn')}

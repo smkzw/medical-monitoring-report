@@ -49,7 +49,7 @@ K.journey=(el,d,{lr=[],ot=[],qs=[]}={})=>{if(!el||!window.echarts)return;
   const gc=g=>{const n=parseInt(g)||0;return n>=3?'#8B0000':n===2?'#E67E00':'#E8C300'};
   (d.ae||[]).forEach((a,i)=>{if(!isD(a.s))return;bars.push({lane:2,sub:i%4,s:clip(a.s),e:clip(isD(a.e)?a.e:end),open:!isD(a.e),c:gc(a.g),bd:a.sae?'#000':null,
     t:`AE“${a.t}”${a.g||''}${a.sae?' · SAE':''}${a.aesi?' · AESI':''}<br>${clip(a.s)} → ${isD(a.e)?clip(a.e):'持续'}${a.rel?'<br>相关性：'+a.rel:''}`,go:()=>K.evDrawer(`${d.id} · AE ${K.esc(a.t)}`,d.id,[[K.evKey(a.wb,a.sh),a.row]],K.aeBox(a))})});
-  (d.cm||[]).slice(0,30).forEach((c,i)=>{if(!isD(c.s))return;bars.push({lane:3,sub:i%3,s:clip(c.s),e:clip(isD(c.e)?c.e:end),c:'#9DB7D3',t:`合并用药“${c.t}”<br>${clip(c.s)} → ${isD(c.e)?clip(c.e):'持续'}`,go:()=>K.evDrawer(`${d.id} · 合并用药 ${K.esc(c.t)}`,d.id,[[K.evKey(c.wb,c.sh),c.row]])})});
+  (d.cm||[]).forEach((c,i)=>{   /* F12⑥：合并用药泳道不再 30 条截断（全部呈现） */if(!isD(c.s))return;bars.push({lane:3,sub:i%3,s:clip(c.s),e:clip(isD(c.e)?c.e:end),c:'#9DB7D3',t:`合并用药“${c.t}”<br>${clip(c.s)} → ${isD(c.e)?clip(c.e):'持续'}`,go:()=>K.evDrawer(`${d.id} · 合并用药 ${K.esc(c.t)}`,d.id,[[K.evKey(c.wb,c.sh),c.row]])})});
   lr.filter(g=>!['NCS','MHX-T'].includes(g.risk)).forEach(g=>(g.pts||[]).forEach(p=>{if(isD(p[1]))pts.push({lane:4,d:clip(p[1]),sev:p[5]===2?2:1,c:p[5]===2?'#8B0000':'#E67E00',sym:p[5]===2?'circle':'emptyCircle',sz:p[5]===2?10:8,t:`${g.test} ${p[2]??''} ${p[3]||''}（${p[0]||''}）${p[5]===2?' · CS':p[5]===1?' · NCS':''}${p[4]?' · '+p[4]+'级':''}<br>${K.esc(((K.RISK||{})[g.risk]||[g.risk])[0])}`,go:()=>K.showLabG(g)})}));
   ot.filter(o=>o.pr>=3&&isD(o.d)).forEach(o=>pts.push({lane:4,d:clip(o.d),c:'#B86400',sym:'diamond',sz:9,t:`${K.catN(o.cat)}<br>${K.esc(String(o.sum||'').slice(0,80))}`,go:()=>K.showOth(o)}));
   qs.forEach(q=>{if(isD(q.d))pts.push({lane:5,d:clip(q.d),c:'#E67E00',sym:'pin',sz:14,t:`${q.id} ${K.catN(q.cat)}<br>${K.esc(String(q.text||'').slice(0,90))}`,go:()=>K.showQ(q.id)})});
@@ -95,7 +95,7 @@ K.labHeat=(el,labs,{onPick}={})=>{if(!el||!window.echarts)return 0;
 /* ---- 受试者风险构成（中心页）：横向堆叠条，一行一名受试者；同一套类别顺序与颜色（状态色＝风险，蓝＝AE 身份） */
 K.roster=(el,sids)=>{if(!el||!window.echarts)return;const Dd=D();
   const C=[['CS 未关联','#8B0000',s=>(K.lab||[]).filter(g=>g.sid===s&&g.risk==='CSX').length],['专项（需核实+）','#E67E00',s=>(Dd.others||[]).filter(o=>o.sid===s&&o.pr>=3).length],
-    ['质疑','#E8C300',s=>(Dd.queries||[]).filter(q=>q.sid===s).length],['TEAE','#407AAA',s=>(Dd.aes||[]).filter(a=>a.sid===s&&a.te!==false).length],['SAE','#1F3B57',s=>(Dd.aes||[]).filter(a=>a.sid===s&&a.sae).length]];
+    ['质疑','#E8C300',s=>(Dd.queries||[]).filter(q=>q.sid===s).length],['TEAE','#407AAA',s=>(Dd.aes||[]).filter(a=>a.sid===s&&a.te!==false).length],['SAE','#1F3B57',s=>(Dd.aes||[]).filter(a=>a.sid===s&&a.sae&&a.te!==false&&!a.dup).length]];   /* F4①：与总览「SAE 例次」同口径（TEAE、完全重复导出第 2 份起不计） */
   const rows=sids.map(s=>[s,C.map(c=>c[2](s))]).sort((a,b)=>b[1].slice(0,3).reduce((x,y)=>x+y,0)-a[1].slice(0,3).reduce((x,y)=>x+y,0)||b[1][3]-a[1][3]).slice(0,40);
   if(!rows.length){el.innerHTML='<div class="empty">本中心无已给药受试者</div>';return}
   el.style.height=Math.max(140,50+rows.length*18)+'px';

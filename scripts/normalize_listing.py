@@ -30,7 +30,7 @@ from pathlib import Path
 
 import openpyxl
 
-from common import clin_code, dump_json, load_json, norm_date, open_workbook_lenient, parse_desc_links, parse_links, parse_typed_links, to_num, yes
+from common import clin_code, dump_json, load_json, norm_date, num_bound, num_state, open_workbook_lenient, parse_desc_links, parse_links, parse_typed_links, to_num, yes
 from inspect_listing import STRUCT_OK, guess, is_meta_col, is_struct_col
 
 DATE_FIELDS = {'date', 'start', 'end', 'icf', 'eot_d', 'eos_d', 'rand_d', 'fd', 'ld', 'aware', 'rpt', 'win_lo', 'win_hi'}
@@ -462,9 +462,13 @@ def findings(spec, books, M):
             raw = it.get('value')
             if raw in (None, '') and it.get('clin') is None:
                 continue
+            # F8：结果/范围统一走 num_state/num_bound——「2分-中度」「中度（2）」内嵌分数/级别词取出数值（主要终点趋势不丢）；
+            # 「<50」「<1*10^3」按删失态处理（value=None，不参与超上限比较，判据走 result_state）；const/列范围「<1*10^3」取幅度。
+            st = num_state(raw) if raw not in (None, '') else None
             f = dict(base)
             f.update({'test': str(it.get('test') or '').strip() + (f'·{loc}' if loc else ''), 'raw': None if raw is None else str(raw),
-                      'value': to_num(raw), 'unit': it.get('unit'), 'lo': to_num(it.get('lo')), 'hi': to_num(it.get('hi')),
+                      'value': st[1] if st is not None and st[0] == 'value' else None,
+                      'unit': it.get('unit'), 'lo': num_bound(it.get('lo')), 'hi': num_bound(it.get('hi')),
                       'clin': it.get('clin'), 'desc': it.get('desc'),
                       'links': parse_links(it.get('link'), M.get('link_re')) + parse_typed_links(it.get('link_mh'), 'MH') +
                       parse_typed_links(it.get('link_ae'), 'AE')})
@@ -496,7 +500,7 @@ def findings(spec, books, M):
             if not f['test']:
                 continue
             if isinstance(f['unit'], str) and f['unit']:
-                f['unit'] = f['unit'].replace('μ', 'µ')   # F10：μ 两种写法归一（U+03BC → U+00B5，与分级表键一致）
+                f['unit'] = f['unit'].replace('µ', 'μ')   # F12⑤：μ 两种写法归一到 U+03BC（分级匹配侧 ucanon/norm_unit 两写法都归一，不受显示口径影响）
             if isinstance(f['unit'], str) and re.search(r'10\s*[Ee]\s*\d', f['unit']):
                 f['unit'] = re.sub(r'(?<![\d.])10\s*[Ee]\s*(\d+)', r'10^\1', f['unit'])   # V6（MY008）：10E12/L＝×10^12/L
             if isinstance(f['unit'], str) and '10^' in f['unit']:

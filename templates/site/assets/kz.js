@@ -97,7 +97,9 @@ K.ptCons=aes=>{const L=aes||[];const wp=L.filter(a=>a.pt).length;
  const b={};L.forEach(a=>{if(!a.pt)return;const t=b[a.pt]=b[a.pt]||{};t[a.t]=(t[a.t]||0)+1});
  const rows=Object.entries(b).map(([pt,t])=>[pt,Object.entries(t).sort((x,y)=>y[1]-x[1]||x[0].localeCompare(y[0]))]).filter(r=>r[1].length>=2).sort((x,y)=>y[1].length-x[1].length);
  return{deg:false,rows}};
-K.thrKey='kz.thr:'+((C0().study||{}).code||'');
+/* F5（V6 RUX）：研究编号缺失时键回退项目 id／报告路径——不退化成全局键（跨项目/跨页互相改写档位）；
+ * 与 kz-tier.js 的档位载入键同一表达式（两处必须一致）。 */
+K.thrKey='kz.thr:'+((C0().study||{}).code||((window.KZS||{}).project||{}).id||(typeof location!=='undefined'?location.pathname.replace(/\/[^\/]*$/,'').replace(/[^0-9A-Za-z_-]+/g,'').slice(-48):'')||'report');
 /* 存储 {dev,base,src}：src=user 用户在本浏览器自选（最高优先）；src=project 工作台项目阈值的本地副本（供页面脚本前载入档位用，项目设置变了会更新） */
 K._thrSel=(()=>{try{return JSON.parse(localStorage.getItem(K.thrKey)||'null')}catch(e){return null}})();
 K.thr=()=>{const c=(C0().thresholds)||{},S=window.KZS,u=K._thrSel,src=(u&&u.src==='user')?u:(S&&S.thresholds)?S.thresholds:(u||{}),sel={...c,...src};
@@ -155,7 +157,7 @@ K.header=()=>{
   const h=document.createElement('header');h.className='top';
   h.innerHTML=`<div class="bar"><a class="brand" href="index.html" title="康哲智研 METRIC · ${sub[1]}"><img class="logo" src="${K.esc(br.platform||'assets/brand/metric.svg')}" alt="智研 METRIC"><span class="bsep"></span><img class="logo" src="${sub[0]}" alt="${sub[1]}"></a>
   <nav>${K.PAGES.map(([u,t,sp])=>`<a href="${u}" class="${u===cur||(sp&&sp===K.spaceOf(cur))?'on':''}">${t}</a>`).join('')}</nav>
-  <div class="meta">${code?`<span class="proj" title="项目代号">${K.esc(code)}</span>`:''}${pend?`<a class="p solid-red" href="study.html#sysnote" title="CS 异常解释待确认（定稿前须清零），详见研究依据页底部系统提示">CS 待确认 ${pend}</a>`:''}${(c.headerTags||[['截止 '+(m.cutoff||''),'line','数据截止日期']]).map(t=>K.p(t[0],t[1]||'line',t[2])).join('')}${c.dataStage?K.p({daily:'日常监查',prelock:'锁库前',cfdi:'锁库后'}[c.dataStage]||'','line',{daily:'日常监查·数据录入中',prelock:'锁库前·全量数据',cfdi:'锁库后·核查前'}[c.dataStage]||''):''}${c.blind&&c.blind.on?K.p(c.blind.tag||'盲态','blu'):''}</div></div><div class="ribbon"></div>${(()=>{const sp=K.spaceOf(cur);return sp?`<div class="subnav"><div class="in">${K.SPACES[sp].map(([u,t])=>`<a href="${u}" class="${u===cur?'on':''}">${t}</a>`).join('')}</div></div>`:''})()}`;
+  <div class="meta">${code?`<span class="proj" title="项目代号">${K.esc(code)}</span>`:''}${/* F12④：CS 待确认移到研究依据页系统提示（kz-sys 写入 #todo），页头不再挂红标 */ ''}${(c.headerTags||[['截止 '+(m.cutoff||''),'line','数据截止日期']]).map(t=>K.p(t[0],t[1]||'line',t[2])).join('')}${c.dataStage?K.p({daily:'日常监查',prelock:'锁库前',cfdi:'锁库后'}[c.dataStage]||'','line',{daily:'日常监查·数据录入中',prelock:'锁库前·全量数据',cfdi:'锁库后·核查前'}[c.dataStage]||''):''}${c.blind&&c.blind.on?K.p(c.blind.tag||'盲态','blu'):''}</div></div><div class="ribbon"></div>${(()=>{const sp=K.spaceOf(cur);return sp?`<div class="subnav"><div class="in">${K.SPACES[sp].map(([u,t])=>`<a href="${u}" class="${u===cur?'on':''}">${t}</a>`).join('')}</div></div>`:''})()}`;
   document.body.prepend(h);
   const f=document.createElement('div');f.className='foot';const ft=c.footer||{};f.innerHTML=`<span>${K.esc(ft.left||'产品中心-医学部')}</span><span>${K.esc(ft.right||((m.sources||[]).length?'数据来源：'+m.sources.join(' · '):'数据截止 '+(m.cutoff||'')))}</span>`;document.body.append(f);
   const mk=document.createElement('div');mk.className='dr-mask';const dr=document.createElement('aside');dr.className='dr';dr.innerHTML='<div class="dh"><h2></h2><span class="dsub"></span><button class="x" title="关闭">×</button></div><div class="db"></div>';
@@ -502,10 +504,10 @@ K.CATN=Object.assign({'CS未关联AE/MH':'有临床意义异常未关联AE或病
   'CS仅关联病史·加重核对':'有临床意义异常仅关联病史（是否加重）','CS归因研究疾病·给药后加重':'归因研究疾病的异常给药后加重',
   'CS较基线加重·请确认AE':'有临床意义异常较基线加重（是否为AE）','NCS但达分级≥2级':'判为无临床意义但毒性分级≥2级',
   '达分级≥2级·表单无临床意义评价':'毒性分级≥2级但未评价临床意义','超出参考范围·未评价临床意义':'超出参考范围但未评价临床意义',
-  'AE一致性核对（PT级）':'疑似同一事件编码为不同PT','阈值规则核对':'方案阈值核对','入排洗脱用药核对':'入排洗脱期用药核对','CS未关联·研究疾病表现较基线加重':'研究疾病相关异常较基线加重（是否为AE）',
+  'AE一致性核对（PT级）':'疑似同一事件编码为不同PT','用药原因补漏':'停药信息补录',   /* F12①：按内容重命名（旧构建类目） */'阈值规则核对':'方案阈值核对','入排洗脱用药核对':'入排洗脱期用药核对','CS未关联·研究疾病表现较基线加重':'研究疾病相关异常较基线加重（是否为AE）',
   '未评价临床意义·达分级≥2级':'毒性分级≥2级且未评价临床意义'},
   ((((window.KZ||{}).cfg||{}).taxonomy||{}).catLabels)||{});
-K.catN=c=>{c=String(c||'');const m=c.match(/^(AI审阅·)(.+)$/);return m?m[1]+(K.CATN[m[2]]||m[2]):(K.CATN[c]||c)};
+K.catN=c=>{c=String(c||'');const m=c.match(/^(?:AI审阅·)(.+)$/);return m?(K.CATN[m[1]]||m[1]):(K.CATN[c]||c)};   /* F12①：类目前缀从页面移除（旧构建数据也剥掉） */
 K.domOf=cat=>{const d=K.DOM.find(d=>d[1].includes(cat));return d?d[0]:'其他'};
 K.IBC=Object.assign({'IB已识别风险':'red','IB潜在风险':'org','方案AESI':'solid-red','类效应·预期':'blu','疾病相关':'','同类常见':''},(((window.KZ||{}).cfg||{}).taxonomy||{}).ibColors||{});
 K.ibTags=cat=>((window.KZ.ibtag||{})[cat]||[]).map(t=>K.p(t,K.IBC[t]||'')).join('');

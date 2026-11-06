@@ -67,7 +67,10 @@ mm4 新增：`calibers:[[主题, 采用口径, 状态, 规则id, 说明]]`（关
   `sum` 可用 `{test} {value} {unit} {visit} {date} {thr} {base} {chg} {pct} {uln} {lln}`。
 - `comboRules`：多指标组合（如 Hy’s law）`[{id, name, all:[{metric, on:val|uln|lln|chg|pct|grade, op, v}], none:[…], window:0(同日), aesi, expectAE, aeWindow(30), pr, cat, sum, ask, once}]`。
 - `prohibited`：`[{name, re, daysBefore, daysAfter, pr(4), cat, note}]` 与首剂前 N 天至末次给药后 M 天重叠。
-- `washout`：`[{name, re, days, ref:"icf"|"fd", pr(3), cat}]`。
+- `washout`：`[{name, re, days, ref:"icf"|"fd", pr(3), cat}]`。`prohibited`/`washout` 可选 `exceptRe`（点名除外的药名正则）与
+  `classes`（`[[类名, 成员正则], …]`，质疑文案只列该药实际命中的类）；条款原文写「镇静抗组胺…（允许/可使用非镇静抗组胺药）」时
+  必须把例外写进 `note`——引擎据此不把二代非镇静抗组胺（西替利嗪/氯雷他定/依巴斯汀等通用名）计入该条款（F1/F3，一代镇静照常）；
+  「外用疗法」类条目写 `route:"topical"`——吸入/雾化/鼻用/眼用/注射复方不按外用核查（F2）。
 - `eligibility`：`[{id, metric, visits, on:val|uln|lln, op, v, text, pr, cat, pick:last|first|any, window, kind:inclusion|exclusion}]`（受试者×标准一条，判定值见 analysis-rules §8）；`eligibilitySubject`：`[{field, op, v, label, text}]`。
 - `prohibited[].important`：该禁用类别影响疗效评价或安全（潜在 PD 分级为重要）；`thresholdRules[].stop`：永久停药阈值（WD-01）。
 - `linkVerdicts`：`{"wb:sheet|行号": {v, why}}` CS 关联对应性预判（宿主生成）；`linkStrict`（false）：无预判时词表未命中是否直接 LINK。

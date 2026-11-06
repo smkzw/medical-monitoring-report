@@ -54,7 +54,7 @@ findings 另可映射 `reason`（CS 原因单选文本，mapping 级 `reason_map
  "tests":{"收缩压":{"value":"SYSBP","unit":"mmHg","clin":"SYSCS","lo":90,"hi":139},
           "体重":{"value":"WEIGHT","unit":"kg"}}}
 ```
-`unit/lo/hi` 写常量（数字或不在表头中的字符串）即按常量；写列名即取列值。
+`unit/lo/hi` 写常量（数字或不在表头中的字符串）即按常量；写列名即取列值。范围常量支持检测限/科学计数原文：「<1*10^3 拷贝数/mL」「≤1×10³」按 1000 解析（F8），参考范围列是文本时按列绑定（norm 行解析，不给静默常量）。
 
 ## 校验
 - 运行后检查每域行数；`! <sheet>: unresolved columns [...]` 必须清零或确认不需要。

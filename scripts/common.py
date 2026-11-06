@@ -71,11 +71,62 @@ def to_num(v):
 
 _NUM_SCI = re.compile(r'^(<=|<|>=|>)?([0-9]+(?:\.[0-9]+)?)(?:[eE]([+-]?\d+)|[*×xX]10\^?([+-]?\d+))?')
 
+# 上标丢失形态（复制/导出链吞掉 ^ 的成品写法「10³」）：统一还原为十进制指数再进 _NUM_SCI
+_SUP_MAP = str.maketrans('⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻', '0123456789+-')
+
+# 内嵌分数/级别词（量表值域写法，F8）：「3分-中度…」显式分值优先；「中度（2）」「2-中度」数字带在括号/连字符处取数字；
+# 裸分级词（轻度/中度/重度）按通用 3 级量表映射 1/2/3——只认整串即分级词的写法（「轻度升高说明」等描述文本不猜数值）。
+_GRADE_NUM = {'轻度': 1.0, '中度': 2.0, '重度': 3.0}
+_SCORE_PREFIX = re.compile(r'^\s*(\d+(?:\.\d+)?)\s*分')
+_GRADE_PAREN = re.compile(r'(轻度|中度|重度)[^\d（）()]{0,4}[（(]\s*(\d+)(?:\s*级)?\s*[)）]')
+_NUM_GRADE = re.compile(r'^\s*(\d+(?:\.\d+)?)\s*[-－~～]\s*(?:轻度|中度|重度)')
+
+
+def _score_state(s):
+    m = _SCORE_PREFIX.match(s)
+    if m:
+        return ('value', float(m.group(1)))
+    m = _GRADE_PAREN.search(s)
+    if m:
+        return ('value', float(m.group(2)))
+    m = _NUM_GRADE.match(s)
+    if m:
+        return ('value', float(m.group(1)))
+    t = s.strip(' 　。;；,，')
+    if t in _GRADE_NUM:
+        return ('value', _GRADE_NUM[t])
+    return None
+
+
+def num_state(raw):
+    """统一文本→数值解析（F8，一处收口）：在 result_state（数值/科学计数/删失/定性）之上补内嵌分数/级别词形态。
+    返回 (kind, v)：value / below / above / neg / pos；无法识别 → None。mapping 结果列、规则阈值、参考范围常量
+    三处都从这里取值（「<50」是删失界不是确切值、「<1*10^3」「1×10³」都是 ×10³）。"""
+    if raw is None or isinstance(raw, bool):
+        return None
+    if isinstance(raw, (int, float)):
+        return None if (isinstance(raw, float) and math.isnan(raw)) else ('value', float(raw))
+    s = str(raw).strip()
+    if not s:
+        return None
+    st = _score_state(s)
+    return st if st is not None else result_state(s)
+
+
+def num_bound(raw):
+    """范围/常量数值（lo/hi）解析（F8）：取数值幅度（含科学计数与全角/上标写法），删失符号不保留——
+    「<1*10^3 拷贝数/mL」的 const hi＝1000（检测上限按 1000 判），分级词/定性不适用返回 None。"""
+    st = num_state(raw)
+    if st is None or st[0] in ('neg', 'pos'):
+        return None
+    return st[1]
+
 
 def result_state(raw):
     """检验结果写法的统一语义（V6，RUX 审阅第 12 条：「＜检测下限」「<1*10^3」「阴性」「5.26×10^3」各处各解）：
     返回 (kind, v)：value（确切数值）/ below（低于上界 v；v=None 表示低于检测下限）/ above（高于下界 v）/
-    neg（阴性/未检出类定性）/ pos（阳性类定性）；空或无法识别 → None。"""
+    neg（阴性/未检出类定性）/ pos（阳性类定性）；空或无法识别 → None。
+    F8：科学计数补上标丢失形态（10³）与全角乘号；调用方有分级词形态时走 num_state。"""
     s = str(raw if raw is not None else '').strip()
     if not s:
         return None
@@ -85,7 +136,8 @@ def result_state(raw):
          .replace(' ', '').replace(',', ''))
     if re.search(r'低于(检测|定量)?下限|<(检测|定量)下限|<?LLOQ|<?LOD|^ND$|BLQ|TND|不可测|未检出|未检测到|notdetected', t, re.I):
         return ('below', None)
-    m = _NUM_SCI.match(t)
+    sup = t.translate(_SUP_MAP)
+    m = _NUM_SCI.match(sup if sup != t else t)
     if m:
         v = float(m.group(2)) * (10 ** int(m.group(3) or m.group(4) or 0))
         op = m.group(1)

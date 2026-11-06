@@ -67,7 +67,31 @@ def main():
         r = subprocess.run([sys.executable, str(HERE / 'export_queries.py'), '--norm', a.norm, '--queries', str(out / 'analysis' / 'queries.json'), '--out', str(out)])
         if r.returncode:
             sys.exit(r.returncode)
+        _stamp_query_file(html, out)
     print('built', html)
+
+
+def _stamp_query_file(html: Path, out: Path):
+    """F7（V6 RUX）：交付说明的文件名从实际产物读取——export_queries 写完工作簿后，把真实文件名
+    回写进已构建报告 data/core.js 的 cfg.query.file（页面不再依赖「首列版」硬编码兜底；工作台分列版
+    工作簿由宿主在生命周期层同样回写，首列版/分列版联动）。"""
+    import json
+    cands = sorted(out.glob('*申办方MM_query*.xlsx'), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not cands:
+        return
+    p = html / 'data' / 'core.js'
+    try:
+        t = p.read_text(encoding='utf-8')
+        i = t.index('window.KZ=') + len('window.KZ=')
+        obj = json.loads(t[i:].rstrip().rstrip(';'))
+        cfg = obj.setdefault('cfg', {})
+        q = dict(cfg.get('query') or {})
+        q['file'] = cands[0].name
+        cfg['query'] = q
+        p.write_text('window.KZ=' + json.dumps(obj, ensure_ascii=False, separators=(',', ':'), default=str) + ';',
+                     encoding='utf-8')
+    except (OSError, ValueError):
+        pass
 
 
 if __name__ == '__main__':

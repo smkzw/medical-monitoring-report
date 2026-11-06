@@ -9,7 +9,7 @@ const R=(...ids)=>ids.map(i=>K.rp(i)).join('');
 const ST=D.study||{},DS=ST.design||{},st=D.meta.status;
 const pills=a=>(a||[]).map(x=>Array.isArray(x)?K.p(x[0],x[1]||'line'):K.p(x,'line')).join('');
 const secHide=k=>(ST.hide||[]).includes(k);
-app.innerHTML=`<div class="flex mb"><h1 style="font-size:18px">研究依据</h1><span class="muted small">本报告每一条判断依据什么：研究概况 → 关键口径 → 按监查领域的规则 → 方案/IB 原文规则库（数据结果见各分析页）</span></div>
+app.innerHTML=`<div class="flex mb"><h1 style="font-size:18px">研究依据</h1><span class="muted small">本报告每一条判断依据什么：研究概况 → 关键口径 → 按监查领域的规则 → 方案/IB 原文规则库（数据结果见各分析页）</span>${(()=>{const b=((window.KZS||{}).build)||{};return (b.buildId||b.skillVersion||b.systemVersion)?`<span class="xs faint" style="margin-left:8px">构建 ${K.esc(b.buildId||'—')} · skill ${K.esc(b.skillVersion||'—')} · 系统 ${K.esc(b.systemVersion||'—')}${b.at?' · '+K.esc(b.at):''}</span>`:''})()}</div>
 
 <div class="card"><div class="hd"><h2>研究设计</h2><span class="sub">${K.esc(DS.sub||'')}</span><span class="sp"></span>${R(...(DS.refs||[]))}</div>
  <div class="flow">${(DS.flow||[]).map(f=>`<div class="st${f.hot?' hot':''}"><span class="n">${K.esc(f.n||'')}</span><b>${K.esc(f.b||'')}</b><span class="xs muted">${K.esc(f.x||'')}</span></div>`).join('')}</div>
@@ -27,10 +27,13 @@ ${(DS.facts||[]).length||(ST.endpoints||[]).length?`<div class="card mt"><div cl
 <div class="tabs" id="rtab"></div><div id="rpane"></div>
 <div class="sec-t"><h2>方案 / IB 规则库</h2><span class="muted small" id="rn"></span><span class="sp"></span><input class="s" id="rs" placeholder="搜索 规则文字"></div>
 <div class="chips mb" id="rd"></div><div id="rules"></div>
-<div class="card mt" id="sysnote"><div class="hd"><h2>系统提示</h2><span class="sub">构建与审阅过程中需要人处理的事项（映射、词表、AI 审阅、CS 解释待确认等），不属于数据风险</span></div><div id="todo"></div></div>`;
+<div class="card mt" id="sysnote"><div class="hd"><h2>系统提示</h2><span class="sub">构建与审阅过程中需要人处理的事项（构建缺口、映射、词表、AI 审阅、CS 解释待确认等），不属于数据风险${(((window.KZS||{}).gaps)||[]).length?` · <b style="color:var(--risk)">构建缺口 ${((window.KZS||{}).gaps).length} 项</b>`:''}</span></div><div id="todo"></div></div>`;
 /* V6（用户审阅 RUX 裁定 2）：系统提示从总览移到研究依据页底部；工作台系统层（kz-sys.js）向 #todo 追加 CS 解释待确认等行 */
-/* SoA 合理性守卫（裁定 7）：某评估在某访视 ≥30% 且 ≥10 人缺失 → 不逐人判缺失，作为一条系统提示（附缺失者性别/年龄/中心分布） */
-{const T=(D.todo||[]).concat(((X||{}).soaGuard||[]).map(g=>['SoA 核对','yel',`「${K.esc(g.name)}」${K.esc(g.visit)} 访视 ${g.miss}/${g.n} 人（${Math.round(g.pct*100)}%）无记录，比例异常高，可能是方案流程表对应关系或适用条件（性别、年龄、可沿用首剂前结果等）有误，未逐人判为评估缺失${g.hint?'；'+K.esc(g.hint):''}`,'deviations.html#tab=exe']));
+/* F10（V6 RUX）：构建缺口清单（KZS.gaps：行数对账差/未编译条款/未映射表单）持久显示——auto-confirm 仍按默认，
+ * 但缺口必须可见，不再静默；skill 单独使用（无 KZS）不显示，行为不变 */
+{const GP=((window.KZS||{}).gaps)||[];
+ const T=GP.map(g=>['构建缺口',g.type==='行数对账'?'red':'org',`<b>${K.esc(g.type)}</b>：${K.esc(g.obj)}——${K.esc(g.note)}`,'study.html#sysnote'])
+ .concat(D.todo||[]).concat(((X||{}).soaGuard||[]).map(g=>['SoA 核对','yel',`「${K.esc(g.name)}」${K.esc(g.visit)} 访视 ${g.miss}/${g.n} 人（${Math.round(g.pct*100)}%）无记录，比例异常高，可能是方案流程表对应关系或适用条件（性别、年龄、可沿用首剂前结果等）有误，未逐人判为评估缺失${g.hint?'；'+K.esc(g.hint):''}`,'deviations.html#tab=exe']));
  document.getElementById('todo').innerHTML=T.length?`<table class="t"><tbody>${T.map(t=>`<tr class="click" onclick="location.href='${t[3]}'"><td style="width:90px">${K.p(t[0],t[1])}</td><td>${t[2]}</td><td class="faint">›</td></tr>`).join('')}</tbody></table>`:'<table class="t"><tbody></tbody></table><div class="empty small">无</div>'}
 /* ---------- 关键口径 ---------- */
 const CST={'方案规定':'grn','口径裁定':'org','待确认':'red','项目配置':'blu','默认采用':'line'};

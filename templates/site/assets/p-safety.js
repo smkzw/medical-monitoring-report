@@ -20,6 +20,14 @@ function tabOv(){
   const prog=c=>{const ss=st(c.site),n=ss.length||1,grp=[['完成试验','grn','完成'],['已入组','blu','在组'],['治疗结束','line','治疗结束'],['提前终止治疗','line','提前终止治疗'],['提前退出','red','提前退出'],['筛选失败','faint','筛败']];
     return `<div class="bar-in" style="display:flex;height:10px;width:120px" title="${grp.map(([k,,l])=>l+' '+ss.filter(s=>s.status===k).length).join(' · ')}">${grp.map(([k,cl])=>{const m=ss.filter(s=>s.status===k).length;return m?`<i style="width:${m/n*100}%;background:var(--${cl==='faint'?'line':cl==='line'?'muted':cl==='grn'?'green':cl==='blu'?'blue':'risk'})"></i>`:''}).join('')}</div>`};
   const groups=[...new Set(C.map(c=>c[1]))];
+  /* F12⑦（V6 RUX）：安全性概览补 AESI 定义清单（有定义时）与死亡转归例数（0 例也明示——「无死亡」要看得见） */
+  const B=D.basis||{};
+  const aesiDefs=[].concat((B.aesi||[]).map(a=>`${a.id||'AESI'} ${a.name||''}${a.terms?'（'+a.terms+'）':''}${a.minGrade?' ≥'+a.minGrade+'级':''}`),
+                        (B.thresholdRules||[]).filter(r=>r.aesi).map(r=>'阈值型 '+(r.label||'')),
+                        (B.comboRules||[]).map(r=>'组合 '+(r.name||r.id)));
+  const deaths=aes.filter(a=>/死亡|致死|die|dead|fatal/i.test(String(a.out||'')+' '+String(a.t||''))).length;
+  const f12box=`${aesiDefs.length?`<div class="card mt"><div class="hd"><h2>AESI 定义</h2><span class="sub">方案定义（研究依据页「安全性判定」同源）；达到定义的记录在 AE 记录页筛 AESI</span></div><div class="small" style="line-height:1.9">${aesiDefs.map(x=>K.p('AESI','red')+' '+K.esc(x)).join('<br>')}</div></div>`:''}
+   <div class="box small mt">转归为死亡的 AE：<b>${deaths}</b> 例${deaths?'（见 AE 记录页转归列）':'（本数据截止无死亡转归记录）'}</div>`;
   pane.innerHTML=`<div class="card"><div class="hd"><h2>中心总览</h2><span class="sub">颜色＝观察数比「按本中心${K.esc(CR.unit)}推算的期望数」高出多少，且经多重比较校正后仍显著才着色（人少、随访短的中心不会被放大）；数字为条数，悬停看观察/期望；点击看明细</span></div>
    <div class="flex wrap mb xs muted" style="gap:12px"><span><i class="dot" style="background:rgba(230,126,0,.30)"></i> 偏高（校正后 q&lt;0.10）</span><span><i class="dot" style="background:rgba(230,126,0,.62)"></i> 明显偏高（q&lt;0.05）</span><span><i class="dot" style="background:rgba(64,122,170,.18)"></i> TEAE 偏少（q&lt;0.10，可能漏报）</span><span>筛败率着色同理（对照总体 ${(sfAll*100).toFixed(0)}%，按列校正）</span><span>✳ 个案驱动（分母极小的小中心，偏高可能由个别受试者驱动）</span></div>
    <div style="overflow-x:auto"><table class="t heat" id="ovt"><thead><tr><th rowspan="2">中心</th><th rowspan="2" class="num">筛选</th><th rowspan="2" class="num">筛败</th><th rowspan="2" class="num">给药</th><th rowspan="2" class="num" title="随访人月（首剂至研究结束或数据截止）">随访人月</th><th rowspan="2">进度</th>${groups.map(g=>`<th colspan="${C.filter(c=>c[1]===g).length}" style="text-align:center;border-left:1px solid var(--line)">${g}</th>`).join('')}<th rowspan="2" class="num" title="校正后偏高的类别数">需关注</th></tr>
@@ -28,7 +36,7 @@ function tabOv(){
      const cells=C.map(([k],i)=>{const n=(items[k][c.site]||[]).length,x=(cell[k]||{})[c.site],cd=CR.cased&&CR.cased(k,c.site);
        return `<td class="h ${n?'click':''}" data-k="${k}" data-s="${c.site}" style="${x?K.qStyle(x.qu,x.ql):''}${i&&C[i-1][1]!==C[i][1]?';border-left:1px solid var(--line)':''}" title="${K.esc(K.qTip(x)+K.caseNote(x,CR.small&&CR.small.has(c.site)))}">${n?n+(cd?'<span class="faint" title="个案驱动（分母极小的小中心）">✳</span>':''):'<span class="faint">·</span>'}</td>`}).join('');
      return `<tr><td class="nowrap"><a href="center.html#c=${c.site}" title="中心画像">${K.p(c.site,'sq mono')} ${K.esc(c.name.length>12?c.name.slice(0,12)+'…':c.name)}</a></td><td class="num">${c.n}</td><td class="num" style="${(sfF[ci]||{}).style||''}" title="筛败率 ${(sf/(ss.length||1)*100).toFixed(0)}%">${sf}</td><td class="num"><b>${c.dosed}</b></td><td class="num">${c.dosed?pm(c.site).toFixed(0):'·'}</td><td>${prog(c)}</td>${cells}<td class="num">${hot?K.p(hot,'org'):'·'}</td></tr>`}).join('')}
-   </tbody></table></div></div>`;
+   </tbody></table></div></div>${f12box}`;
   pane.querySelectorAll('#ovt td.click').forEach(td=>td.onclick=()=>{const k=td.dataset.k,s=td.dataset.s,c=C.find(x=>x[0]===k),xs=items[k][s]||[],x=(cell[k]||{})[s];
     const row=x=>k==='q'?`<tr class="click" data-q="${x.id}"><td>${K.sid(x.sid)}</td><td>${K.esc(K.catN(x.cat))}</td><td class="small">${K.esc(String(x.text).slice(0,80))}</td></tr>`
       :k==='pd'||k==='pdi'?`<tr class="click" data-pd="${x.id}"><td>${K.sid(x.sid)}</td><td>${K.pdGrade(x.grade)}</td><td class="small">${K.esc(x.title)}：${K.esc(String(x.fact||'').slice(0,60))}</td></tr>`

@@ -2179,7 +2179,7 @@ class F09SocBucketPriority(unittest.TestCase):
 
 
 class F10MicroUnitCanonical(unittest.TestCase):
-    """RUX 深审 F10：μ 两种写法归一（U+03BC 希腊 μ / U+00B5 微 µ）——normalize 单位一处收口，
+    """RUX 深审 F10：μ 两种写法归一（U+03BC 希腊 μ / U+00B5 微 μ）——normalize 单位一处收口，
     与 ×10^ 归一同点。夹具全虚构。"""
 
     @staticmethod
@@ -2204,11 +2204,11 @@ class F10MicroUnitCanonical(unittest.TestCase):
             return [r.get('unit') for r in findings(spec, {'edc': Book(str(p))}, M)]
 
     def test_mu_variants_unified(self):
-        greek, micro = 'μmol/L', 'µmol/L'
+        greek, micro = '\u03bcmol/L', '\u00b5mol/L'                # U+03BC 希腊 μ / U+00B5 微符号
         self.assertNotEqual(greek, micro)
-        self.assertEqual(self._row([greek]), [micro])                # U+03BC → U+00B5
-        self.assertEqual(self._row([micro]), [micro])                # 幂等
-        self.assertEqual(self._row(['mg/dL', greek]), ['mg/dL', micro])   # 无 μ 迹象的单位不碰
+        self.assertEqual(self._row([greek]), [greek])               # F12⑤：归一到 U+03BC（显示口径）
+        self.assertEqual(self._row([micro]), [greek])               # U+00B5 → U+03BC
+        self.assertEqual(self._row(['mg/dL', micro]), ['mg/dL', greek])   # 无 μ 迹象的单位不碰
 
 
 class DrilldownFields(unittest.TestCase):
@@ -2372,10 +2372,10 @@ class V5Monitor(unittest.TestCase):
         monitor_v5.lab_shift(C, add)
         self.assertEqual([o[0] for o in out], ['范围内明显变化'])
         self.assertIn('下降 24 g/L', out[0][2])
-        C, out, add = self._lab('CREAT', '肌酐', [60, 90], 58, unit='µmol/L', lo=45, hi=104, times=['08:00', '09:00'])
+        C, out, add = self._lab('CREAT', '肌酐', [60, 90], 58, unit='μmol/L', lo=45, hi=104, times=['08:00', '09:00'])
         monitor_v5.lab_shift(C, add)
-        self.assertTrue(any('KDIGO' in o[3][0] for o in out))     # 次日 +30 µmol/L（≥26.5）且仍在范围内
-        C, out, add = self._lab('CREAT', '肌酐', [60, 70], 58, unit='µmol/L', lo=45, hi=104, times=['08:00', '09:00'])
+        self.assertTrue(any('KDIGO' in o[3][0] for o in out))     # 次日 +30 μmol/L（≥26.5）且仍在范围内
+        C, out, add = self._lab('CREAT', '肌酐', [60, 70], 58, unit='μmol/L', lo=45, hi=104, times=['08:00', '09:00'])
         monitor_v5.lab_shift(C, add)
         self.assertEqual(out, [])
 
@@ -2604,7 +2604,7 @@ class V5FixEfficacyWideTests(unittest.TestCase):
 
 class V5FixSmallBaseNoise(unittest.TestCase):
     """V5 修复波：EO/EO%/嗜碱/MO#/TBIL 等基线接近检测下限的指标，30% 百分比门槛噪音大（RUX 趋势信号约
-    1/3 为噪音）。基线绝对值低于单位档小基数上限（×10^9/L、×10^12/L <0.5；µmol/L <10）时，趋势/幅度判据
+    1/3 为噪音）。基线绝对值低于单位档小基数上限（×10^9/L、×10^12/L <0.5；μmol/L <10）时，趋势/幅度判据
     须同时满足绝对变化下限（≥0.3；≥3）；大基数指标的百分比判据不变。口径不变：仍是提示不发质疑。"""
 
     def test_abs_floor_by_unit(self):
@@ -2613,8 +2613,8 @@ class V5FixSmallBaseNoise(unittest.TestCase):
         self.assertEqual(abs_floor(0.2, '/×10^9/L'), 0.3)         # 装饰斜杠写法同档
         self.assertIsNone(abs_floor(2.4, '×10^9/L'))              # 大基数：沿用百分比判据
         self.assertEqual(abs_floor(0.04, '×10^12/L'), 0.3)
-        self.assertEqual(abs_floor(3.0, 'µmol/L'), 3.0)
-        self.assertIsNone(abs_floor(58, 'µmol/L'))
+        self.assertEqual(abs_floor(3.0, 'μmol/L'), 3.0)
+        self.assertIsNone(abs_floor(58, 'μmol/L'))
         self.assertIsNone(abs_floor(150, 'g/L'))                  # 无档位单位不设限
         self.assertIsNone(abs_floor(None, '×10^9/L'))             # 基线缺失不设限
 
@@ -2933,7 +2933,7 @@ class HIFixMicroDomainSplit(unittest.TestCase):
                 self._row(2, '药物乙', '0.25', '耐药；与感染AE相关'),
                 self._row(3, '药物丙', '2', '敏感；与感染AE相关'),
                 self._row(4, '白细胞', '8.91', 'NA', unit='×10^9/L', clin=0),
-                self._row(5, '尿酸', '516', '', unit='µmol/L')]
+                self._row(5, '尿酸', '516', '', unit='μmol/L')]
 
     def test_micro_rows_not_in_F_but_in_micro(self):
         from mm_build import build_findings, micro_panel_mark
@@ -3281,6 +3281,257 @@ class R2FixEligibilitySubjectTypeGuard(unittest.TestCase):
     def test_numeric_age_unchanged(self):
         self.assertEqual(self._run(47.0), [])     # 数值路径不回归
         self.assertEqual(len(self._run(16.0)), 1)
+
+
+class F8UnifiedNumericParse(unittest.TestCase):
+    """F8（RUX 第 12 条升级，R3）：文本→数值解析统一——「N分-中度」「重度（2）」内嵌分数/级别词、
+    「<1*10^3」「1×10³」科学计数（上标丢失形态）、「<50」检测下限删失。修前四形态 value 全空/错值
+    （「<1*10^3」const hi=1.0 丢 ×10³；「<50」被 to_num 读成 50 参与超上限比较）。夹具全虚构。"""
+
+    def test_embedded_score_and_grade_word(self):
+        from common import num_state
+        self.assertEqual(num_state('3分-中度。可能有粉红色的红斑'), ('value', 3.0))
+        self.assertEqual(num_state('中度（2）'), ('value', 2.0))
+        self.assertEqual(num_state('重度（4）'), ('value', 4.0))
+        self.assertEqual(num_state('2-中度'), ('value', 2.0))
+        self.assertEqual(num_state('轻度'), ('value', 1.0))
+        self.assertIsNone(num_state('轻度升高说明'))          # 非裸分级词的描述文本不猜数值
+
+    def test_scientific_notation_forms(self):
+        from common import num_state
+        self.assertEqual(num_state('<1*10^3'), ('below', 1000.0))
+        self.assertEqual(num_state('5.26×10^3'), ('value', 5260.0))
+        self.assertEqual(num_state('<1×10³'), ('below', 1000.0))       # 上标丢失形态
+        self.assertEqual(num_state('1.00E+02'), ('value', 100.0))
+        self.assertEqual(num_state('<1.00E+02'), ('below', 100.0))
+
+    def test_censored_bound_not_value(self):
+        from common import num_state
+        self.assertEqual(num_state('<50'), ('below', 50.0))            # 检测下限形态：删失，不作确切值
+        self.assertEqual(num_state('阴性'), ('neg', None))
+
+    def test_bound_magnitude_for_const_hi(self):
+        from common import num_bound
+        self.assertEqual(num_bound('<1*10^3 拷贝数/mL'), 1000.0)       # 修前 to_num → None / 1.0
+        self.assertEqual(num_bound('≤40'), 40.0)
+        self.assertEqual(num_bound(139), 139.0)
+
+    def test_findings_parses_score_and_censored(self):
+        import tempfile
+        import openpyxl
+        from normalize_listing import Book, findings
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / 'score.xlsx'
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = 'SCORE'
+            ws.append(['受试者编号', '访视', '评估日期', '得分', '结果单位'])
+            ws.append(['S1', '筛选期', '2026-05-01', '3分-中度。虚构描述', '分'])
+            ws.append(['S1', 'W2', '2026-06-01', '中度（2）', '分'])
+            wb.save(p)
+            M = {'workbooks': {'edc': str(p)}, 'clin_map': [['正常', 0]], 'domains': {}}
+            spec = {'wb': 'edc', 'sheet': 'SCORE', 'domain': 'efficacy', 'group': '虚构量表', 'label_row': 1,
+                    'var_row': 0, 'data_start': 2,
+                    'cols': {'sid': '受试者编号', 'visit': '访视', 'date': '评估日期', 'test': '得分', 'value': '得分'},
+                    'const': {'hi': '<1*10^3 拷贝数/mL'}}
+            rows = findings(spec, {'edc': Book(str(p))}, M)
+            self.assertEqual([r['value'] for r in rows], [3.0, 2.0])   # 修前全 None（主要终点趋势丢失）
+            self.assertTrue(all(r['hi'] == 1000.0 for r in rows))      # 修前 const hi 为 None/1.0
+            ws.append(['S2', '筛选期', '2026-05-02', '<50', '拷贝数/mL'])
+            wb.save(p)
+            rows2 = findings(spec, {'edc': Book(str(p))}, M)
+            cen = next(r for r in rows2 if r['sid'] == 'S2')
+            self.assertEqual((cen['value'], cen['raw']), (None, '<50'))   # 删失：不做确切值比较
+
+
+class F1F2F3DrugClass(unittest.TestCase):
+    """F1（非镇静抗组胺）/F2（吸入不入外用）/F3（单药类属措辞）——引擎判定侧。全部虚构药名/条款。"""
+
+    @staticmethod
+    def _C(prohibited=None, washout=None):
+        from types import SimpleNamespace
+        from collections import defaultdict
+        import mm_build
+        A = {}
+        if prohibited is not None:
+            A['prohibited'] = prohibited
+        if washout is not None:
+            A['washout'] = washout
+        C = SimpleNamespace(A=A, pop={'S1'}, subj={'S1': {'fd': '2024-06-01', 'ld': '2024-12-01', 'lo': '', 'icf': '2024-05-20',
+                                                           'site': '01'}},
+                            cm_by=defaultdict(list), others=[], tl=defaultdict(dict), proc=[])
+        orig = mm_build.oth_qkey
+        mm_build.oth_qkey = lambda *a, **k: ''
+        return C, orig, mm_build
+
+    @staticmethod
+    def _run(C, orig, mm_build):
+        try:
+            mm_build.cm_checks(C)
+        finally:
+            mm_build.oth_qkey = orig
+        return [o['sum'] for o in C.others]
+
+    def test_f1_nonsedating_exempt_from_sedating_clause(self):
+        """F1：条款「镇静抗组胺药（允许使用非镇静抗组胺药）」——虚构药「某西替利嗪」（二代写法）修前命中、
+        修后不命中；同条款「苯海拉明」（一代镇静）仍命中。"""
+        C, orig, mb = self._C(prohibited=[{'name': '镇静抗组胺药', 'note': '例外：允许使用非镇静抗组胺药',
+                                           're': '氯雷他定|西替利嗪|苯海拉明|氯苯那敏', 'pr': 4}])
+        C.cm_by['S1'] = [{'t': '某西替利嗪片', 'rt': '口服', 's': '2024-07-01', 'e': '2024-07-02', 'ong': False,
+                          'why': '虚构适应症', 'sh': 'CM', 'row': 1, 'wb': ''},
+                         {'t': '苯海拉明片', 'rt': '口服', 's': '2024-07-01', 'e': '2024-07-02', 'ong': False,
+                          'why': '虚构适应症', 'sh': 'CM', 'row': 2, 'wb': ''}]
+        hit = self._run(C, orig, mb)
+        self.assertTrue(any('苯海拉明' in h for h in hit), hit)                 # 一代镇静照常命中
+        self.assertFalse(any('西替利嗪' in h for h in hit), hit)                # 二代非镇静不命中（修前命中，红）
+        # 无「允许非镇静」措辞的镇静条款：两类都命中（不放宽）
+        C2, orig2, mb2 = self._C(prohibited=[{'name': '镇静抗组胺药', 're': '氯雷他定|西替利嗪|苯海拉明', 'pr': 4}])
+        C2.cm_by['S1'] = [dict(C.cm_by['S1'][0], row=9)]
+        hit2 = self._run(C2, orig2, mb2)
+        self.assertTrue(any('西替利嗪' in h for h in hit2), hit2)
+
+    def test_f1_washout_honors_except_re(self):
+        """F1：洗脱条目 exceptRe（编译层从条款原文「允许非镇静」生成的例外）同口径生效。"""
+        C, orig, mb = self._C(washout=[{'name': '镇静抗组胺药', 're': '氯雷他定|西替利嗪|苯海拉明', 'days': 14, 'ref': 'fd',
+                                        'exceptRe': '氯雷他定|西替利嗪'}])
+        C.cm_by['S1'] = [{'t': '某氯雷他定片', 'rt': '口服', 's': '2024-05-25', 'e': '2024-05-28', 'ong': False, 'why': '',
+                          'sh': 'CM', 'row': 1, 'wb': ''},
+                         {'t': '苯海拉明片', 'rt': '口服', 's': '2024-05-25', 'e': '2024-05-28', 'ong': False, 'why': '',
+                          'sh': 'CM', 'row': 2, 'wb': ''}]
+        hit = [s for s in self._run(C, orig, mb) if '洗脱' in s]
+        self.assertTrue(any('苯海拉明' in s for s in hit), hit)
+        self.assertFalse(any('氯雷他定' in s for s in hit), hit)                # 修前 washout 不认 exceptRe（红）
+
+    def test_f2_inhaled_not_topical_washout(self):
+        """F2：吸入复方不入「外用疗法」洗脱（外用＝皮肤局部；吸入/鼻用/眼用/注射除外）。虚构「某吸入用复方」。"""
+        C, orig, mb = self._C(washout=[{'name': '其他外用疗法', 're': '莫米松|布地奈德|某复方', 'days': 7, 'ref': 'fd',
+                                        'route': 'topical'}])
+        C.cm_by['S1'] = [{'t': '吸入用某复方混悬液', 'rt': '雾化吸入', 's': '2024-05-20', 'e': '2024-05-30', 'ong': False,
+                          'why': '', 'sh': 'CM', 'row': 1, 'wb': ''},
+                         {'t': '某莫米松乳膏', 'rt': '外用', 's': '2024-05-20', 'e': '2024-05-30', 'ong': False,
+                          'why': '', 'sh': 'CM', 'row': 2, 'wb': ''}]
+        hit = [s for s in self._run(C, orig, mb) if '洗脱' in s]
+        self.assertTrue(any('莫米松乳膏' in s for s in hit), hit)               # 皮肤局部照常命中
+        self.assertFalse(any('吸入' in s for s in hit), hit)                    # 修前吸入复方被套外用洗脱（红）
+        # route 未写但名称含「外用」的洗脱条目同口径
+        C2, orig2, mb2 = self._C(washout=[{'name': '外用疗法洗脱', 're': '莫米松|某复方', 'days': 7, 'ref': 'fd'}])
+        C2.cm_by['S1'] = [dict(C.cm_by['S1'][0])]
+        hit2 = [s for s in self._run(C2, orig2, mb2) if '洗脱' in s]
+        self.assertFalse(any('吸入' in s for s in hit2), hit2)
+
+    def test_f3_wording_lists_hit_classes_only(self):
+        """F3：单药类属描述只列该药实际命中的类（顿号连接），无命中写「禁用类待核对」——不再贴整段禁用类清单。"""
+        C, orig, mb = self._C(prohibited=[{'name': '类甲、类乙及类丙', 're': '某甲|某乙|某丙', 'pr': 4,
+                                           'classes': [['类甲', '某甲'], ['类乙', '某乙']]}])
+        C.cm_by['S1'] = [{'t': '某乙片', 'rt': '口服', 's': '2024-07-01', 'e': '2024-07-02', 'ong': False, 'why': '',
+                          'sh': 'CM', 'row': 1, 'wb': ''},
+                         {'t': '某丙片', 'rt': '口服', 's': '2024-07-01', 'e': '2024-07-02', 'ong': False, 'why': '',
+                          'sh': 'CM', 'row': 2, 'wb': ''}]
+        hit = [h for h in self._run(C, orig, mb) if '属于' in h]
+        self.assertTrue(any('属于类乙' in h and '类甲' not in h and '类丙' not in h for h in hit), hit)   # 修前贴整段（红）
+        self.assertTrue(any('禁用类待核对' in h for h in hit), hit)             # 某丙：classes 无命中
+        # 无 classes 字段的旧配置：措辞回退条目名（不回归）
+        C2, orig2, mb2 = self._C(prohibited=[{'name': '类甲', 're': '某甲', 'pr': 4}])
+        C2.cm_by['S1'] = [dict(C.cm_by['S1'][0], t='某甲片')]
+        hit2 = self._run(C2, orig2, mb2)
+        self.assertTrue(any('属于类甲' in h for h in hit2), hit2)
+
+
+class F9GateNumericAtom(unittest.TestCase):
+    """F9①（E14 合取保持，引擎侧）：数值原子带 gate（要求「X 阳性」伴随）——X 不可得降为请核实，
+    X 阴性不发；不再把「X阳性且 Y≥N」拆成 Y 单独成立的析取。虚构指标。"""
+
+    @staticmethod
+    def _run(dna_rows, hbsag_rows):
+        from types import SimpleNamespace
+        from collections import defaultdict
+        import mm_build
+        E = {'id': 'IE-E14', 'metric': r'^lab:.*虚构载量', 'op': '>=', 'v': 1000.0, 'on': 'val', 'kind': 'exclusion',
+             'text': '排除标准 14：虚构抗原A阳性且虚构载量≥1×10^3拷贝数/mL', 'pick': 'any',
+             'gate': {'metric': r'^lab:.*虚构抗原A', 'label': '虚构抗原A', 're': '阳性|\\+|检出'}}
+        C = SimpleNamespace(A={'eligibility': [E]}, pop={'S1'},
+                            subj={'S1': {'site': '01', 'rand_d': None, 'fd': '2026-01-10'}},
+                            F=defaultdict(list), others=[], metric={'lab:虚构载量': {'label': '虚构载量'},
+                                                                    'lab:虚构抗原A': {'label': '虚构抗原A'}},
+                            src={'sheets': {}}, cfg={'visits': {}}, UNS=set(), VIS=[])
+        for r in dna_rows:
+            C.F[('S1', 'lab:虚构载量')].append(r)
+        for r in hbsag_rows:
+            C.F[('S1', 'lab:虚构抗原A')].append(r)
+        orig = mm_build.oth_qkey
+        mm_build.oth_qkey = lambda *a, **k: ''
+        try:
+            mm_build.eligibility_checks(C)
+        finally:
+            mm_build.oth_qkey = orig
+        return C.others
+
+    @staticmethod
+    def _dna(v):
+        return {'sid': 'S1', 'mid': 'lab:虚构载量', 'test': '虚构载量', 'visit': 'SCR', 'date': '2026-01-05', 'raw': str(v),
+                'value': float(v), 'unit': '拷贝数/mL', 'lo': None, 'hi': None, 'clin': None, 'post': False,
+                'sheet': 'LB', 'row': 3, 'wb': '', 'links': []}
+
+    def test_numeric_gate_hold_and_release(self):
+        # 伴随阳性不可得 → 请核实（undetermined），不直接判排除
+        out = self._run([self._dna(5000)], [])
+        self.assertEqual(len(out), 1)
+        self.assertIn('请核实', out[0]['sum'])
+        self.assertEqual(out[0].get('_elig'), 'undetermined')
+        # 伴随阴性 → 不发（gate 不满足）
+        self.assertEqual(self._run([self._dna(5000)], [{'sid': 'S1', 'mid': 'lab:虚构抗原A', 'test': '虚构抗原A',
+                                                       'visit': 'SCR', 'date': '2026-01-05', 'raw': '阴性', 'value': None,
+                                                       'unit': '', 'lo': None, 'hi': None, 'clin': None, 'post': False,
+                                                       'sheet': 'LB', 'row': 4, 'wb': '', 'links': []}]), [])
+        # 伴随阳性 → 判排除（violated）
+        out3 = self._run([self._dna(5000)], [{'sid': 'S1', 'mid': 'lab:虚构抗原A', 'test': '虚构抗原A', 'visit': 'SCR',
+                                              'date': '2026-01-05', 'raw': '阳性', 'value': None, 'unit': '', 'lo': None,
+                                              'hi': None, 'clin': None, 'post': False, 'sheet': 'LB', 'row': 4, 'wb': '',
+                                              'links': []}])
+        self.assertEqual(len(out3), 1)
+        self.assertEqual(out3[0].get('_elig'), 'violated')
+
+
+class RuxWaveTemplateContract(unittest.TestCase):
+    """V6 RUX 第 1 轮修复波（引擎模板契约）：F5 档位键回退、F6① 新鲜度如实、F7 交付说明、
+    F10 构建缺口可见、F12 屏幕清理（前缀/页脚哈希/CS 页头/命令行文案/泳道截断）。"""
+
+    A = ROOT / 'templates/site/assets'
+
+    def test_f5_tier_key_fallback_not_global(self):
+        t = (self.A / 'kz.js').read_text(encoding='utf-8')
+        t2 = (self.A / 'kz-tier.js').read_text(encoding='utf-8')
+        for name, txt in (('kz.js', t), ('kz-tier.js', t2)):
+            self.assertIn("project||{}).id||(typeof location", txt, name)      # 回退项目 id/报告路径（非全局键）
+            self.assertNotIn("code||'')", txt.replace("code||((window", "code||(("), name)
+        self.assertIn("K.thrKey='kz.thr:'", t)
+
+    def test_f6_index_freshness_no_unconditional_assert(self):
+        t = (self.A / 'p-index.js').read_text(encoding='utf-8')
+        self.assertNotIn("K.p('各中心数据均在 30 天内','grn')", t)             # 无条件断言禁用
+        self.assertIn('无分中心新鲜度数据', t)
+        self.assertIn('个中心 >30 天无新数据', t)
+
+    def test_f7_delivery_reads_actual_file(self):
+        t = (self.A / 'p-queries.js').read_text(encoding='utf-8')
+        self.assertIn('href="../${K.esc((K.cfg().query||{}).file', t)          # 交付文件相对链接
+        self.assertNotIn("||'申办方MM_query_首列版.xlsx'", t)                  # 不再硬编码首列版兜底
+
+    def test_f10_gaps_visible_on_study_page(self):
+        t = (self.A / 'p-study.js').read_text(encoding='utf-8')
+        self.assertIn('构建缺口', t)
+        self.assertIn('(window.KZS||{}).gaps', t)
+
+    def test_f12_cleanup(self):
+        kz = (self.A / 'kz.js').read_text(encoding='utf-8')
+        self.assertNotIn('AI审阅·)(K.CATN', kz)                                # 前缀不再保留显示
+        self.assertNotIn('>CS 待确认 ${pend}</a>', kz)                         # 页头红标移除
+        self.assertIn("K.esc(b.buildId||'—')", (self.A / 'p-study.js').read_text(encoding='utf-8'))  # 版本一行进研究依据页
+        k6 = (self.A / 'kz6.js').read_text(encoding='utf-8')
+        self.assertNotIn('(d.cm||[]).slice(0,30)', k6)                         # 用药泳道不 30 截断
+        ps = (self.A / 'p-safety.js').read_text(encoding='utf-8')
+        self.assertIn('AESI 定义', ps)                                         # 安全性概览补 AESI 清单
+        self.assertIn('转归为死亡的 AE', ps)                                   # 死亡 0 例明示
 
 
 class V6Generalization(unittest.TestCase):

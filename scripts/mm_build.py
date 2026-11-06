@@ -2110,6 +2110,38 @@ def overlap(c, a, b):
 _TOPICAL = re.compile(r'外用|外涂|涂抹|涂擦|外搽|外敷|局部|皮肤|软膏|乳膏|霜|凝胶|洗剂|搽剂|酊|贴|滴眼|滴鼻|吸入|喷雾|topical|cream|ointment|gel|lotion', re.I)
 _SYSTEMIC = re.compile(r'系统|全身|口服|静脉|注射|systemic', re.I)
 _NONDERMAL = re.compile(r'吸入|雾化|气雾|喷鼻|鼻喷|滴鼻|鼻用|鼻.{0,2}喷雾|滴眼|眼用|眼膏|滴耳|inhal|nasal|ophthalm', re.I)
+# F2：外用（皮肤局部）排除口径——比 _NONDERMAL 多含注射/静脉/口服（非皮肤给药都不算外用；
+# 注意不得改 _NONDERMAL 本身：系统性条目靠它放行吸入/鼻用局部药，注射是全身给药）。
+_NONSKIN = re.compile(r'吸入|雾化|粉吸入|气雾|喷鼻|鼻喷|滴鼻|鼻用|鼻.{0,2}喷雾|滴眼|眼用|眼膏|滴耳|注射|静脉|肌注|皮下注射|口服|inhal|nasal|ophthalm|inject', re.I)
+
+# F1（通用药理词典条目，非项目特判）：二代非镇静抗组胺（通用名级）。条款写「镇静抗组胺药」且同条允许/可使用
+# 非镇静类时（RUX 实证：依巴斯汀等被「镇静抗组胺药」条款整体扫入，方案原文明确允许非镇静类），该子类不算
+# 本条款的禁用/洗脱对象；一代镇静类（氯苯那敏/苯海拉明/异丙嗪/酮替芬/赛庚啶等）照常命中。
+_NONSEDATING_AH = re.compile(r'西替利嗪|左西替利嗪|氯雷他定|地氯雷他定|非索非那定|依巴斯汀|卢帕他定|比拉斯汀|奥洛他定|阿伐斯汀'
+                             r'|咪唑斯汀|依美斯汀|左卡巴斯汀|氮[卓䓬]斯汀', re.I)
+_ALLOW_NONSEDATING = re.compile(r'(允许|可以?使用|可用|但可|不受限制)[^。；]{0,24}非镇静|非镇静[^。；]{0,16}(允许|可以?使用|可用)')
+
+
+def _nonsedating_exempt(P):
+    """该禁用/洗脱条款是否「镇静抗组胺…（允许/可使用非镇静…）」形态：是则非镇静子类不命中本条款。"""
+    t = ' '.join(str(P.get(k) or '') for k in ('name', 'note', 'cond'))
+    return bool(re.search(r'(?<!非)镇静抗组胺', t) and _ALLOW_NONSEDATING.search(t))
+
+
+def _cls_txt(P, c):
+    """F3：药物类属描述收口——只列该药实际命中的类（classes＝[[类名, 成员正则], …]，顿号连接），
+    无命中写「禁用类待核对」；条目无 classes（旧配置/单一类名）回退条目名，不贴整段禁用类清单。"""
+    cl = P.get('classes')
+    if not cl:
+        return P.get('name', '')
+    hit = [nm for nm, rxx in cl if rxx and re.search(rxx, f"{c.get('rt') or ''} {c.get('t') or ''}", re.I)]
+    return '、'.join(hit) if hit else '禁用类待核对'
+
+
+def _not_topical_cm(c):
+    """F2：该合并用药记录不是皮肤局部给药（吸入/雾化/粉吸入/气雾/鼻用/眼用/注射等）——「外用疗法」类不套。"""
+    loc_ = f"{c.get('rt') or ''} {c.get('t') or ''}"
+    return (not (_TOPICAL.search(c.get('rt') or '') or _TOPICAL.search(c['t']))) or _NONSKIN.search(loc_)
 
 
 def restricted_checks(C):
@@ -2175,6 +2207,7 @@ def cm_checks(C):
         local_only = P.get('route') == 'local'              # 「吸入性/鼻用」：只认吸入、鼻喷等（SAR 外用乳膏、口服不算）
         exc_re = re.compile(P['exceptRe'], re.I) if P.get('exceptRe') else None
         exc_mh = re.compile(P['exceptMH'], re.I) if P.get('exceptMH') else None
+        nonsed_ok = _nonsedating_exempt(P)                  # F1：「镇静抗组胺（允许非镇静）」条款不扫二代非镇静
         for sid in sorted(C.pop):
             s = C.subj[sid]
             if not s['fd']:
@@ -2194,13 +2227,14 @@ def cm_checks(C):
                     unk_end = not c['ong'] and not is_full_date(c['e']) and is_full_date(c['s']) and c['s'] < (s.get('icf') or s['fd'])
                     if local_only and not _NONDERMAL.search(f"{c.get('rt') or ''} {c['t']}"):
                         continue
+                    if nonsed_ok and _NONSEDATING_AH.search(c['t']):
+                        continue                 # F1：允许非镇静的镇静抗组胺条款不命中二代非镇静子类
                     if exc_re and exc_re.search(c['t']):
                         continue                 # 方案点名除外（SAR 背景药糠酸莫米松）
                     if exc_mh and (exc_mh.search(c.get('why') or '') or any(exc_mh.search(m.get('t') or '') for m in C.mh_by.get(sid, []))):
                         continue                 # 以病史为条件的允许（SAR：合并哮喘者允许稳定剂量吸入激素；用药原因写「哮喘」同样算）
-                    if topical_only and (not (_TOPICAL.search(c.get('rt') or '') or _TOPICAL.search(c['t']))
-                                         or _NONDERMAL.search(f"{c.get('rt') or ''} {c['t']}")):
-                        continue                 # 「外用」＝皮肤局部；吸入/鼻用/眼用激素不属于（RUX 方案明确允许吸入型糖皮质激素）
+                    if topical_only and _not_topical_cm(c):
+                        continue                 # F2：「外用」＝皮肤局部；吸入/雾化/鼻用/眼用/注射不属于（RUX 方案明确允许吸入型糖皮质激素）
                     if rescue and rescue_re.search(c.get('why') or '') and (not is_full_date(c['s']) or c['s'] >= s['fd']):
                         continue
                     if (sid, c['sh'], c['row'], c['t']) in cm_seen:
@@ -2210,11 +2244,11 @@ def cm_checks(C):
                         # 入组前开始、停药日期未知且未标持续（RUX：2014–2019 年的既往外用激素，结束「uk」）：不能据此判与治疗期重叠——
                         # 只请核实停药日期（低优先级、不进偏离）
                         add_other(C, sid, '用药日期核对', 2,
-                                  f"合并用药「{c['t']}」（{c['s']}~停药日期未知）属于{P['name']}，未标持续，请核实停药日期是否在首剂（{s['fd']}）之前",
+                                  f"合并用药「{c['t']}」（{c['s']}~停药日期未知）属于{_cls_txt(P, c)}，未标持续，请核实停药日期是否在首剂（{s['fd']}）之前",
                                   None, c['s'], c['sh'], c['row'], c['t'], bkey=f"{c['t']}|{c['s']}|unkend", wb=c.get('wb') or '')
                         continue
                     add_other(C, sid, P.get('cat', '禁限用药核对'), P.get('pr', 4),
-                              f"合并用药「{c['t']}」（{c['s'] or '?'}~{'持续' if c['ong'] else c['e'] or '?'}）属于{P['name']}，与{('首剂前 %d 天至' % w0) if w0 else ''}治疗期重叠；用药原因：{c['why'] or '—'}",
+                              f"合并用药「{c['t']}」（{c['s'] or '?'}~{'持续' if c['ong'] else c['e'] or '?'}）属于{_cls_txt(P, c)}，与{('首剂前 %d 天至' % w0) if w0 else ''}治疗期重叠；用药原因：{c['why'] or '—'}",
                               None, c['s'], c['sh'], c['row'], c['t'], ctx=[P.get('note', '')] if P.get('note') else [],
                               bkey=f"{c['t']}|{c['s']}", wb=c.get('wb') or '')
         for pr_ in [x for x in getattr(C, 'proc', []) if x.get('sid') in C.pop]:    # 禁用的治疗/操作（造血干细胞移植等）也核对操作记录
@@ -2229,7 +2263,12 @@ def cm_checks(C):
         pre = re.compile(W['re'], re.I)
         # V6 医学审阅（RUX P0007：他克莫司软膏为外用，适用 1 周洗脱，却按系统性免疫抑制剂 4 周报重要偏离）：与禁用药同口径——
         # 「系统性」洗脱条目不匹配外用/局部给药（外用另有条目时由外用条目核查）
-        sys_only = bool(re.search(r'系统|全身|口服|中(草)?药|中成药', W.get('name') or '')) and not _TOPICAL.search(W.get('name') or '')   # 口服/中药洗脱不套外用药
+        sys_only = bool(re.search(r'系统|全身|口服|中(草)?药|中成药', W.get('name') or '')) and not _TOPICAL.search(W.get('name') or '')
+        # F2：「外用疗法」类洗脱只认皮肤局部给药——吸入/雾化复方（含激素成员字面）不入外用类
+        top_only = W.get('route') == 'topical' or (not W.get('route') and bool(_TOPICAL.search(W.get('name') or ''))
+                                                   and not _SYSTEMIC.search(W.get('name') or ''))
+        exc_re = re.compile(W['exceptRe'], re.I) if W.get('exceptRe') else None
+        nonsed_ok = _nonsedating_exempt(W)                  # F1：洗脱条款同样认「允许非镇静」
         for sid in sorted(C.pop):
             s = C.subj[sid]
             ref = s.get({'rand': 'rand_d'}.get(W.get('ref', 'fd'), W.get('ref', 'fd')))
@@ -2239,10 +2278,16 @@ def cm_checks(C):
             for c in C.cm_by[sid]:
                 if sys_only and (_TOPICAL.search(c.get('rt') or '') or _TOPICAL.search(c['t'])):
                     continue
+                if top_only and _not_topical_cm(c):
+                    continue                 # F2：外用＝皮肤局部；吸入/鼻用/眼用/注射复方不按外用洗脱核查
+                if nonsed_ok and _NONSEDATING_AH.search(c['t']):
+                    continue                 # F1：允许非镇静的镇静抗组胺洗脱条款不命中二代非镇静子类
+                if exc_re and exc_re.search(c['t']):
+                    continue                 # F1：洗脱条目点名除外（编译层从条款原文生成，与禁用药同口径）
                 # 末次用药距参照日恰好 N 天＝洗脱期已满（D001 间隔正好 14/28 天曾判「不足」）：只算严格晚于窗口起点的
                 if pre.search(c['t']) and (c['ong'] or (is_full_date(c['e']) and c['e'] > a)) and (not is_full_date(c['s']) or c['s'] <= ref):
                     add_other(C, sid, W.get('cat', '入排洗脱用药核对'), W.get('pr', 3),
-                              f"合并用药「{c['t']}」末次 {c['e'] or '持续'}，距{ {'icf': '知情', 'rand': '随机'}.get(W.get('ref'), '首剂')}（{ref}）不足 {W['days']} 天洗脱期（{W['name']}）",
+                              f"合并用药「{c['t']}」末次 {c['e'] or '持续'}，距{ {'icf': '知情', 'rand': '随机'}.get(W.get('ref'), '首剂')}（{ref}）不足 {W['days']} 天洗脱期（{_cls_txt(W, c)}）",
                               None, c['e'] or c['s'], c['sh'], c['row'], c['t'], bkey=f"{c['t']}|{c['s']}", wb=c.get('wb') or '')
 
 
@@ -2475,13 +2520,14 @@ def eligibility_checks(C):
             # ---- 用户 2026-11-01 三裁定：复合前提/例外不机械判排除 ----
             # V6（用户审阅 RUX 第 9 条）：信号带判定状态 _elig（violated/exception_met/premise_unmet/undetermined），
             # 方案偏离只对 violated 生成、undetermined 列「待判定」，例外已满足/前提不成立只作提示
-            if E.get('gate') and E.get('re'):                        # ③「X 阳性且 Y…」：Y 未满足不发；不可得降为请核实
+            if E.get('gate'):                                        # ③「X 阳性且 Y…」（F9①：Y 数值侧同样带 gate）：Y 未满足不发；不可得降为请核实
                 g = _gate_ok(C, sid, E['gate'], r)
                 if g is False:
                     continue
                 if g is None:
                     gl = E['gate'].get('label') or '伴随条件'
-                    gv = (f"{gl} {_OP_CN.get(E['gate'].get('op', ''), E['gate'].get('op', ''))}{fmt(E['gate']['v'])} {E['gate'].get('unit') or ''}".rstrip()
+                    gv = (f"{gl} 阳性" if E['gate'].get('re') else
+                          f"{gl} {_OP_CN.get(E['gate'].get('op', ''), E['gate'].get('op', ''))}{fmt(E['gate']['v'])} {E['gate'].get('unit') or ''}".rstrip()
                           if E['gate'].get('v') is not None else gl)
                     o = add_other(C, sid, E.get('cat', '入排标准核对'), E.get('pr', 4),
                                   f"{det}，{crit}要求同时 {gv} 才排除，未见同期 {gl} 结果，请核实",
