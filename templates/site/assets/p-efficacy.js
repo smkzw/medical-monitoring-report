@@ -24,7 +24,7 @@ ${(EF.notes||[]).length&&M.length?`<div class="small muted mb">${(EF.notes||[]).
  <div class="dev" id="dv"></div>
  <div class="grid g12"><div><div class="xs muted" id="t1"></div><div class="chart" id="c1" style="height:310px"></div></div><div><div class="xs muted" id="t2"></div><div class="chart" id="c2" style="height:310px"></div></div></div>
  <div id="w3"><div class="xs muted mt" id="t3"></div><div class="chart" id="c3" style="height:260px"></div></div></div>
-<div class="card"><div class="sec-t" style="margin-top:0"><h2>受试者层面异常</h2><span class="muted small">${K.esc(EF.rulesText||'识别方法见「审阅要点」')}</span></div><div class="tbar"><div class="chips" id="ac"></div></div><div id="at"></div></div>`;
+<div class="card"><div class="sec-t" style="margin-top:0"><h2>受试者层面异常</h2><span class="muted small">${K.esc(EF.rulesText||'识别方法见「研究依据」页')}</span></div><div class="tbar"><div class="chips" id="ac"></div></div><div id="at"></div></div>`;
 let cur=M.find(m=>m[0]===H.m)||M[0],hc=H.c||'';
 if(!M.length){const eps=((D.study||{}).endpoints||[]).filter(e=>!/安全|探索/.test(e[0]));const nt=EF.notes||[];
  document.getElementById('kp').innerHTML=`<div class="card"><div class="sec-t" style="margin-top:0"><h2>未生成有效性趋势</h2></div>${nt.length?nt.map(n=>`<div class="small" style="margin:4px 0">${K.esc(n)}</div>`).join(''):'<div class="small muted">方案终点未能与 EDC 中的量表/检查对应，未生成有效性趋势</div>'}${eps.length?`<div class="xs muted mt" style="margin-top:8px">方案终点</div>${eps.map(e=>`<div class="small">${K.p(e[0],/主要/.test(e[0])?'org':'line')} ${K.esc(e[1])}</div>`).join('')}`:''}</div>`;return}
