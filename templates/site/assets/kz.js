@@ -425,7 +425,7 @@ K.centerRisk=()=>{if(K._cr)return K._cr;const D=window.KZ,lab=K.lab,oth=D.others
   const cased=(k,s)=>K.qlt(((cell[k]||{})[s]||{}).qu,.10)&&small.has(s);
   return K._cr={cats:C,items,rate,centers:CS,hot,low,cell,den,small,cased,unit:fu?'随访人日':'给药人数'}};
 K.showQ=id=>{const q=K.qById(id);if(!q)return;const cro=D().cro.filter(c=>c[2]===q.sid);
-  K.drawer(`${q.id} · ${K.catN(q.cat)}`,`<div class="flex wrap mb">${K.sid(q.sid)}${K.p(K.center(q.site),'line')}${K.p(K.loc(q.sh,q.row),'sq')}${K.p(q.v,'blu')}${q.test?K.p(q.test,''):''}${K.p(q.cro,q.cro==='冲突澄清'?'red':q.cro==='未见同问'?'grn':'yel')}</div>
+  K.drawer(`${q.id} · ${K.catN(q.cat)}`,`<div class="flex wrap mb">${K.sid(q.sid)}${K.p(K.center(q.site),'line')}${K.p(K.loc(q.sh,q.row),'sq')}${K.p(q.v,'blu')}${q.test?K.p(q.test,''):''}${K.p(q.cro,q.cro==='冲突澄清'?'red':q.cro==='未见同问'?'grn':q.cro==='同主题已查重'?'yel':'line')}</div>
   <div class="box org" style="font-size:13px;line-height:1.7">${K.hlNum(q.text)}</div>
   <div class="sec-t"><h2>证据记录</h2><span class="muted small">${q.ev.length} 行 · ${K.esc((C0().query||{}).note||'已写入交付表格对应记录行的首列')}</span></div><div class="ex-rows muted">载入中…</div>
   <div class="q-series"></div>

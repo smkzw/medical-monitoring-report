@@ -2134,6 +2134,7 @@ def restricted_checks(C):
 def cm_checks(C):
     rescue = (C.A.get('pd') or {}).get('rescue') or {}
     rescue_re = re.compile(r'补救|rescue', re.I)
+    cm_seen = set()
     for P in C.A.get('prohibited', []):  # {"name","re","window":[daysBeforeFd, 'ld'|daysAfterFd], "pr"}
         pre = re.compile(P['re'], re.I)
         systemic_only = P.get('route') == 'systemic' or (not P.get('route') and bool(_SYSTEMIC.search(P.get('name') or '')) and not _TOPICAL.search(P.get('name') or ''))
@@ -2146,8 +2147,12 @@ def cm_checks(C):
             if not s['fd']:
                 continue
             w0 = P.get('daysBefore', 0)
-            a = (dt.date.fromisoformat(s['fd']) - dt.timedelta(days=w0)).isoformat()
-            b = (dt.date.fromisoformat(s['ld']) + dt.timedelta(days=P.get('daysAfter', 0))).isoformat() if is_full_date(s['ld']) else s['lo']
+            # 禁用期锚点（方案「随机至研究结束」→ fromAnchor=rand, toAnchor=eos）；缺省沿用首剂至末次给药
+            a0 = {'rand': s.get('rand_d'), 'icf': s.get('icf'), 'fd': s['fd']}.get(P.get('fromAnchor') or 'fd') or s['fd']
+            a0 = a0 if is_full_date(a0) else s['fd']
+            a = (dt.date.fromisoformat(a0) - dt.timedelta(days=w0)).isoformat()
+            e0 = {'eos': s.get('eos_d') or s.get('lo'), 'eot': s.get('eot_d') or s.get('ld'), 'ld': s.get('ld')}.get(P.get('toAnchor') or 'ld')
+            b = (dt.date.fromisoformat(e0) + dt.timedelta(days=P.get('daysAfter', 0))).isoformat() if is_full_date(e0) else (s.get('eos_d') or s['lo'])
             for c in C.cm_by[sid]:
                 if pre.search(c['t']) and overlap(c, a, b):
                     # 「系统治疗」类禁用药不匹配外用/局部给药；按方案作为补救治疗使用的由补救规则（CM-02/03）核查，不按禁用药报
@@ -2158,13 +2163,16 @@ def cm_checks(C):
                         continue
                     if exc_re and exc_re.search(c['t']):
                         continue                 # 方案点名除外（SAR 背景药糠酸莫米松）
-                    if exc_mh and any(exc_mh.search(m.get('t') or '') for m in C.mh_by.get(sid, [])):
-                        continue                 # 以病史为条件的允许（SAR：合并哮喘者允许稳定剂量吸入激素）
+                    if exc_mh and (exc_mh.search(c.get('why') or '') or any(exc_mh.search(m.get('t') or '') for m in C.mh_by.get(sid, []))):
+                        continue                 # 以病史为条件的允许（SAR：合并哮喘者允许稳定剂量吸入激素；用药原因写「哮喘」同样算）
                     if topical_only and (not (_TOPICAL.search(c.get('rt') or '') or _TOPICAL.search(c['t']))
                                          or _NONDERMAL.search(f"{c.get('rt') or ''} {c['t']}")):
                         continue                 # 「外用」＝皮肤局部；吸入/鼻用/眼用激素不属于（RUX 方案明确允许吸入型糖皮质激素）
                     if rescue and rescue_re.search(c.get('why') or '') and (not is_full_date(c['s']) or c['s'] >= s['fd']):
                         continue
+                    if (sid, c['sh'], c['row'], c['t']) in cm_seen:
+                        continue                 # 同一条用药落在两个重叠类别（白三烯受体拮抗剂 / 白三烯调节剂）只报一次
+                    cm_seen.add((sid, c['sh'], c['row'], c['t']))
                     if unk_end:
                         # 入组前开始、停药日期未知且未标持续（RUX：2014–2019 年的既往外用激素，结束「uk」）：不能据此判与治疗期重叠——
                         # 只请核实停药日期（低优先级、不进偏离）
@@ -2583,6 +2591,8 @@ QT = {  # 默认 query 措辞：写给 CRC，一句话＝异常点＋冲突点�
 
 def ext_match(C, sid, sheet, text):
     """Check overlap with external (CRO) queries for the same subject/form → (status, cro text)."""
+    if not C.extq:
+        return '未提供 CRO 质疑', ''            # SAR 运营审阅：没有外部质疑数据时不能写「未见同问」（像是比对过）
     names = {sheet} if sheet else set()
     if sheet:
         names |= {C.cfg.get('labGroups', {}).get(sheet), C.A.get('formNames', {}).get(sheet)}

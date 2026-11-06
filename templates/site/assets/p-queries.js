@@ -1,7 +1,7 @@
 K.init(()=>{
 const D=KZ,app=document.getElementById('app'),Q=D.queries;
 const dom=q=>K.domOf(q.cat);const domCol=d=>(K.DOM.find(x=>x[0]===d)||[])[2]||'';
-const CROC={'冲突澄清':'red','同主题已查重':'yel','未见同问':'grn'};
+const CROC={'冲突澄清':'red','同主题已查重':'yel','未见同问':'grn','未提供 CRO 质疑':'line'};
 const subjN=new Set(Q.map(q=>q.sid)).size,ctrN=new Set(Q.map(q=>q.site)).size;
 const cnt=(arr,f)=>{const m={};arr.forEach(x=>{const k=f(x);m[k]=(m[k]||0)+1});return m};
 const byDom=cnt(Q,dom),bySite=cnt(Q,q=>q.site),byCro=cnt(Q,q=>q.cro),bySh=cnt(Q,q=>K.shName(q.sh));   /* 按显示名归并（「edc:LB1」与「LB1」是同一数据页，运营复审：筛选项重复） */
