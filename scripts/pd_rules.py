@@ -61,8 +61,15 @@ ICF_TIP = ('数据层面无法区分该检查是为本研究而做，还是受�
            '请 CRA 核对源文件（检查申请/医嘱时间、是否为常规诊疗）：属方案允许沿用的既往结果则不构成偏离。')
 
 
+_IMG = r'X\s*[片线光]|CT|胸片|影像|MRI|磁共振|超声|B超|DR'
+
+
 def _pre_icf_rx(item):
     ext = [b for a, b in PRE_ICF_SYN if re.search(a, item, re.I)]
+    if re.search(_IMG, item, re.I):
+        # 影像类：按部位＋影像方式比（MY008「胸部正侧位X片|胸部CT」↔ 表单「胸部影像学检查」）
+        site = re.search(r'胸|腹|头颅|颅脑|心脏|肺|肝|肾|盆腔|乳腺|甲状腺|骨', item)
+        ext.append(f"{site.group(0)}[^|]{{0,8}}(?:{_IMG})" if site else f"(?:{_IMG})")
     return re.compile('|'.join([f'(?:{item})'] + [f'(?i:{x})' for x in ext]))
 
 
@@ -304,7 +311,7 @@ class _PD:
                     continue
                 if _HIST_FORM.search(f"{f.get('group') or ''}|{(C.A.get('formNames') or {}).get(f['sheet'], '')}|{f['sheet']}"):
                     continue          # 疾病诊断/既往史表记录的是既往诊疗结果，不是研究程序（MY008 2019 年 Ham 试验）
-                tag = f"{f.get('group') or f['sheet']}|{f['test']}|{f['sheet']}"
+                tag = f"{f.get('group') or f['sheet']}|{f['test']}|{(C.A.get('formNames') or {}).get(f['sheet'], '')}|{f['sheet']}"
                 ok, out_win = False, None
                 for rx, ref, n in allow:
                     if rx.search(tag):

@@ -872,6 +872,10 @@ def pick_baseline(C, sid, mid, rows, rules):
     if meth in ('visit', 'mean'):
         for v in R.get('visits') or []:
             xs = [r for r in cand if r.get('visit') == v and (not tre or tre.search(str(r.get('tpt') or '')))]
+            if not xs:
+                # 方案写访视类别（「筛选期」）、数据写具体名（MY008「D-56至D-14」）：按访视类别（筛选/提前退出/计划外）匹配
+                cls = next((rx_ for rx_ in _VCLASS if rx_.search(str(v))), None)
+                xs = [r for r in cand if cls and cls.search(str(r.get('visit') or '')) and (not tre or tre.search(str(r.get('tpt') or '')))] if cls else []
             if xs:
                 if meth == 'mean' and len([x for x in xs if x.get('value') is not None]) > 1:
                     vals = [x['value'] for x in xs if x.get('value') is not None]
