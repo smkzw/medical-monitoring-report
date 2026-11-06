@@ -304,6 +304,7 @@ class _PD:
                     continue
                 if _HIST_FORM.search(f"{f.get('group') or ''}|{(C.A.get('formNames') or {}).get(f['sheet'], '')}|{f['sheet']}"):
                     continue          # 疾病诊断/既往史表记录的是既往诊疗结果，不是研究程序（MY008 2019 年 Ham 试验）
+                tag = f"{f.get('group') or f['sheet']}|{f['test']}|{f['sheet']}"
                 ok, out_win = False, None
                 for rx, ref, n in allow:
                     if rx.search(tag):

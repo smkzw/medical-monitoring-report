@@ -3735,6 +3735,18 @@ class Eng2Tests(unittest.TestCase):
         self.assertTrue(implausible({'value': 26.5, 'raw': '26.5', 'unit': 'fl'}, '平均红细胞体积'))
         self.assertFalse(implausible({'value': 88, 'raw': '88', 'unit': 'fl'}, '平均红细胞体积'))
 
+    def test_icf_allowed_and_history_form(self):
+        from types import SimpleNamespace
+        import pd_rules
+        C = SimpleNamespace(pop={'S1'}, subj={'S1': {'icf': '2024-10-01', 'fd': '2024-10-20', 'site': '01'}}, visits=[], exposure=[],
+                            findings=[{'sid': 'S1', 'date': '2024-09-10', 'group': '影像检查', 'test': '胸部X线', 'sheet': 'MO', 'row': 2},
+                                      {'sid': 'S1', 'date': '2019-08-07', 'group': 'PNH疾病诊断', 'test': 'Ham试验', 'sheet': 'LB', 'row': 3}],
+                            A={'formNames': {}, 'pd': {'preIcfAllowed': [{'item': '影像', 'days': 90, 'ref': 'icf'}]}}, icf=[],
+                            S={'cutoff': '2025-01-01'}, cfg={}, dosed={'S1'})
+        E = pd_rules._PD(C)
+        E.icf()                                          # 曾因 tag 未定义而崩溃（MY008 第 9 轮构建失败）
+        self.assertFalse([p for p in E.items if p.get('rule') == 'ICF-01'])
+
     def test_catalog_header_only_needs_two(self):
         from normalize_listing import catalog_map
         names = {'AE', 'SAE', 'LB1', 'TOC'}
