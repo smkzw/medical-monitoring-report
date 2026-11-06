@@ -4,6 +4,7 @@ const K=window.K={};
 const D=()=>window.KZ;
 K.esc=s=>s==null?'':String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 K.p=(t,c='',tip)=>`<span class="p ${c}"${tip?` title="${K.esc(tip)}"`:''}>${t}</span>`;
+K.uShow=u=>typeof u==='string'?u.replace(/µ/g,'μ'):u;   /* F12⑤：显示层微米号→希腊μ（数据层键仍 U+00B5） */
 K.fmt=(v,d)=>{if(v==null||v===''||isNaN(v))return '—';const n=+v;if(d!=null)return n.toFixed(d);return Math.abs(n)>=100?n.toFixed(0):Math.abs(n)>=10?(+n.toFixed(1)).toString():(+n.toFixed(2)).toString();};
 K.rng=(lo,hi)=>lo!=null&&hi!=null?`${K.fmt(lo)}–${K.fmt(hi)}`:hi!=null?`≤${K.fmt(hi)}`:lo!=null?`≥${K.fmt(lo)}`:'—';
 K.pct=v=>v==null||isNaN(v)?'—':(v>0?'+':'')+(+v).toFixed(1)+'%';

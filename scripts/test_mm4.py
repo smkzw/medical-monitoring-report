@@ -2206,9 +2206,9 @@ class F10MicroUnitCanonical(unittest.TestCase):
     def test_mu_variants_unified(self):
         greek, micro = '\u03bcmol/L', '\u00b5mol/L'                # U+03BC 希腊 μ / U+00B5 微符号
         self.assertNotEqual(greek, micro)
-        self.assertEqual(self._row([greek]), [greek])               # F12⑤：归一到 U+03BC（显示口径）
-        self.assertEqual(self._row([micro]), [greek])               # U+00B5 → U+03BC
-        self.assertEqual(self._row(['mg/dL', micro]), ['mg/dL', greek])   # 无 μ 迹象的单位不碰
+        self.assertEqual(self._row([greek]), [micro])               # F12⑤修正：数据层归一到 U+00B5（与分级表键一致，ext1 CSW 判定翻转路径实证 03BC 方向破坏键比较）；显示层 µ→μ 由前端 fmt 负责
+        self.assertEqual(self._row([micro]), [micro])               # U+03BC → U+00B5
+        self.assertEqual(self._row(['mg/dL', greek]), ['mg/dL', micro])   # 无 μ 迹象的单位不碰
 
 
 class DrilldownFields(unittest.TestCase):
