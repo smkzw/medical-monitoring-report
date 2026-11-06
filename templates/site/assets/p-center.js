@@ -20,7 +20,7 @@ function draw(site){
   const CR=K.centerRisk(),cats=CR.cats;
   const risks=K.riskFor('all',site);
   el.innerHTML=`<div class="kpis mb">
-   ${kpi('筛选 / 给药',`${ss.length}<small>/ ${ds.length} 例</small>`,`筛败 ${stc('筛选失败')} · 在组 ${stc('已入组')} · 完成 ${stc('完成试验')} · 提前退出 ${stc('提前退出')}`)}
+   ${kpi('筛选 / 给药',`${ss.length}<small>/ ${ds.length} 例</small>`,`筛败 ${stc('筛选失败')} · 在组 ${stc('已入组')} · 完成 ${stc('完成试验')} · 提前终止治疗 ${stc('提前终止治疗')} · 提前退出 ${stc('提前退出')}`)}
    ${kpi('随访人月',pm.toFixed(0),'首剂至研究结束或数据截止')}
    ${kpi('数据新鲜度',fr?`${fr[1]}<small>天</small>`:'—',fr?`最近记录 ${fr[0]} · 在研 ${fr[2]} 例`:'')}
    ${kpi('访视',`${due.length}<small>次应完成</small>`,`逾期 ${due.filter(d=>d[6]==='overdue').length} · 超窗 ${due.filter(d=>d[6]==='out').length} · 未来 14 天 ${(O.upcoming||[]).filter(u=>u[1]===site).length}`)}

@@ -17,7 +17,7 @@ function tabOv(){
   const sfAll=S.filter(s=>s.status==='筛选失败').length/(S.length||1);
   const sfF=K.colFlags(CS.map(c=>{const ss=st(c.site);return [ss.filter(s=>s.status==='筛选失败').length,ss.length]}),sfAll);
   const pm=site=>st(site).reduce((a,s)=>a+(fu[s.id]||0),0)/30.4375;
-  const prog=c=>{const ss=st(c.site),n=ss.length||1,grp=[['完成试验','grn','完成'],['已入组','blu','在组'],['治疗结束','line','治疗结束'],['提前退出','red','提前退出'],['筛选失败','faint','筛败']];
+  const prog=c=>{const ss=st(c.site),n=ss.length||1,grp=[['完成试验','grn','完成'],['已入组','blu','在组'],['治疗结束','line','治疗结束'],['提前终止治疗','line','提前终止治疗'],['提前退出','red','提前退出'],['筛选失败','faint','筛败']];
     return `<div class="bar-in" style="display:flex;height:10px;width:120px" title="${grp.map(([k,,l])=>l+' '+ss.filter(s=>s.status===k).length).join(' · ')}">${grp.map(([k,cl])=>{const m=ss.filter(s=>s.status===k).length;return m?`<i style="width:${m/n*100}%;background:var(--${cl==='faint'?'line':cl==='line'?'muted':cl==='grn'?'green':cl==='blu'?'blue':'risk'})"></i>`:''}).join('')}</div>`};
   const groups=[...new Set(C.map(c=>c[1]))];
   pane.innerHTML=`<div class="card"><div class="hd"><h2>中心总览</h2><span class="sub">颜色＝观察数比「按本中心${K.esc(CR.unit)}推算的期望数」高出多少，且经多重比较校正后仍显著才着色（人少、随访短的中心不会被放大）；数字为条数，悬停看观察/期望；点击看明细</span></div>

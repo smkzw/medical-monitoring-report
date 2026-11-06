@@ -271,6 +271,8 @@ def read_spec(spec, books, M, dom=None):
     term_is = [i for i, lb in enumerate(labels) if _AE_TERM_RX.search(lb) and not re.search(r'编码|CODE|版本|语言', lb, re.I)]
     crit_is = [i for i, lb in enumerate(labels) if _SAE_CRIT_RX.search(lb) and not re.search(r'请说明|描述|Code Value|编码值', lb, re.I)
                and i not in set(cols.values())]       # V6（MY008）：「…(Code Value)」编码副本列不重复计入 SAE 标准
+    crit_txt = next((i for i, lb in enumerate(labels) if re.search(r'SAE\s*标准|严重(性)?标准', lb) and not re.search(r'是否|Code Value|编码值', lb, re.I)
+                     and i not in crit_is), None) if dom == 'ae' else None
     si = cols.get('sid')
     hdr_sid = {str(x).strip() for x in ((labels[si] if si is not None and si < len(labels) else None),
                                          (vars_[si] if si is not None and si < len(vars_) else None)) if x}
@@ -292,6 +294,8 @@ def read_spec(spec, books, M, dom=None):
         if crit_is:               # F03：SAE 标准勾选（1/是/true/Y→勾选），勾选的条目名收集为 sae_crit
             hit = [labels[i].strip() for i in crit_is if i < len(r) and yes(r[i])]
             rec['sae_crit'] = '、'.join(hit)
+        if crit_txt is not None and crit_txt < len(r) and r[crit_txt] not in (None, '') and not rec.get('sae_crit'):
+            rec['sae_crit'] = str(r[crit_txt]).strip()   # D001：SAE 标准是文本列（「需要住院治疗或延长住院时间」），曾判「标准均未勾选」
         if cfi is not None:
             cv = r[cfi] if cfi < len(r) else None
             rec['_chg'] = '' if cv is None else str(cv).strip()
@@ -305,6 +309,8 @@ def read_spec(spec, books, M, dom=None):
                 break
         if skip:
             continue
+        if dom == 'ie' and cols.get('met') is not None and cols['met'] < len(labels):
+            rec['met_q'] = labels[cols['met']]   # 入排总问的问法（「是否满足全部…」与「是否有不符合…」极性相反）
         rec['wb'] = alias           # PR-8: owning workbook alias on every record (row-level attribution)
         rec['sheet'] = spec['sheet']
         rec['row'] = rown

@@ -60,7 +60,7 @@ ${sec('三','风险排名','按角色筛选并加权排序（医学监查侧重�
   K.chart('#burn',{grid:{left:30,right:6,top:6,bottom:20},tooltip:{trigger:'axis'},legend:{show:false},xAxis:{type:'category',data:H.map(h=>(h.cutoff||'').slice(5)),...K.axis},yAxis:{type:'value',...K.axis},
    series:[{type:'bar',name:'新增',stack:'a',data:H.map(h=>(h.rd||{}).new||0),itemStyle:{color:'#E67E00'}},{type:'bar',name:'加重',stack:'a',data:H.map(h=>(h.rd||{}).worse||0),itemStyle:{color:'#8B0000'}},
     {type:'bar',name:'已解决',data:H.map(h=>-((h.rd||{}).resolved||0)),itemStyle:{color:'#587B3B'}}]})}
- else{const g=[['完成试验','#587B3B'],['已入组','#407AAA'],['治疗结束','#9A9DA3'],['提前退出','#8B0000'],['筛选失败','#C9CCD1']].filter(([k])=>st[k]);
+ else{const g=[['完成试验','#587B3B'],['已入组','#407AAA'],['治疗结束','#9A9DA3'],['提前终止治疗','#B07A3B'],['提前退出','#8B0000'],['筛选失败','#C9CCD1']].filter(([k])=>st[k]);
   el.innerHTML=`<div class="hd"><h2>受试者状态</h2><span class="sub">上传第二次数据后，这里显示跨上传趋势与风险项消化情况</span></div><div id="stc" style="height:170px"></div>`;
   K.chart('#stc',{grid:{left:70,right:40,top:4,bottom:4},tooltip:{trigger:'item',formatter:p=>`${p.name} ${p.value} 例（${(p.value/m.n*100).toFixed(0)}%）`},xAxis:{type:'value',show:false},
    yAxis:{type:'category',inverse:true,data:g.map(x=>x[0]),...K.axis,axisLabel:{color:'#404040'}},

@@ -133,7 +133,7 @@ K.center=site=>(D().centers.find(c=>c.site===site)||{}).name||site;
 K.SUBF=['id','site','status','rand','fd','age','bmi','nae','maxg','sae','aesi','rel','nmh','ncm','nq','ncro','icf','lo','strat','ld','grp'];
 K.subs=()=>{if(K._subs)return K._subs;K._subs=D().subs.map(a=>Object.fromEntries(K.SUBF.map((k,i)=>[k,a[i]])));K._subsBy=Object.fromEntries(K._subs.map(s=>[s.id,s]));return K._subs};
 K.subBy=id=>{K.subs();return K._subsBy[id]};
-K.STC=Object.assign({'完成试验':'grn','已入组':'blu','治疗结束':'brn','提前退出':'red','筛选失败':'','筛选中':'yel'},(((window.KZ||{}).cfg||{}).statusColors)||{});
+K.STC=Object.assign({'完成试验':'grn','已入组':'blu','治疗结束':'brn','提前终止治疗':'brn','提前退出':'red','筛选失败':'','筛选中':'yel'},(((window.KZ||{}).cfg||{}).statusColors)||{});
 K.status=s=>K.p(s,K.STC[s]??'');
 /* header */
 /* V5（用户 2026-10-31 晚）：主导航固定 8 项；「临床监查」「安全性概览」是由多个页面组成的空间，页内第二行为空间子导航。

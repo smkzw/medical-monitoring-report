@@ -336,11 +336,17 @@ def build_subjects(C):
         g = groups.get(sid, {})
         # V6 运营审阅（RUX：监查页「提前退出 0」而 KRI 12/192）：EDC 受试者状态对所有出组者都写「完成试验」，
         # 提前退出以治疗/研究结束页的原因为准（与 KRI 同一判定 monitor_v5._early_wd）；EDC 原状态留在 edc_status
-        if st not in ('筛选失败',) and fd and monitor_v5._early_wd(dict(s, status=st)) and st != '提前退出':
+        eos_done_ = re.match(r'^\s*(是|Y|Yes|完成)', str(s.get('eos_done') or ''), re.I)
+        if st not in ('筛选失败',) and fd and monitor_v5._early_wd(dict(s, status=st)) and st != '提前退出' and not eos_done_:
             # SAR 第 8 轮运营审阅：EDC 写「脱落」时临床监查页（只认「提前退出」）恒为 0、总览却是 4——已给药者的提前出组状态统一为
-            # 「提前退出」，EDC 原文保留在 edc_status（页面可显示原文）
+            # 「提前退出」，EDC 原文保留在 edc_status。D001 运营审阅：只是提前终止治疗、研究结束页记「完成」或仍在随访的不算退出研究
+            only_tx = not monitor_v5._EARLY.search(str(st)) and not s.get('eos_d')
             s = dict(s, edc_status=st)
-            st = '提前退出'
+            st = '提前终止治疗' if only_tx else '提前退出'
+        elif fd or s.get('rand'):
+            if not re.search(r'完成|结束|退出|脱落|终止|死亡|失访|撤回|筛选|提前', str(st)) and st != '已入组':
+                s = dict(s, edc_status=st)
+                st = '已入组'            # D001：EDC 写「已随机」，临床监查/中心画像「在组」只认「已入组」→ 0（实为 60 例）
         C.subj[sid] = dict(s, fd=fd, ld=ld, status=st, lo=lastobs.get(sid) or ld or fd,
                            strat=s.get('strat') or g.get('strat'), grp=arm_name(s.get('grp') or g.get('grp')),
                            site=str(s.get('site') or sid[:2]), center=s.get('center') or '')
@@ -2012,11 +2018,13 @@ def ie_fail_reasons(C):
     no = lambda r: bool(re.match(r'^(否|N|No|不满足|不符合)', str(r.get('met') or '').strip(), re.I))
     # 两种页面形态：① 总问「是否满足全部入选且不符合任何排除」＋否时填不满足的标准（RUX）；
     # ② 逐条标准一行（CDISC IE：排除标准「是」＝符合排除＝不合格）。「是」的行也填了标准编号 → ②
-    per_crit = any(yes(r) and r.get('crit') for r in rows)
+    # ③ 反问形态（D001「是否有不符合的入选标准或符合的排除标准？」）：「是」＝有违反，后填违反条款——62 例曾被判「满足全部标准」
+    neg_q = lambda r: bool(re.search(r'是否(有|存在).{0,6}(不符合|不满足|违反)|是否(有|存在).{0,10}符合的?排除', str(r.get('met_q') or '')))
+    per_crit = any(yes(r) and r.get('crit') and not neg_q(r) for r in rows)
     out = defaultdict(list)
     for r in rows:
         exc = _ie_label(r).startswith('排除')
-        bad = (yes(r) if exc else no(r)) if per_crit else no(r)
+        bad = yes(r) if neg_q(r) else (yes(r) if exc else no(r)) if per_crit else no(r)
         if bad and (r.get('crit') or r.get('ie_cat')):
             lab = _ie_label(r)
             if lab not in out[r['sid']]:
@@ -2030,7 +2038,8 @@ def sf_fallback(C, sid, s):
     if why:
         return why
     rows = [r for r in (getattr(C, 'ie', []) or []) if r.get('sid') == sid]
-    if rows and all(re.match(r'^(是|Y|Yes|满足|符合)', str(r.get('met') or '').strip(), re.I) for r in rows):
+    if rows and not any(re.search(r'是否(有|存在).{0,6}(不符合|不满足|违反)|符合的?排除', str(r.get('met_q') or '')) for r in rows) and \
+            all(re.match(r'^(是|Y|Yes|满足|符合)', str(r.get('met') or '').strip(), re.I) for r in rows):
         return '入排页记录满足全部标准，筛败原因未记录（请核对）'
     return ''
 
@@ -2098,7 +2107,7 @@ def overlap(c, a, b):
     return s <= (b or '9999') and e >= (a or '0000')
 
 
-_TOPICAL = re.compile(r'外用|局部|皮肤|软膏|乳膏|霜|凝胶|洗剂|搽剂|酊|贴|滴眼|滴鼻|吸入|喷雾|topical|cream|ointment|gel|lotion', re.I)
+_TOPICAL = re.compile(r'外用|外涂|涂抹|涂擦|外搽|外敷|局部|皮肤|软膏|乳膏|霜|凝胶|洗剂|搽剂|酊|贴|滴眼|滴鼻|吸入|喷雾|topical|cream|ointment|gel|lotion', re.I)
 _SYSTEMIC = re.compile(r'系统|全身|口服|静脉|注射|systemic', re.I)
 _NONDERMAL = re.compile(r'吸入|雾化|气雾|喷鼻|鼻喷|滴鼻|鼻用|鼻.{0,2}喷雾|滴眼|眼用|眼膏|滴耳|inhal|nasal|ophthalm', re.I)
 
@@ -2107,6 +2116,8 @@ def restricted_checks(C):
     """限用药（analysis.restricted：须筛选前稳定剂量使用 ≥N 天、研究期间不得新加/停用）。V6（MY008 医学审阅：疗效期新起泼尼松、
     铁剂、艾多沙班，停用雄激素/抗凝药全未提示）：首剂后新开始、或在治疗期内停用 → 提示核实（是否符合方案、是否需记偏离）；
     首剂前开始但距首剂不足 N 天 → 稳定期不足。"""
+    rescue_re_r = re.compile(r'补救|rescue', re.I)
+    rst_seen = set()                                 # 同一条用药只归一条限用规则
     for R in C.A.get('restricted') or []:
         rx_ = re.compile(R['re'], re.I)
         n = R.get('stableDays')
@@ -2120,6 +2131,14 @@ def restricted_checks(C):
                 if not rx_.search(c['t']):
                     continue
                 loc_ = f"{c.get('rt') or ''} {c['t']}"
+                if rescue_re_r.search(c.get('why') or ''):
+                    continue                          # 方案补救治疗由补救规则核查（D001 第 4 周后外用激素补救曾被套进限用药）
+                if R.get('route') == 'local' and not re.search(r'吸入|雾化|气雾|喷鼻|鼻喷|滴鼻|鼻用|鼻.{0,2}喷雾', loc_):
+                    continue
+                if R.get('route') == 'eye' and not re.search(r'滴眼|眼用|眼膏|眼凝胶|眼部', loc_):
+                    continue
+                if (sid, c['sh'], c['row'], c['t']) in rst_seen:
+                    continue
                 if R.get('route') == 'systemic' and (_TOPICAL.search(loc_) or _NONDERMAL.search(loc_)):
                     continue                          # 「全身用糖皮质激素」不含外用/吸入/鼻用/眼用（与禁用药同口径）
                 if R.get('route') == 'topical' and (not _TOPICAL.search(loc_) or _NONDERMAL.search(loc_)):
@@ -2132,6 +2151,7 @@ def restricted_checks(C):
                 elif n and is_full_date(c['s']) and c['s'] <= s['fd'] and (days(s['fd'], c['s']) or 0) < n:
                     why = f"首剂前仅使用 {days(s['fd'], c['s'])} 天（方案要求稳定使用 ≥{n} 天）"
                 if why:
+                    rst_seen.add((sid, c['sh'], c['row'], c['t']))
                     hits[re.sub(r'[（(].*$', '', c['t']).strip()].append((c, why))
             for t_, xs in hits.items():
                 c, why = sorted(xs, key=lambda x: x[0]['s'] or x[0]['e'] or '')[0]
@@ -2209,7 +2229,7 @@ def cm_checks(C):
         pre = re.compile(W['re'], re.I)
         # V6 医学审阅（RUX P0007：他克莫司软膏为外用，适用 1 周洗脱，却按系统性免疫抑制剂 4 周报重要偏离）：与禁用药同口径——
         # 「系统性」洗脱条目不匹配外用/局部给药（外用另有条目时由外用条目核查）
-        sys_only = bool(_SYSTEMIC.search(W.get('name') or '')) and not _TOPICAL.search(W.get('name') or '')
+        sys_only = bool(re.search(r'系统|全身|口服|中(草)?药|中成药', W.get('name') or '')) and not _TOPICAL.search(W.get('name') or '')   # 口服/中药洗脱不套外用药
         for sid in sorted(C.pop):
             s = C.subj[sid]
             ref = s.get({'rand': 'rand_d'}.get(W.get('ref', 'fd'), W.get('ref', 'fd')))
@@ -2219,7 +2239,8 @@ def cm_checks(C):
             for c in C.cm_by[sid]:
                 if sys_only and (_TOPICAL.search(c.get('rt') or '') or _TOPICAL.search(c['t'])):
                     continue
-                if pre.search(c['t']) and (c['ong'] or (is_full_date(c['e']) and c['e'] >= a)) and (not is_full_date(c['s']) or c['s'] <= ref):
+                # 末次用药距参照日恰好 N 天＝洗脱期已满（D001 间隔正好 14/28 天曾判「不足」）：只算严格晚于窗口起点的
+                if pre.search(c['t']) and (c['ong'] or (is_full_date(c['e']) and c['e'] > a)) and (not is_full_date(c['s']) or c['s'] <= ref):
                     add_other(C, sid, W.get('cat', '入排洗脱用药核对'), W.get('pr', 3),
                               f"合并用药「{c['t']}」末次 {c['e'] or '持续'}，距{ {'icf': '知情', 'rand': '随机'}.get(W.get('ref'), '首剂')}（{ref}）不足 {W['days']} 天洗脱期（{W['name']}）",
                               None, c['e'] or c['s'], c['sh'], c['row'], c['t'], bkey=f"{c['t']}|{c['s']}", wb=c.get('wb') or '')
