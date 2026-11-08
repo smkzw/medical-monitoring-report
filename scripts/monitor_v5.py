@@ -380,6 +380,23 @@ KRI_DEFS = [
 QTL_TIERS = [['strict', '严格'], ['std', '标准'], ['loose', '宽松']]
 
 
+def _eff_trend_present(C) -> bool:
+    """有效性页是否已按终点配置生成趋势（与 build_eff 同一判定源：终点配置的 src 在数据中有数值行）。
+    G4：KRI「主要终点缺失」与有效性页取同一判定——criticalItems 匹配不到指标名时，先看有效性侧是否真有数据。"""
+    srcs = {str(m.get('src')) for m in (C.A.get('efficacy') or []) if m.get('src')}
+    if not srcs:
+        return False
+    for e in C.efficacy:
+        if 'eff:' + str(e.get('metric')) in srcs and (e.get('value') not in (None, '') or e.get('raw') not in (None, '')):
+            return True
+    F = getattr(C, 'F', None)
+    if F:
+        for (sid, mid), rows in F.items():
+            if mid in srcs and any(r.get('value') is not None for r in rows):
+                return True
+    return False
+
+
 def kri(C):
     cut = C.ops.get('cutoff') or ''
     S = C.subj
@@ -421,7 +438,11 @@ def kri(C):
     if not cv or not ci:
         na['pem'] = '方案关键访视（analysis.pd.criticalVisits）或关键评估（criticalItems）未配置'
     elif not ci_hit:
-        na['pem'] = f"关键评估「{P.get('criticalItems')}」在数据中找不到对应指标"
+        # G4：criticalItems 绑定失败时与有效性页同一判定——终点配置已生成趋势则说明数据在、只是指标名未匹配上，
+        # 不再断言「找不到」（实证：KRI 显「—（找不到指标）」而有效性页正常生成趋势）；两侧都空才写找不到。
+        na['pem'] = (f"关键评估「{P.get('criticalItems')}」在数据中找不到对应指标" if not _eff_trend_present(C)
+                     else f"关键评估「{P.get('criticalItems')}」未匹配到访视/量表指标名，无法按访视核算缺失；"
+                          f"有效性页已按终点配置生成趋势（见 efficacy.html）")
     if not any(k.startswith('ELIG') and v == 'ran' for k, v in ran.items()):
         na['elig'] = '入排数值条件未配置'
     if not any(k.startswith('ICF') and v == 'ran' for k, v in ran.items()):

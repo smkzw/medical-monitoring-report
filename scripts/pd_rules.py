@@ -276,8 +276,9 @@ class _PD:
             if g['risk'] not in LAB_PD:
                 continue
             pts = [p for p in g['pts'] if p[5] == 2] or g['pts']
-            p = pts[0]
-            gmax = max([x[4] or 0 for x in g['pts']] + [0])
+            # V6 第 2 轮 MY008（G2②）：引用点与分级同一时点——就所引用的那一次取值＋取级（此前首点数值配全程最高级，3/10 条错位）
+            p = max(pts, key=lambda x: (x[4] or 0, abs(x[6] or 0)))
+            gmax = p[4] or 0
             grade, why = None, '潜在：经研究者确认应记录而未记录 AE 方构成 PD'
             if gmax >= 3:
                 grade, why = '重要', f"数值已达 {C.GL} {gmax} 级：若确认未记录 AE，属可能影响安全性评价的重要偏离"

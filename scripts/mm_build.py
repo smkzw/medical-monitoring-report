@@ -1118,6 +1118,43 @@ def implausible(r, label):
     return ''
 
 
+# ----------------------------------------------------------------------------- 输血语境（G3②，通用措辞形态）
+# 输血类措辞（「输血前检查/输血前八项」是感染筛查，不是输血依赖；单写「输注」多为静脉给药，不算）
+_TRANSFUSION_RX = re.compile(r'输血(?!前)|红细胞输注|输注(?:浓缩|悬浮|洗涤|去白)?(?:红细胞|血小板|血浆|全血)|血小板输注|血浆输注|血液输注')
+_HB_RX = re.compile(r'血红蛋白|(?<![A-Za-z])HG[BO](?![A-Za-z])|(?<![A-Za-z])HB(?![A-Za-z])|红细胞比容|红细胞压积|血细胞比容|(?<![A-Za-z])HCT(?![A-Za-z])')
+
+
+def transfusion_refs(C) -> list:
+    """方案对输血信息的依赖处：入排标准/终点/补救规则引用输血类措辞（返回去重文本；零依赖返回空）。"""
+    st = ((C.S or {}).get('study') or {})
+    texts = [str(c.get('text') or '') for c in (st.get('criteria') or []) if isinstance(c, dict)]
+    texts += [str(e[1]) for e in (st.get('endpoints') or []) if isinstance(e, (list, tuple)) and len(e) > 1]
+    r_ = ((C.A or {}).get('pd') or {}).get('rescue') or {}
+    if isinstance(r_, dict):
+        texts += [str(r_.get('name') or ''), str(r_.get('stopName') or '')]
+    out, seen = [], set()
+    for t in texts:
+        k = t[:60]
+        if t and _TRANSFUSION_RX.search(t) and k not in seen:
+            seen.add(k)
+            out.append(t)
+    return out
+
+
+def hb_short_jump_note(C, mid, rows) -> str:
+    """血红蛋白/红细胞比容短期跳升（≤7 天升高 ≥30 g/L〔g/dL 单位按 ≥3〕）且有输血依赖的方案 → 输血语境提示。"""
+    if not transfusion_refs(C) or not _HB_RX.search(str(mid)):
+        return ''
+    thr = 3.0 if re.search(r'g\s*/\s*dl', str((rows[0].get('unit') if rows else '') or ''), re.I) else 30.0
+    pts = sorted((r for r in rows if isinstance(r.get('value'), (int, float)) and is_full_date(r.get('date'))),
+                 key=lambda r: r['date'])
+    for a, b_ in zip(pts, pts[1:]):
+        if 0 <= days(b_['date'], a['date']) <= 7 and (b_['value'] - a['value']) >= thr:
+            return (f"短期跳升：{b_.get('visit')}访视较{a.get('visit')}访视（{days(b_['date'], a['date'])} 天内）升高 "
+                    f"{fmt(b_['value'] - a['value'])} {b_.get('unit') or ''}——如受试者近期有红细胞输注，请结合输血记录判读（方案依赖输血信息）")
+    return ''
+
+
 def disease_gate(C, mid, pts, b):
     """研究疾病归因异常已判「较基线加重」后是否发质疑（用户 2026-11-05）：有 CTCAE 分级的指标只在最差 ≥3 级或分级上升
     （同 ext_rules.grade_up：已 ≥1 级再升级或升到 ≥2 级、且变化 ≥5%）时发；其余列「研究疾病指标波动」清单。无分级的指标 → 发（≥T_base 已满足）。
@@ -1205,7 +1242,8 @@ def build_labrows(C):
             # 用户 2026-10-27：归因研究疾病不算「未关联」；只有较基线明显加重、且未记录「研究疾病加重」类 AE 才作为风险
             t_base = float(C.cfg['thresholds'].get('base', 0.3))
             ddir = ext_rules.disease_dir(C, mid, P[0].get('sheet', '') if P else '')
-            wsys = next((w for w in (worse_vs_base(r, r.get('base') or b, t_base, disease=True, pre=pre_v, ddir=ddir) for r in cs_pts if r['post']) if w), None) if b else None
+            bleed_ = ext_rules.bleeding_ctx(C, sid)      # G1：血红蛋白/比容的升高只在出血语境中才算疾病加重
+            wsys = next((w for w in (worse_vs_base(r, r.get('base') or b, t_base, disease=True, pre=pre_v, ddir=ddir, bleed=bleed_) for r in cs_pts if r['post']) if w), None) if b else None
             wst = None if wsys else next((w for w in map(ext_rules.stated_worse, cs_pts) if w), None)   # 研究者备注写明加重：研究者判定优先
             wf = wsys or wst
             dae = disease_ae(sid, mid, cs_pts) if wf else []
@@ -1250,7 +1288,7 @@ def build_labrows(C):
                     ctx.append(f'研究疾病表现（{nm}）；基线缺失，无法判断是否较基线加重')
                 else:
                     ddir = ext_rules.disease_dir(C, mid, P[0].get('sheet', '') if P else '')
-                    wf = next((w for w in (worse_vs_base(r, r.get('base') or b, float(C.cfg['thresholds'].get('base', 0.3)), disease=True, pre=pre_v, ddir=ddir) for r in cs_pts if r['post']) if w), None)
+                    wf = next((w for w in (worse_vs_base(r, r.get('base') or b, float(C.cfg['thresholds'].get('base', 0.3)), disease=True, pre=pre_v, ddir=ddir, bleed=ext_rules.bleeding_ctx(C, sid)) for r in cs_pts if r['post']) if w), None)
                     dae = disease_ae(sid, mid, cs_pts) if wf else []
                     if wf and dae:
                         risk = 'DIS'
@@ -1338,6 +1376,9 @@ def build_labrows(C):
             if not l[4] and l[3] is not None:
                 kind_ = 'AE' if l[0] == 'AE' else '病史'
                 ctx.append(f'关联的{kind_}编号 {l[3]} 在{kind_}记录中不存在')   # 词目型（l[3] None）不提示编号，行保持未关联口径
+        jn = hb_short_jump_note(C, mid, rows)               # G3②：输血依赖方案中 Hb/比容短期跳升的输血语境提示
+        if jn:
+            ctx.append(jn)
         f0 = P[0]
         C.labrows.append({
             'sid': sid, 'site': C.subj[sid]['site'], 'cat': cat, 'test': C.metric[mid]['label'], 'mid': mid, 'grp': f0.get('group') or '',
@@ -2768,12 +2809,19 @@ def build_queries(C):
             P = sorted(P, key=lambda x: -abs(x[6] or 0))
             # V6 医学审阅（RUX Q007：W24 1.69 写成「较基线 1.51 加重 1→2 级」，2 级其实来自 W4 1.44）：
             # 加重说明必须就所写的这一个点重新计算，并优先写真正满足「加重」的那次（等级高者优先，其次变化幅度）
+            # V6 第 2 轮 MY008（G2①）：重算与判定同一输入——基线取该点自己的 base（本表基线/每行 base），
+            # 疾病归因类同样带 disease/ddir/bleed；不得拿组内首行基线拼「0→3 级」（抽屉全程表显示基线已 3 级）
             rows_ = C.F[(g['sid'], g['mid'])]
             b0 = next((r.get('base') for r in rows_ if r.get('base')), None)
+            dis_ = g['risk'] == 'DISW' or bool(bg)
+            ddir_ = ext_rules.disease_dir(C, g.get('mid') or '', g.get('grp') or '') if dis_ else None
+            bleed_ = ext_rules.bleeding_ctx(C, g['sid']) if dis_ else False
             sc = []
             for x in P:
                 fx = next((r for r in rows_ if r['sheet'] == x[7] and r['row'] == x[8]), None)
-                w_ = fx and b0 and (worse_vs_base(fx, b0, float(C.cfg['thresholds'].get('base', 0.3)), pre=ext_rules.pre_values(rows_)) or ext_rules.qual_worse(fx, b0))
+                w_ = fx and (fx.get('base') or b0) and (worse_vs_base(fx, fx.get('base') or b0, float(C.cfg['thresholds'].get('base', 0.3)),
+                                                                     disease=dis_, pre=ext_rules.pre_values(rows_), ddir=ddir_, bleed=bleed_)
+                                                            or (ext_rules.qual_worse(fx, fx.get('base') or b0) if not dis_ else None))
                 if w_:
                     sc.append(((fx.get('grade') or 0), abs(x[6] or 0), x, w_))
             if sc:

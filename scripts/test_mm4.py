@@ -3969,7 +3969,9 @@ class Eng2Tests(unittest.TestCase):
         down = {'value': 3.0, 'hi': 2.0, 'grade': 0, 'mid': 'lab:网织红细胞计数百分比'}
         up = {'value': 12.0, 'hi': 2.0, 'grade': 0, 'mid': 'lab:网织红细胞计数百分比'}
         self.assertIsNone(worse_vs_base(down, b, 0.3, disease=True, ddir='high'))    # 下降＝好转，不算加重
-        self.assertTrue(worse_vs_base(up, b, 0.3, disease=True, ddir='high'))
+        # G1（2026-11-08 MY008R2 工单，取代 11-05 只排下降的口径）：网织红属代偿性升高类——治疗有效时
+        # 升高＝好转信号，疾病归因加重判定中「升高＝加重」一并排除（disease_dir 的 ↑ 方向仍照常抽出）
+        self.assertIsNone(worse_vs_base(up, b, 0.3, disease=True, ddir='high'))
         from mm_build import disease_gate
         C2 = SimpleNamespace(metric={'lab:N': {'gcode': 'ANC'}, 'lab:R': {}})
         pts = [{'post': True, 'grade': 2, 'value': 1.2}]
@@ -4036,6 +4038,265 @@ class Eng2Tests(unittest.TestCase):
         self.assertEqual(catalog_map({'SAE': sae}, names), {})          # 单行 SAE 报告不是目录
         toc = [('代码', '名称'), ('AE', '不良事件')]
         self.assertEqual(catalog_map({'TOC': toc}, names), {'AE': '不良事件'})
+
+
+class V6Round2DiseaseRiseDirection(unittest.TestCase):
+    """G1（MY008R2 R5）：疾病归因加重判定按指标类型分流——
+    ①代偿性/反应性升高类指标（治疗有效时升高＝好转）不判「升高＝疾病加重」；
+    ②血红蛋白/红细胞比容升高在无出血语境时＝好转信号，不算疾病加重（有出血语境仍按疾病不利方向判）。
+    PR1 抽取的疾病不利方向（disease_dir）保持不变，排除只发生在疾病归因加重判定（worse_vs_base disease=True）。"""
+
+    MET = 'lab:某代偿性指标'
+
+    def _row(self, visit, date, value, **kw):
+        return {'sid': 'S1', 'post': True, 'clin': 2, 'value': value, 'raw': str(value), 'lo': None, 'hi': kw.get('hi'),
+                'unit': kw.get('unit', '%'), 'visit': visit, 'date': date, 'sheet': '检验', 'row': kw.get('row', 5),
+                'wb': 'edc', 'grade': kw.get('grade', 0), 'links': [], 'reason': 'disease', 'desc': '',
+                'group': '血常规', 'base': kw.get('base'), 'pct': kw.get('pct'), 'mid': self.MET}
+
+    def test_compensatory_rise_not_disease_worsening_unit(self):
+        """红测：虚构指标「某代偿性指标」基线 100 → 给药后 146（+46%，超参考上限），disease_dir=high——
+        修前 worse_vs_base(disease=True, ddir='high') 判「较基线升高 46%」，修后返回 None。"""
+        from ext_rules import worse_vs_base
+        b = {'value': 100.0, 'grade': 0, 'clin': 0}
+        r = {'value': 146.0, 'grade': 0, 'clin': 2, 'hi': 120, 'mid': self.MET, 'unit': '%'}
+        self.assertIsNone(worse_vs_base(r, b, 0.3, disease=True, ddir='high'))
+        # 对照：非代偿类指标同样升高照常判加重——分流由指标类型驱动，不是一刀切
+        r2 = dict(r, mid='lab:某损伤性指标')
+        self.assertIn('较基线升高', worse_vs_base(r2, b, 0.3, disease=True, ddir='high') or '')
+
+    def test_known_compensatory_indicators_in_dictionary(self):
+        """通用医学词典条目锁定：网织红细胞（计数/百分比）、铁蛋白的升高不算疾病加重。"""
+        from ext_rules import worse_vs_base
+        b = {'value': 50.0, 'grade': 0}
+        for mid in ('lab:网织红细胞计数', 'lab:网织红细胞百分比', 'lab:铁蛋白'):
+            r = {'value': 90.0, 'grade': 0, 'clin': 2, 'hi': 60, 'mid': mid, 'unit': 'ug/L'}
+            self.assertIsNone(worse_vs_base(r, b, 0.3, disease=True, ddir='high'), mid)
+
+    def test_hb_rise_improvement_without_bleeding(self):
+        """②血红蛋白/红细胞比容：无出血语境时升高不判疾病加重；有出血语境时按疾病不利方向照判。"""
+        from ext_rules import worse_vs_base
+        b = {'value': 80.0, 'grade': 0}
+        r = {'value': 115.0, 'grade': 0, 'clin': 2, 'hi': 100, 'mid': 'lab:血红蛋白', 'unit': 'g/L'}
+        self.assertIsNone(worse_vs_base(r, b, 0.3, disease=True, ddir='high'))
+        r_hct = dict(r, mid='vs:红细胞比容', value=0.45, unit='L/L')
+        b_hct = {'value': 0.30, 'grade': 0}
+        self.assertIsNone(worse_vs_base(r_hct, b_hct, 0.3, disease=True, ddir='high'))
+        # 出血语境（同受试者有出血类 AE 记录）：升高仍可作为疾病加重证据
+        self.assertIn('较基线升高', worse_vs_base(r, b, 0.3, disease=True, ddir='high', bleed=True) or '')
+
+    def test_rise_ok_does_not_swallow_other_hb_family_markers(self):
+        """医学安全边界：糖化血红蛋白、平均红细胞血红蛋白、游离/尿血红蛋白（溶血标志）不属「血红蛋白浓度」——
+        疾病方向 ↑ 时其升高照常判加重（只有全血血红蛋白/比容的升高在无出血语境＝好转）。"""
+        from ext_rules import worse_vs_base
+        b = {'value': 50.0, 'grade': 0}
+        for mid in ('lab:糖化血红蛋白', 'lab:平均红细胞血红蛋白含量', 'lab:游离血红蛋白', 'lab:尿血红蛋白'):
+            r = {'value': 90.0, 'grade': 0, 'clin': 2, 'hi': 60, 'mid': mid, 'unit': 'x'}
+            self.assertIn('较基线升高', worse_vs_base(r, b, 0.3, disease=True, ddir='high') or '', mid)
+
+    def test_ferritin_in_iron_overload_context_still_worsens(self):
+        """医学安全边界：疾病背景为铁过载（通用医学措辞）时铁蛋白升高＝疾病加重，不按代偿性升高排除。"""
+        from ext_rules import worse_vs_base
+        b = {'value': 500.0, 'grade': 0}
+        r = {'value': 900.0, 'grade': 0, 'clin': 2, 'hi': 300, 'mid': 'lab:铁蛋白', 'unit': 'ug/L'}
+        self.assertIsNone(worse_vs_base(r, b, 0.3, disease=True, ddir='high'))                      # 默认：代偿性升高类
+        self.assertIn('较基线升高', worse_vs_base(r, b, 0.3, disease=True, ddir='high', overload=True) or '')
+
+    def test_disw_not_triggered_for_compensatory_rise(self):
+        """端到端红测：CS 点归因研究疾病、PR1 方向 ↑，代偿性指标给药后升高 +46% → 不出 DISW。"""
+        from types import SimpleNamespace
+        import ctcae
+        from mm_build import build_labrows
+        base = {'sid': 'S1', 'post': False, 'clin': 0, 'value': 100.0, 'raw': '100', 'lo': None, 'hi': 120,
+                'unit': '%', 'visit': 'V1', 'date': '2026-01-02', 'sheet': '检验', 'row': 2, 'wb': 'edc',
+                'grade': 0, 'links': [], 'reason': None, 'desc': '', 'group': '血常规', 'base': None}
+        base['base'] = base
+        post = self._row('V2', '2026-02-01', 146.0, row=6, base=base, hi=120, pct=46.0)
+        C = SimpleNamespace(
+            A={'aeMatch': [], 'labDomains': ['lab', 'vs', 'ecg'],
+               'indicationBackground': [[self.MET.split(':')[1], '某代偿性指标↑：研究疾病常见表现']]},
+            S={'study': {'design': {'facts': []}}}, cfg={'thresholds': {'base': 0.3}},
+            F={(self.MET.split(':')[1] and ('S1', self.MET)): [base, post]}, pop={'S1'},
+            subj={'S1': {'site': '01'}}, src={'sheets': {}},
+            metric={self.MET: {'label': '某代偿性指标', 'n': 2, 'nq': 0, 'hasClin': True}},
+            aeEnd={}, mh_by={'S1': []}, ae_by={'S1': []}, btype={},
+            G=ctcae.load({'grading': {'version': '5.0'}}), cmap={}, labrows=[])
+        C.GL = C.G.label
+        build_labrows(C)
+        dis = [g for g in C.labrows if g['risk'] == 'DISW']
+        self.assertEqual(dis, [], '代偿性指标升高不应触发「CS归因研究疾病·给药后加重」')
+
+
+class V6Round2GradingTextSource(unittest.TestCase):
+    """G2（MY008R2 R7×2）：分级文案取值源统一。
+    ①质疑文案里的「分级变化」（等级 X→Y）必须与判定同一输入——就所选点用自己的基线（含本表基线/每行 base）取级，
+      不得拿组内首行基线拼「0→3 级」（抽屉全程表显示基线已 3 级）；
+    ②PD（SAFE-01）文案引用的数值与标注分级必须来自同一时点（引用点即取最高级那次）。"""
+
+    MET = 'lab:某计数指标'
+
+    @staticmethod
+    def _row(visit, date, value, grade, post, sheet, row, base, clin=0, reason=None, hi=120):
+        return {'sid': 'S1', 'post': post, 'clin': clin, 'value': value, 'raw': str(value), 'lo': None, 'hi': hi,
+                'unit': '×10^9/L', 'visit': visit, 'date': date, 'sheet': sheet, 'row': row, 'wb': 'edc',
+                'grade': grade, 'links': [], 'reason': reason, 'desc': '', 'group': '血常规', 'base': base,
+                'pct': None, 'mid': V6Round2GradingTextSource.MET}
+
+    def test_query_text_no_fabricated_zero_to_three(self):
+        """红测①：虚构受试者基线已 3 级（本表基线）、当前仍 3 级、数值升高 46% 触发 DISW——
+        文案不得出现「0→3」（修前以组内首行基线〔0 级〕拼等级变化）。"""
+        from types import SimpleNamespace
+        import ctcae
+        from mm_build import build_labrows, build_queries
+        # 检验A（首行所在表）：基线 0 级——组内首行的 base；检验B：本表自己的基线已 3 级
+        a_base = self._row('V1', '2026-01-02', 100.0, 0, False, '检验A', 2, None)
+        a_base['base'] = a_base
+        b_base = self._row('V1', '2026-01-03', 100.0, 3, False, '检验B', 2, None)
+        b_base['base'] = b_base
+        b_post = self._row('V3', '2026-02-01', 146.0, 3, True, '检验B', 6, b_base, clin=2, reason='disease')
+        b_post['pct'] = 46.0
+        C = SimpleNamespace(
+            A={'aeMatch': [], 'labDomains': ['lab', 'vs', 'ecg'],
+               'indicationBackground': [[self.MET.split(':')[1], '某计数指标↑：研究疾病常见表现']]},
+            S={'study': {'design': {'facts': []}}}, cfg={'thresholds': {'base': 0.3}},
+            F={('S1', self.MET): [a_base, b_base, b_post]}, pop={'S1'},
+            subj={'S1': {'site': '01'}}, src={'sheets': {}},
+            metric={self.MET: {'label': '某计数指标', 'n': 3, 'nq': 0, 'hasClin': True}},
+            aeEnd={}, mh_by={'S1': []}, ae_by={'S1': []}, btype={}, others=[], findings=[], extq=[],
+            G=ctcae.load({'grading': {'version': '5.0'}}), cmap={}, labrows=[])
+        C.GL = C.G.label
+        build_labrows(C)
+        self.assertTrue(any(g['risk'] == 'DISW' for g in C.labrows), C.labrows)
+        build_queries(C)
+        txt = ' '.join(q['text'] for q in C.queries)
+        self.assertNotIn('0→3', txt, txt)
+        self.assertIn('较基线升高', txt)                       # 加重事实仍在（数值路径），只是不虚构分级起点
+
+    def test_pd_text_same_timepoint_value_and_grade(self):
+        """红测②：SAFE-01 引用点与分级同一时点——首点 1 级、次点 3 级时，事实须引用 3 级那次。"""
+        import pd_rules
+        from types import SimpleNamespace
+        g = {'sid': 'S1', 'site': '01', 'cat': '治疗后新发/加重检验异常', 'test': '某指标', 'mid': 'lab:某指标',
+             'grp': '', 'pr': 4,
+             'base': ['V1', '50', 'g/L', 0],
+             'pts': [['V2', '2026-02-01', '80', 'g/L', 1, 2, 60.0, '检验', 5, '', None, ''],
+                     ['V4', '2026-03-01', '30', 'g/L', 3, 2, -40.0, '检验', 9, '', None, '']],
+             'rel': [], 'ctx': [], 'q': [], 'fid': [], 'cro': '', 'mg': 3, 'risk': 'CSX', '_aecov': [],
+             'wb': '', 'qkey': 'lab|S1|CSX|检验|lab:某指标|V2'}
+        C = SimpleNamespace(A={}, S={'study': {}}, cfg={}, subj={'S1': {'site': '01'}}, pop={'S1'},
+                            visits=[], efficacy=[], findings=[], others=[], aes=[],
+                            cmap={}, GL='CTCAE v5.0', labrows=[g],
+                            vi=lambda v: 0, UNS=set(), G=None)
+        E = pd_rules._PD(C)
+        E.from_signals()
+        items = [i for i in E.items if i['rule'] == 'SAFE-01']
+        self.assertTrue(items)
+        it = items[0]
+        self.assertIn('30', it['fact'])                     # 引用 3 级那次的数值
+        self.assertIn('V4', it['fact'])
+        self.assertIn('3 级', it['why'])                    # 分级与所引用点同时点
+        self.assertNotIn('80 g/L', it['fact'])              # 不再引用 1 级首点的数值配 3 级说明
+
+
+class V6Round2TransfusionContext(unittest.TestCase):
+    """G3②（MY008R2 R8）：有输血依赖的方案中，血红蛋白短期跳升（≥30 g/L / 7 天）附输血语境提示
+    （方案在入排/主要终点/补救规则引用输血 → 短期跳升可能来自红细胞输注而非疾病变化）。"""
+
+    MET = 'lab:血红蛋白（虚构）'
+
+    def test_hb_short_jump_gets_transfusion_context(self):
+        from types import SimpleNamespace
+        import ctcae
+        from mm_build import build_labrows
+        base = {'sid': 'S1', 'post': False, 'clin': 0, 'value': 80.0, 'raw': '80', 'lo': 110, 'hi': 160,
+                'unit': 'g/L', 'visit': 'V1', 'date': '2026-01-02', 'sheet': '检验', 'row': 2, 'wb': 'edc',
+                'grade': 0, 'links': [], 'reason': None, 'desc': '', 'group': '血常规', 'base': None, 'mid': self.MET}
+        base['base'] = base
+
+        def post(visit, date, value, row):
+            return {'sid': 'S1', 'post': True, 'clin': 2, 'value': value, 'raw': str(value), 'lo': 110, 'hi': 160,
+                    'unit': 'g/L', 'visit': visit, 'date': date, 'sheet': '检验', 'row': row, 'wb': 'edc',
+                    'grade': 0, 'links': [], 'reason': None, 'desc': '', 'group': '血常规', 'base': base,
+                    'pct': (value - 80.0) / 80 * 100, 'mid': self.MET}
+        rows = [base, post('V2', '2026-02-01', 82.0, 5), post('V3', '2026-02-04', 120.0, 6)]   # 3 天 +38 g/L
+        C = SimpleNamespace(
+            A={'aeMatch': [], 'labDomains': ['lab', 'vs', 'ecg']},
+            S={'study': {'design': {'facts': []},
+                         'criteria': [{'no': 'E5', 'kind': 'exclusion', 'text': '筛选前 3 个月内有红细胞输注史者不得入组'}]}},
+            cfg={'thresholds': {'base': 0.3}},
+            F={('S1', self.MET): rows}, pop={'S1'},
+            subj={'S1': {'site': '01'}}, src={'sheets': {}},
+            metric={self.MET: {'label': '血红蛋白（虚构）', 'n': 3, 'nq': 0, 'hasClin': True}},
+            aeEnd={}, mh_by={'S1': []}, ae_by={'S1': []}, btype={},
+            G=ctcae.load({'grading': {'version': '5.0'}}), cmap={}, labrows=[])
+        C.GL = C.G.label
+        build_labrows(C)
+        ctx = ' '.join(C.labrows[0]['ctx']) if C.labrows else ''
+        self.assertIn('输血', ctx, ctx)
+        self.assertIn('短期', ctx)
+
+    def test_no_transfusion_note_without_protocol_dependency(self):
+        """对照：方案不引用输血时不附输血语境（同数据形态）。"""
+        from types import SimpleNamespace
+        import ctcae
+        from mm_build import build_labrows
+        base = {'sid': 'S1', 'post': False, 'clin': 0, 'value': 80.0, 'raw': '80', 'lo': 110, 'hi': 160,
+                'unit': 'g/L', 'visit': 'V1', 'date': '2026-01-02', 'sheet': '检验', 'row': 2, 'wb': 'edc',
+                'grade': 0, 'links': [], 'reason': None, 'desc': '', 'group': '血常规', 'base': None, 'mid': self.MET}
+        base['base'] = base
+
+        def post(visit, date, value, row):
+            return {'sid': 'S1', 'post': True, 'clin': 2, 'value': value, 'raw': str(value), 'lo': 110, 'hi': 160,
+                    'unit': 'g/L', 'visit': visit, 'date': date, 'sheet': '检验', 'row': row, 'wb': 'edc',
+                    'grade': 0, 'links': [], 'reason': None, 'desc': '', 'group': '血常规', 'base': base,
+                    'pct': (value - 80.0) / 80 * 100, 'mid': self.MET}
+        rows = [base, post('V2', '2026-02-01', 82.0, 5), post('V3', '2026-02-04', 120.0, 6)]
+        C = SimpleNamespace(
+            A={'aeMatch': [], 'labDomains': ['lab', 'vs', 'ecg']},
+            S={'study': {'design': {'facts': []}, 'criteria': []}},
+            cfg={'thresholds': {'base': 0.3}},
+            F={('S1', self.MET): rows}, pop={'S1'},
+            subj={'S1': {'site': '01'}}, src={'sheets': {}},
+            metric={self.MET: {'label': '血红蛋白（虚构）', 'n': 3, 'nq': 0, 'hasClin': True}},
+            aeEnd={}, mh_by={'S1': []}, ae_by={'S1': []}, btype={},
+            G=ctcae.load({'grading': {'version': '5.0'}}), cmap={}, labrows=[])
+        C.GL = C.G.label
+        build_labrows(C)
+        ctx = ' '.join(C.labrows[0]['ctx']) if C.labrows else ''
+        self.assertNotIn('输血', ctx, ctx)
+
+
+class V6Round2KriPemConsistency(unittest.TestCase):
+    """G4（MY008R2 R6）：总览 KRI「主要终点缺失」与有效性页同一判定——criticalItems 绑定失败时，
+    有效性页若已按终点配置生成趋势，KRI 不再写「找不到对应指标」（两处取同一判定结果）。"""
+
+    @staticmethod
+    def _C(efficacy_cfg=(), efficacy_rows=()):
+        from types import SimpleNamespace
+        subj = {'S1': {'site': '01', 'fd': '2026-01-01', 'status': '已入组'}}
+        due = [['S1', '01', 'W8', '2026-02-23', '2026-03-01', '2026-02-25', 'ok', 56, 57, 3, 3, 0]]
+        return SimpleNamespace(
+            A={'pd': {'criticalVisits': ['W8'], 'criticalItems': '某无关评分'},
+               'efficacy': list(efficacy_cfg), 'visitWindows': {'W8': [57, 3, 3]}},
+            subj=subj, S=subj, pop={'S1'}, visits=[], efficacy=list(efficacy_rows), findings=[],
+            aes=[], queries=[], labrows=[], entry=[], pdd={'potential': [], 'rules': []},
+            cfg={'study': {'planned': 10}, 'thresholds': {}},
+            ops={'cutoff': '2026-03-05', 'ex': {}, 'due': due, 'fu': {'S1': 60}, 'fresh': {'01': ['2026-03-01', 4, 1]}})
+
+    def test_kri_not_found_only_when_eff_also_empty(self):
+        """红测：criticalItems 匹配不到检验/量表指标名，但终点配置已按 eff: 源生成数据 → na 不得写「找不到」。"""
+        from monitor_v5 import kri
+        C = self._C(efficacy_cfg=[{'id': 'pe1', 'src': 'eff:虚构量表', 'label': '虚构量表总评'}],
+                    efficacy_rows=[{'sid': 'S1', 'metric': '虚构量表', 'visit': 'W8', 'value': 5}])
+        na = kri(C)['na']
+        self.assertIn('pem', na)
+        self.assertNotIn('找不到', na['pem'], na['pem'])
+
+    def test_kri_not_found_kept_when_eff_empty(self):
+        """对照：有效性侧也无数据 → 保留「找不到对应指标」（口径不变）。"""
+        from monitor_v5 import kri
+        na = kri(self._C())['na']
+        self.assertIn('找不到', na['pem'])
 
 
 if __name__ == '__main__':
