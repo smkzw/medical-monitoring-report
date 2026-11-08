@@ -43,6 +43,16 @@ def is_full_date(s):
     return isinstance(s, str) and re.fullmatch(r'\d{4}-\d{2}-\d{2}', s) is not None
 
 
+# H1（第 3 轮 SAR，R10）：隐私列判定收口一处——三出口共用（原始数据层 raw_export、质疑/偏离抽屉摘录
+# mm_build.build_ex、工作台工作簿导出同口径复写）。受试者/研究者身份与联系方式列不进任何交付面。
+PII_COL_RX = re.compile(r'姓名|缩写|\binitials\b|\binits?\b|身份证|证件号|电话|手机|住址|家庭地址|联系方式|邮箱|e-?mail', re.I)
+
+
+def pii_column(label):
+    """列名是否为隐私列（受试者/研究者 姓名·缩写·证件·电话·住址·联系方式）。"""
+    return bool(PII_COL_RX.search(str(label or '')))
+
+
 def days(a, b):
     """a - b in days (None when either is not a full date)."""
     if not (is_full_date(a) and is_full_date(b)):
@@ -139,8 +149,10 @@ def result_state(raw):
     if isinstance(raw, (int, float)):
         return ('value', float(raw))
     t = (s.replace('＜', '<').replace('＞', '>').replace('≤', '<=').replace('≥', '>=').replace('×', '*')
+         .replace('低于', '<').replace('小于', '<').replace('高于', '>').replace('大于', '>').replace('超过', '>')
          .replace(' ', '').replace(',', ''))
-    if re.search(r'低于(检测|定量)?下限|<(检测|定量)下限|<?LLOQ|<?LOD|^ND$|BLQ|TND|不可测|未检出|未检测到|notdetected', t, re.I):
+    # H3②（第 3 轮 SAR）：「低于检出限/<检出下限」与「检测/定量」同族的删失写法统一认 below
+    if re.search(r'<(检测|定量|检出)?下?限|<?LLOQ|<?LOD|^ND$|BLQ|TND|不可测|未检出|未检测到|notdetected', t, re.I):
         return ('below', None)
     sup = t.translate(_SUP_MAP)
     m = _NUM_SCI.match(sup if sup != t else t)

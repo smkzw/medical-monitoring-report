@@ -15,9 +15,7 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
-from common import open_workbook_lenient
-
-PII = re.compile(r'姓名|缩写|initials?|身份证|证件号|电话|手机|住址|家庭地址|联系方式|邮箱', re.I)
+from common import open_workbook_lenient, pii_column   # H1（第 3 轮 SAR）：隐私列判定收口 common.pii_column，摘录/导出出口共用
 SID_HDR = re.compile(r'^(受试者(筛选)?(编号|号|代码)?|参与者(编号|号)?|筛选号|SUBJID|USUBJID|Subject\s*ID|Participant\s*ID)$', re.I)
 MAX_CELL = 300
 FLAG_HDR = re.compile(r'^(Flag|变更标记|数据状态|记录状态)$', re.I)
@@ -126,7 +124,7 @@ def export_raw(C, out):
             for j, lab in enumerate(labels):
                 if j == sc:
                     continue
-                if PII.search(lab):
+                if pii_column(lab):
                     dropped.add(lab)
                     continue
                 vals = {d[2][j] for d in data}

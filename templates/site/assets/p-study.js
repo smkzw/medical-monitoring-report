@@ -27,14 +27,11 @@ ${(DS.facts||[]).length||(ST.endpoints||[]).length?`<div class="card mt"><div cl
 <div class="tabs" id="rtab"></div><div id="rpane"></div>
 <div class="sec-t"><h2>方案 / IB 规则库</h2><span class="muted small" id="rn"></span><span class="sp"></span><input class="s" id="rs" placeholder="搜索 规则文字"></div>
 <div class="chips mb" id="rd"></div><div id="rules"></div>
-<div class="card mt" id="sysnote"><div class="hd"><h2>系统提示</h2><span class="sub">构建与审阅过程中需要人处理的事项（构建缺口、映射、词表、AI 审阅、CS 解释待确认等），不属于数据风险${(((window.KZS||{}).gaps)||[]).length?` · <b style="color:var(--risk)">构建缺口 ${((window.KZS||{}).gaps).length} 项</b>`:''}</span></div><div id="todo"></div></div>`;
+<div class="card mt" id="sysnote"><div class="hd"><h2>系统提示</h2><span class="sub">构建与审阅过程中需要人处理的事项（构建缺口、映射、词表、AI 审阅、CS 解释待确认等），不属于数据风险<span id="gapn"></span></span></div><div id="todo"></div></div>`;
 /* V6（用户审阅 RUX 裁定 2）：系统提示从总览移到研究依据页底部；工作台系统层（kz-sys.js）向 #todo 追加 CS 解释待确认等行 */
-/* F10（V6 RUX）：构建缺口清单（KZS.gaps：行数对账差/未编译条款/未映射表单）持久显示——auto-confirm 仍按默认，
- * 但缺口必须可见，不再静默；skill 单独使用（无 KZS）不显示，行为不变 */
-{const GP=((window.KZS||{}).gaps)||[];
- const T=GP.map(g=>['构建缺口',g.type==='行数对账'?'red':'org',`<b>${K.esc(g.type)}</b>：${K.esc(g.obj)}——${K.esc(g.note)}`,'study.html#sysnote'])
- .concat(D.todo||[]).concat(((X||{}).soaGuard||[]).map(g=>['SoA 核对','yel',`「${K.esc(g.name)}」${K.esc(g.visit)} 访视 ${g.miss}/${g.n} 人（${Math.round(g.pct*100)}%）无记录，比例异常高，可能是方案流程表对应关系或适用条件（性别、年龄、可沿用首剂前结果等）有误，未逐人判为评估缺失${g.hint?'；'+K.esc(g.hint):''}`,'deviations.html#tab=exe']));
- document.getElementById('todo').innerHTML=T.length?`<table class="t"><tbody>${T.map(t=>`<tr class="click" onclick="location.href='${t[3]}'"><td style="width:90px">${K.p(t[0],t[1])}</td><td>${t[2]}</td><td class="faint">›</td></tr>`).join('')}</tbody></table>`:'<table class="t"><tbody></tbody></table><div class="empty small">无</div>'}
+/* F10（V6 RUX）＋H4（第 3 轮 SAR）：构建缺口清单（KZS.gaps＋前端计算的「可核对但未编译」入排条款）持久显示——
+ * auto-confirm 仍按默认，但缺口必须可见，不再静默；skill 单独使用（无 KZS）不显示，行为不变。GP 块须在
+ * IE/coded 定义之后执行（见下）。 */
 /* ---------- 关键口径 ---------- */
 const CST={'方案规定':'grn','口径裁定':'org','待确认':'red','项目配置':'blu','默认采用':'line'};
 /* mm4：知识层状态卡置顶（KZ.knowledge＝study analysis.knowledge；绿＝可用，红＝MedDRA 不可用降级；无键＝旧构建不显示） */
@@ -55,9 +52,16 @@ const pane=app.querySelector('#rpane');
 const IE=ST.criteria||[],IEold=ST.eligibility||[],EL=(B.eligibility||[]).concat((B.eligibilitySubject||[]).map(e=>({...e,metric:'人口学:'+e.field})));
 const WO=(B.washout||[]).map(w=>({...w,label:w.name,op:'洗脱',v:w.days+' 天'}));
 const coded=txt=>EL.concat(WO).find(e=>txt&&(String(e.text||e.name||'').includes(String(txt).slice(0,8))||String(txt).includes(String(e.text||e.name||'~~').slice(0,8))||(e.name&&String(txt).includes(String(e.name).slice(0,4)))));
+/* F10＋H4：构建缺口清单填充（此处 coded/IE 已就绪）——KZS.gaps（工作台注入）＋「可核对但未编译」入排条款 */
+{const UNC=IE.filter(c=>String(c.check||'')==='data'&&!coded(c.text)).map(c=>({type:'未编译条款',obj:`入排标准 ${c.no||'—'}`,note:'标记为「可数据核对」但未编译出核查引擎条目，已降级为需人工判定——请核对映射/规则配置'}));
+ const GP=(((window.KZS||{}).gaps)||[]).concat(UNC);
+ {const g=document.getElementById('gapn');if(g&&GP.length)g.innerHTML=` · <b style="color:var(--risk)">构建缺口 ${GP.length} 项</b>`;}
+ const T=GP.map(g=>['构建缺口',g.type==='行数对账'?'red':'org',`<b>${K.esc(g.type)}</b>：${K.esc(g.obj)}——${K.esc(g.note)}`,'study.html#sysnote'])
+ .concat(D.todo||[]).concat(((X||{}).soaGuard||[]).map(g=>['SoA 核对','yel',`「${K.esc(g.name)}」${K.esc(g.visit)} 访视 ${g.miss}/${g.n} 人（${Math.round(g.pct*100)}%）无记录，比例异常高，可能是方案流程表对应关系或适用条件（性别、年龄、可沿用首剂前结果等）有误，未逐人判为评估缺失${g.hint?'；'+K.esc(g.hint):''}`,'deviations.html#tab=exe']));
+ document.getElementById('todo').innerHTML=T.length?`<table class="t"><tbody>${T.map(t=>`<tr class="click" onclick="location.href='${t[3]}'"><td style="width:90px">${K.p(t[0],t[1])}</td><td>${t[2]}</td><td class="faint">›</td></tr>`).join('')}</tbody></table>`:'<table class="t"><tbody></tbody></table><div class="empty small">无</div>'}
 const views={
  elig:()=>`<div class="card"><div class="hd"><h2>入选 / 排除标准</h2><span class="sub">可核查性：数据核查（系统逐受试者判定入组前末次有效值）/ 需研究者判断或源文件</span><span class="sp"></span>${go('deviations.html#tab=sci&cat=ELIG','入组资格潜在 PD',pdN(/^ELIG/))}</div>
-  <div class="tw"><table class="t"><thead><tr><th style="width:70px">编号</th><th>标准（原文）</th><th style="width:180px">能否用数据核对</th><th style="width:70px">依据</th></tr></thead><tbody>${(IE.length?IE.map(c=>[c.no,c.text,c.check,c.rule,c.kind]):IEold.map(e=>[e[0],e[1],coded(e[1])?'data':'judgment',e[2],''])).map(([no,tx,ck,rid,kind])=>{const e=coded(tx);return `<tr><td class="nowrap">${K.p(no||'—',kind==='exclusion'?'red':kind==='inclusion'?'grn':'line')}</td><td class="small">${K.esc(tx)}</td><td>${ck==='data'||e?K.p('数据核查','grn')+(e?`<div class="xs muted" style="margin-top:2px">${K.esc(e.label||K.rxl(e.metric))} ${K.esc(K.OPL[e.op]||e.op||'')}${e.op==='re'?'即不符':' '+K.esc(e.v??'')}${e.on==='uln'?'×ULN':''}${e.pick&&e.pick!=='last'?' · '+(e.pick==='any'?'任一测量':'首次测量'):''}</div>`:''):ck==='partial'?K.p('部分可核查','yel'):K.p('需研究者判断 / 源文件','line')}</td><td>${rid?K.rp(rid):''}</td></tr>`}).join('')||'<tr><td colspan="4" class="empty">方案入排标准未导入</td></tr>'}</tbody></table></div>
+  <div class="tw"><table class="t"><thead><tr><th style="width:70px">编号</th><th>标准（原文）</th><th style="width:180px">能否用数据核对</th><th style="width:70px">依据</th></tr></thead><tbody>${(IE.length?IE.map(c=>[c.no,c.text,c.check,c.rule,c.kind]):IEold.map(e=>[e[0],e[1],coded(e[1])?'data':'judgment',e[2],''])).map(([no,tx,ck,rid,kind])=>{const e=coded(tx);return `<tr><td class="nowrap">${K.p(no||'—',kind==='exclusion'?'red':kind==='inclusion'?'grn':'line')}</td><td class="small">${K.esc(tx)}</td><td>${e?K.p('数据核查','grn')+`<div class="xs muted" style="margin-top:2px">${K.esc(e.label||K.rxl(e.metric))} ${K.esc(K.OPL[e.op]||e.op||'')}${e.op==='re'?'即不符':' '+K.esc(e.v??'')}${e.on==='uln'?'×ULN':''}${e.pick&&e.pick!=='last'?' · '+(e.pick==='any'?'任一测量':'首次测量'):''}</div>`:ck==='data'?K.p('需人工','line')+`<div class="xs muted" style="margin-top:2px">标记为可数据核对，但未编译出核查引擎条目（见构建缺口清单）</div>`:ck==='partial'?K.p('部分可核查','yel'):K.p('需研究者判断 / 源文件','line')}</td><td>${rid?K.rp(rid):''}</td></tr>`}).join('')||'<tr><td colspan="4" class="empty">方案入排标准未导入</td></tr>'}</tbody></table></div>
   <div class="note mt xs muted">判定值：方案允许复查时取入组前末次有效测量；只核查筛选期（首剂访视之前的计划访视及计划外复查）记录，一位受试者一条标准只产生一条信号。</div></div>`,
  cm:()=>{const PM=(ST.prohibited||{}).groups||[];return `<div class="grid g2"><div class="card"><div class="hd"><h2>禁用 / 限用药物</h2><span class="sp"></span>${R(...((ST.prohibited||{}).refs||[]))}${go('deviations.html#tab=sci&cat=CM','合并用药潜在 PD',pdN(/^CM/))}</div>
   ${PM.map(([t,c,a])=>`<div class="flex wrap" style="align-items:flex-start;margin:5px 0"><span class="small muted nowrap" style="width:132px;flex:0 0 132px">${t}</span><span>${a.map(x=>K.p(x,c)).join('')}</span></div>`).join('')}

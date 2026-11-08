@@ -4299,5 +4299,247 @@ class V6Round2KriPemConsistency(unittest.TestCase):
         self.assertIn('找不到', na['pem'])
 
 
+class Sar3H3EngineTests(unittest.TestCase):
+    """第 3 轮 SAR H3①②（引擎侧）：定性（阳性）判定统一走 result_state——删失界/低于检测限类写法不是阳性；
+    「+」正则不得吃科学计数 E+（「小于 5.0E+1」为删失界）。夹具全虚构。"""
+
+    def test_result_state_detection_limit_and_chinese_censored(self):
+        from common import result_state
+        self.assertEqual(result_state('小于 5.0E+1'), ('below', 50.0))       # 修前不识别（红）
+        self.assertEqual(result_state('低于检出限'), ('below', None))         # 修前不识别（红）
+        self.assertEqual(result_state('<检测下限'), ('below', None))          # 既有口径不回归
+        self.assertEqual(result_state('低于检测下限'), ('below', None))
+
+    def test_elig_qualitative_below_limit_not_positive(self):
+        from mm_build import _elig_bad
+        old_re = '阳性|\\+|reactive|positive|检出'          # 旧构建已编译进规则的正则（含裸 \+）
+        E = {'re': old_re}
+        for raw in ('小于 5.0E+1', '<5.0E+1', '低于检出限', '<检测下限', '阴性', '(-)'):
+            self.assertFalse(_elig_bad(E, raw), raw)                          # 修前 E+/检出限 判阳性（红）
+        for raw in ('阳性', '+', '1+', '弱阳性', 'reactive'):
+            self.assertTrue(_elig_bad(E, raw), raw)                           # 真阳性照常命中
+
+    def test_gate_companion_below_limit_not_positive(self):
+        from types import SimpleNamespace
+        from collections import defaultdict
+        import mm_build
+        for raw, want in (('低于检出限', False), ('小于 5.0E+1', False), ('阳性', True)):
+            C = SimpleNamespace(F=defaultdict(list), metric={'lab:伴随指标': {'label': '伴随指标'}})
+            C.F[('S1', 'lab:伴随指标')].append(
+                {'sid': 'S1', 'mid': 'lab:伴随指标', 'test': '伴随指标', 'visit': 'SCR', 'date': '2026-01-05',
+                 'raw': raw, 'value': None, 'unit': '', 'lo': None, 'hi': None, 'clin': None, 'post': False,
+                 'sheet': 'LB', 'row': 4, 'wb': '', 'links': []})
+            g = {'metric': '伴随指标', 'label': '伴随指标', 're': '阳性|\\+|reactive|positive|检出'}
+            r = {'sid': 'S1', 'mid': 'lab:主指标', 'test': '主指标', 'visit': 'SCR', 'date': '2026-01-05',
+                 'raw': '5000', 'value': 5000.0, 'unit': '拷贝数/mL', 'lo': None, 'hi': None, 'clin': None,
+                 'post': False, 'sheet': 'LB', 'row': 3, 'wb': '', 'desc': '', 'links': []}
+            self.assertEqual(mm_build._gate_ok(C, 'S1', g, r), want, raw)     # 修前检出限/E+ 判 gate 满足（红）
+
+
+class Sar3H1PrivacyOutletTests(unittest.TestCase):
+    """第 3 轮 SAR H1（R10，最重）：隐私列判定收口为 common.pii_column 一处，三出口共用——
+    原始数据层（raw_export）已有过滤，质疑/偏离抽屉的原始行摘录（build_ex → extra.js KZX.ex/pdex 的 f 字段）
+    修前透传「姓名缩写」等隐私列。虚构工作簿与摘录数据。"""
+
+    def _ctx(self, td):
+        from types import SimpleNamespace
+        from openpyxl import Workbook
+        p = Path(td) / 'edc.xlsx'
+        wb = Workbook()
+        ws = wb.active
+        ws.title = 'LB'
+        ws.append(['受试者编号', '姓名缩写', '研究者姓名', '电话', '结果'])   # 隐私列：缩写/姓名/电话
+        ws.append(['01001', 'ZMS', '某研究者', '13800000000', '88'])
+        ws.append(['01001', 'ZMS', '某研究者', '13800000000', '102'])
+        wb.save(p)
+        sheets = {'edc:LB': {'wb': 'edc', 'sheet': 'LB', 'label_row': 1, 'hl': ['结果']}}
+        C = SimpleNamespace(src={'sheets': sheets, 'workbooks': {'edc': str(p)}},
+                            queries=[{'id': 'Q001', 'sid': '01001', 'ev': [['edc:LB', 2]], '_cro': ''}],
+                            pdd={'potential': [], 'confirmed': [{'id': 'PD1', 'src': [['edc:LB', 3, '结果']]}]},
+                            extq=[])
+        return C
+
+    def test_build_ex_filters_privacy_columns(self):
+        import tempfile
+        import mm_build
+        from common import pii_column
+        with tempfile.TemporaryDirectory() as td:
+            C = self._ctx(td)
+            ex, pdex = mm_build.build_ex(C)
+            f = ex['Q001']['rows'][0]['f']
+            self.assertNotIn('姓名缩写', f)                                  # 修前透传（红）
+            self.assertNotIn('研究者姓名', f)
+            self.assertNotIn('电话', f)
+            self.assertIn('结果', f)                                          # 业务列照常摘录
+            pf = pdex['PD1'][0]['f']
+            self.assertNotIn('姓名缩写', pf)                                  # 偏离抽屉同口径（红）
+            self.assertIn('结果', pf)
+
+    def test_pii_column_shared_with_raw_export(self):
+        """收口：raw_export 与 build_ex 用同一判定函数（raw_export 既有行为不回归）。"""
+        import raw_export
+        from common import pii_column
+        for lab in ('姓名缩写', '受试者姓名', '身份证号', '联系电话', '家庭住址', 'Email', 'Initials'):
+            self.assertTrue(pii_column(lab), lab)
+            self.assertTrue(raw_export.pii_column is pii_column)              # 同一函数（红：raw_export 原用本地 PII）
+        for lab in ('结果', '受试者编号', '访视', '临床意义'):
+            self.assertFalse(pii_column(lab), lab)
+
+
+class Sar3H4IeCheckTagTruthTests(unittest.TestCase):
+    """第 3 轮 SAR H4（R8）：入排页「数据核查」绿色只能由真实编译产物回填——标了『可数据核对』但未编译出
+    核查引擎条目的降级为灰色「需人工」并列入构建缺口清单（不再仅凭标记显示绿色）。"""
+
+    A = ROOT / 'templates/site/assets'
+
+    def test_green_requires_compiled_rule(self):
+        t = (self.A / 'p-study.js').read_text(encoding='utf-8')
+        self.assertNotIn("ck==='data'||e?", t.replace(' ', ''))          # 修前：标记即绿（红）
+        self.assertIn('需人工', t)                                       # 未编译的降级标签
+        self.assertIn('未编译', t)                                       # 缺口清单条目类型
+        self.assertIn(")==='data'&&!coded(c.text)", t.replace(' ', ''))   # 未编译判定按真实编译产物回填（coded）
+
+
+class Sar3H5AesiCaliberTests(unittest.TestCase):
+    """第 3 轮 SAR H5：AESI 口径统一——总览（EDC 已标记）与安全页（勾选∪定义命中）两种口径无标签；
+    统一双口径「已标记 X / 符合定义待核实 Y」，两页显示时明确标注。虚构记录。"""
+
+    def test_aesi_caliber_dual_counts(self):
+        from types import SimpleNamespace
+        import mm_build
+        aes = [{'sid': 'S1', 'te': True, 'aesi': True, '_aesi_term': True, 't': '已标且符合定义'},
+               {'sid': 'S1', 'te': True, 'aesi': False, '_aesi_term': True, 't': '符合定义未标'},
+               {'sid': 'S2', 'te': True, 'aesi': False, '_aesi_term': True, 't': '符合定义未标'},
+               {'sid': 'S2', 'te': True, 'aesi': False, '_aesi_term': False, 't': '无关'}]
+        C = SimpleNamespace(aes=aes, pop={'S1', 'S2'})
+        cal = mm_build.aesi_caliber(C)
+        self.assertEqual(cal['marked'], 1)                                   # 修前无此函数（红）
+        self.assertEqual(cal['defHit'], 2)                                   # 符合定义且未标（待核实）
+
+    def test_pages_render_dual_caliber_labels(self):
+        A = ROOT / 'templates/site/assets'
+        idx = (A / 'p-index.js').read_text(encoding='utf-8')
+        pro = (A / 'profile.js').read_text(encoding='utf-8')
+        self.assertIn('符合定义待核实', idx)                                  # 修前总览只写「AESI N」无口径标签（红）
+        self.assertIn('已标', idx)
+        self.assertIn('符合定义待核实', pro)                                  # 修前安全概况行＝勾选∪定义命中混一口径（红）
+        self.assertIn('EDC 已标', pro)
+
+
+class Sar3H6QueryMergeCountTests(unittest.TestCase):
+    """第 3 轮 SAR H6：同格质疑合并不静默——合并条目带 merged 计数（含被并入条数），
+    KZ.meta.qsSignals＝信号总数、qs＝条目数；页头/清单有合并时加脚注。虚构信号。"""
+
+    def _C(self):
+        from types import SimpleNamespace
+        from collections import defaultdict
+
+        def o(row, sum_):
+            return {'sid': 'S1', 'cat': '妊娠暴露核查', 'pr': 4, 'sum': sum_, 'v': 'SCR', 'd': '2026-01-05',
+                    'sh': 'edc:LB', 'row': row, 'test': '虚构指标', 'clin': None, 'qkey': f'k{row}',
+                    '_rule': {}, 'rel': [], 'ctx': [], 'q': [], 'cro': ''}
+        return SimpleNamespace(A={}, cfg={'thresholds': {}}, findings=[], sheet_groups=defaultdict(set),
+                               labrows=[], extq=[], S={}, queries=None, qcommon=None, src={'sheets': {}, 'workbooks': {}},
+                               others=[o(3, '虚构事实甲，'), o(3, '虚构事实乙，')],   # 同 sid/同表/同行 → 合并
+                               subj={'S1': {'site': '01'}})
+
+    def test_same_cell_merge_keeps_count(self):
+        import mm_build
+        C = self._C()
+        orig = mm_build.oth_qkey
+        mm_build.oth_qkey = lambda *a, **k: ''
+        try:
+            mm_build.build_queries(C)
+        finally:
+            mm_build.oth_qkey = orig
+        self.assertEqual(len(C.queries), 1)                                  # 同格合并为一条（既有行为）
+        q = C.queries[0]
+        self.assertEqual(q.get('merged'), 2)                                 # 修前无 merged 计数（红）——2 条信号并入 1 条
+        self.assertIn('另：', q['text'])                                     # 被并入条目正文保留（既有行为）
+
+    def test_page_renders_merge_footnote(self):
+        t = (ROOT / 'templates/site/assets/p-queries.js').read_text(encoding='utf-8')
+        self.assertIn('qsMerged', t)                                         # 修前页头无合并脚注（红）
+        w = Path('/Users/smkzw/Documents/康哲项目资料/AI/医学经理工作台/implementation/workbench/mm3/mm3/lifecycle/workbook.py')
+        if w.is_file():
+            self.assertIn('merged', w.read_text(encoding='utf-8'))           # 工作簿清单 note 同口径脚注
+
+
+class Sar3H7PdAnnotationVisitAlignTests(unittest.TestCase):
+    """第 3 轮 SAR H7（R7）：PD 附注（ctx 里的「较基线…%」涨幅）与所引用的时点取自同一条记录——
+    修前引用访视 A 的数值，配访视 B 的涨幅百分比。虚构检验组。"""
+
+    def test_pd_annotation_uses_cited_point_percentage(self):
+        from types import SimpleNamespace
+        from collections import defaultdict
+        import pd_rules
+        # pts 元素位序（build_labrows）：0=visit 1=date 2=raw 3=unit 4=grade 5=clin 6=pct 7=sheet 8=row
+        pts = [('V2', '2026-02-01', '102', 'U/L', 2, 2, 200.0, 'LB', 9, '', '', ''),
+               ('V1', '2026-01-05', '88', 'U/L', 3, 2, 50.0, 'LB', 3, '', '', '')]
+        g = {'risk': 'CSX', 'sid': 'S1', 'mid': 'lab:虚构指标', 'test': '虚构指标',
+             'pts': pts, 'qkey': '',
+             'ctx': ['研究者归因：研究疾病；给药后较基线加重（较基线升高 200%）']}   # 200% 来自 V2
+        C = SimpleNamespace(A={'pd': {}}, S={}, cfg={}, subj={'S1': {'site': '01'}}, pop={'S1'},
+                            others=[], labrows=[g], ae_by={'S1': []}, aes=[], GL='CTCAE',
+                            F=defaultdict(list), visits=[], dosed=set())
+        C.cfg['cutoff'] = '2026-03-01'
+        pd = pd_rules._PD(C)
+        pd.from_signals()
+        it = next(i for i in pd.items if i['rule'] == 'SAFE-01')
+        self.assertIn('V1', it['fact'])                                      # 引用点＝等级最高者（G2② 既有）
+        joined = ' '.join(it['ctx'])
+        self.assertNotIn('200%', joined)                                     # 修前附注带另一访视的 200%（红）
+        self.assertIn('50%', joined)                                         # 附注涨幅与所引 V1 时点同源（修后）
+
+
+class Sar3H9PdClassifyTests(unittest.TestCase):
+    """第 3 轮 SAR H9：已记录 PD 归类（35/317 错类）——「背景药物」类记录不归「评估检查」（描述常带
+    「未做检查」字样）；「随机与盲态」只认真正的随机/揭盲操作（背景交代「于某日随机」不归随机类）。虚构描述。"""
+
+    def test_background_medication_not_assessment(self):
+        from pd_rules import _classify
+        for txt in ('其他 背景药物 随机前因病情需要开始背景用药某虚构片剂，期间未进行实验室检查评估',
+                    '合并用药 背景治疗：使用背景药物某虚构胶囊',
+                    '其他 使用背景用药某虚构药片'):
+            self.assertEqual(_classify(txt), 'CM', txt)                     # 修前归 ASMT/OTH（红）
+
+    def test_random_narrative_not_rand(self):
+        from pd_rules import _classify
+        # 背景交代「于某日随机」不是随机类偏离 → 按超窗/访视归类（修前 RAND 先命中，红）
+        self.assertEqual(_classify('访视超窗 该受试者于 2025-09-10 随机，V5 访视超窗 12 天'), 'VIS')
+        # 真正的随机/盲态操作照常归 RAND
+        for txt in ('随机与盲态 未经随机即给予研究药物', '随机与盲态 数据管理员误揭盲', '随机与盲态 盲态破坏',
+                    '随机与盲态 重新随机', '随机与盲态 随机号分配错误'):
+            self.assertEqual(_classify(txt), 'RAND', txt)
+        self.assertEqual(_classify('访视超窗 随机后 V5 超窗'), 'VIS')       # 「随机后」为时间状语，不是操作
+
+
+class Sar3H10CroTextVisibleKeyTests(unittest.TestCase):
+    """第 3 轮 SAR H10：CRO 查重原文以可见键 croText 进 queries.json——_cro 下划线键被 KZ 输出层剥离，
+    工作簿「CRO 查重」列全空。虚构 CRO 质疑。"""
+
+    def test_query_carries_visible_cro_text(self):
+        from types import SimpleNamespace
+        from collections import defaultdict
+        import mm_build
+        o = {'sid': 'S1', 'cat': '妊娠暴露核查', 'pr': 4, 'sum': '虚构指标升高明显请核实，', 'v': 'SCR',
+             'd': '2026-01-05', 'sh': 'edc:LB', 'row': 3, 'test': '虚构指标', 'clin': None, 'qkey': 'k1',
+             '_rule': {}, 'rel': [], 'ctx': [], 'q': [], 'cro': ''}
+        C = SimpleNamespace(A={}, cfg={'thresholds': {}}, findings=[], sheet_groups=defaultdict(set),
+                            labrows=[], S={}, queries=None, qcommon=None, src={'sheets': {}, 'workbooks': {}},
+                            subj={'S1': {'site': '01'}},
+                            extq=[{'sid': 'S1', 'form': 'edc:LB', 'text': '虚构指标升高明显，请核实原因'}],
+                            others=[o])
+        orig = mm_build.oth_qkey
+        mm_build.oth_qkey = lambda *a, **k: ''
+        try:
+            mm_build.build_queries(C)
+        finally:
+            mm_build.oth_qkey = orig
+        q = C.queries[0]
+        self.assertEqual(q['cro'], '同主题已查重')                            # CRO 查重命中（既有）
+        self.assertTrue(q.get('croText'))                                    # 修前原文只存 _cro（下划线键被输出层剥离）（红）
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)

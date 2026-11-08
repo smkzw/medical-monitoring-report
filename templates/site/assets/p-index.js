@@ -33,7 +33,7 @@ ${(()=>{/* V6 首屏吸收：打开即见的关键事实条（结构不变，只
  ${kpi('筛选 / 随机并给药',`${m.n}<small>/ ${m.dosed} 例</small>`,Object.entries(st).map(([k,v])=>K.p(k+' '+v,K.STC[k]??'')).join(''),'monitor.html#tab=enr')}
  ${kpi('入组进度',planned?`${(dosed.length/planned*100).toFixed(0)}<small>% · ${dosed.length}/${planned}</small>`:`${dosed.length}<small>例给药</small>`,planned?(dosed.length>=planned?K.p('已达计划例数','grn'):proj?K.p('按近 90 天速率预计 '+proj+' 达成','line'):K.p('近 90 天入组不足 3 例，无法预测','line')):'<span class="xs faint">方案未给计划例数</span>','monitor.html#tab=enr','blu')}
  ${kpi('中心（有给药 / 全部）',`${D.centers.filter(c=>c.dosed).length}<small>/ ${D.centers.length}</small>`,freshSub(),'center.html')}
- ${kpi('不良事件（给药者）',`${ae}<small>例次 · ${dosed.filter(s=>s.nae).length} 例</small>`,`${K.p('SAE '+S.reduce((a,s)=>a+s.sae,0),'grn')}${K.p('AESI '+S.reduce((a,s)=>a+s.aesi,0),'red')}${K.p('≥2级 '+S.filter(s=>s.maxg>=2).length+' 例','org')}`,'profile.html')}
+ ${kpi('不良事件（给药者）',`${ae}<small>例次 · ${dosed.filter(s=>s.nae).length} 例</small>`,`${K.p('SAE '+S.reduce((a,s)=>a+s.sae,0),'grn')}${K.p('AESI 已标 '+S.reduce((a,s)=>a+s.aesi,0),'red')}${(D.aesiCal||{}).defHit?K.p('符合定义待核实 '+D.aesiCal.defHit,'yel'):''}${K.p('≥2级 '+S.filter(s=>s.maxg>=2).length+' 例','org')}`,'profile.html')}
  ${kpi('访视执行',`${due.length}<small>次应完成</small>`,due.length?`${K.p('逾期 '+ov,ov?'org':'line')}${K.p('超窗 '+oo,oo?'yel':'line')}${K.p('未来 14 天 '+up,'blu')}`:'<span class="xs faint">方案访视窗未配置</span>','monitor.html#tab=vis')}
  ${kpi('申办方医学质疑'+(QC.label?'（'+K.esc(QC.label)+'）':''),`${D.queries.length}<small>条</small>`,`${D.cro.length?K.p((QC.extShort||'外部质疑')+' '+D.cro.length+' 条已查重','line'):''}${K.p('冲突澄清 '+D.queries.filter(q=>q.cro==='冲突澄清').length,'red')}`,'queries.html','grn')}
 </div>

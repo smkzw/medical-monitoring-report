@@ -23,7 +23,7 @@ import ext_rules
 import monitor_v5
 import raw_export
 import pd_rules
-from common import ae_action, cn_quotes, cs_plain, days, dose_state, dshow, dump_json, fmt, is_dosing, parse_links, is_full_date, load_json, move_word, not_done, open_workbook_lenient, quantile, result_state, state_meets, study_day, yes, zero_dose
+from common import ae_action, cn_quotes, cs_plain, days, dose_state, dshow, dump_json, fmt, is_dosing, parse_links, is_full_date, load_json, move_word, not_done, open_workbook_lenient, pii_column, quantile, result_state, state_meets, study_day, yes, zero_dose
 
 AGG_EXCL = set()
 
@@ -2362,6 +2362,11 @@ def _elig_x(E, r):
 
 def _elig_bad(E, x):
     if E.get('re'):
+        # H3①②（第 3 轮 SAR）：定性判定统一先看 result_state——删失界/低于检测限/阴性类写法不是阳性
+        # （旧编译规则的「\+」会吃科学计数 E+、「检出」会吃「低于检出限」）；真阳性写法再走正则
+        st = result_state(x)
+        if st is not None and st[0] in ('below', 'above', 'neg'):
+            return False
         return bool(re.search(E['re'], str(x or ''), re.I)) and not re.search(r'阴性|negative|未检出', str(x or ''), re.I)
     return cmp(E['op'], x, E['v'])
 
@@ -2517,6 +2522,10 @@ def _gate_ok(C, sid, G, r):
         return False if txt and re.search(f'(?:{kw}){_NEG_TXT}', txt, re.I) else None
     if G.get('re'):
         t = str(x.get('raw') or '')
+        # H3①②：伴随阳性同样先看 result_state（删失界/低于检测限不是阳性；旧编译正则的 \+ 会吃 E+）
+        st = result_state(t)
+        if st is not None and st[0] in ('below', 'above', 'neg'):
+            return False
         return bool(re.search(G['re'], t, re.I)) and not re.search(r'阴性|negative|未检出', t, re.I)
     st = result_state(x.get('raw')) if not isinstance(x.get('value'), (int, float)) or re.match(r'\s*[<＜>＞≤≥]', str(x.get('raw') or '')) \
         else ('value', float(x['value']))
@@ -2748,6 +2757,14 @@ def ext_match(C, sid, sheet, text):
     return '未见同问', ''
 
 
+def aesi_caliber(C):
+    """H5（第 3 轮 SAR）：AESI 双口径——已标记（EDC 勾选）与符合定义待核实（方案定义命中但未勾选）。
+    总览/安全页两页同源取数（此前总览用已标数、安全概况用勾选∪定义命中并集，两种口径无标签）。"""
+    aes = [x for x in C.aes if x['sid'] in C.pop and x.get('te') and not x.get('dup')]   # 与总览/概况同口径（TEAE、去重复导出）
+    return {'marked': sum(1 for x in aes if x.get('aesi')),
+            'defHit': sum(1 for x in aes if x.get('_aesi_term') and not x.get('aesi'))}
+
+
 def build_queries(C):
     C.sheet_groups = defaultdict(set)
     for f in C.findings:
@@ -2771,6 +2788,7 @@ def build_queries(C):
             same['text'] = ''.join(x[0] for x in same['parts'])
             same['_cards'].append(card or {'问题': cat, '事实': fact, '建议': ask})
             same['cat2'] = same.get('cat2', []) + [cat]
+            same['merged'] = same.get('merged', 1) + 1     # H6（第 3 轮 SAR）：合并不静默——条目携带并入信号数（页头/清单脚注）
             src['q'].append(same['id'])
             return same
         st, cro = ext_match(C, sid, sh, fact + ask)
@@ -2778,7 +2796,8 @@ def build_queries(C):
             return None
         ev = [[ev_sh(C, e[0], src_wb)] + list(e[1:]) for e in ev]
         q = {'id': f'Q{len(Q) + 1:03d}', 'sid': sid, 'site': C.subj[sid]['site'], 'cat': cat, 'sh': sh_id, 'row': row, 'v': v or '', 'd': d or '', 'test': test or '',
-             'text': fact + ask, 'parts': [[fact, 0], [ask, 1]], 'ev': ev, 'cro': st, 'flags': [], '_cro': cro, 'qkey': qkey,
+             'text': fact + ask, 'parts': [[fact, 0], [ask, 1]], 'ev': ev, 'cro': st, 'flags': [], '_cro': cro,
+             'croText': (cro or '')[:200], 'qkey': qkey,      # H10：CRO 原文以可见键输出（_cro 下划线键被 KZ 输出层剥离，工作簿 CRO 查重列全空）
              '_cards': [card or {'问题': cat, '事实': fact, '建议': ask}]}
         if ask and ask not in common[cat]:
             common[cat].append(ask)
@@ -2928,6 +2947,7 @@ def build_queries(C):
         q['parts'] = [[cs_plain(cn_quotes(x[0]))] + list(x[1:]) for x in q['parts']]
     C.queries = Q
     C.qcommon = dict(common)
+    C.qMerged = sum(q.get('merged', 1) - 1 for q in Q)     # H6：被同格合并掉的信号条数（总信号数＝len(Q)+qMerged）
 
 
 # ----------------------------------------------------------------------------- consistency / centers
@@ -3428,7 +3448,10 @@ def build_ex(C):
             if i == meta['label_row']:
                 labels = [str(x) if x is not None else f'col{j + 1}' for j, x in enumerate(r)]
             if i in rs and labels:
-                rows[(sh, i)] = {labels[j]: ('' if v is None else str(v)[:120]) for j, v in enumerate(r) if j < len(labels) and v not in (None, '')}
+                # H1（第 3 轮 SAR，R10）：摘录出口与原始数据层同一隐私列判定（common.pii_column）——
+                # 「姓名缩写/研究者姓名/电话…」列不进质疑/偏离抽屉的原文摘录（≤14 字段全显时同样过滤）
+                rows[(sh, i)] = {labels[j]: ('' if v is None else str(v)[:120]) for j, v in enumerate(r)
+                                 if j < len(labels) and v not in (None, '') and not pii_column(labels[j])}
     ex = {}
     for q in C.queries:
         rr = [{'sh': e[0], 'row': e[1], 'f': rows[(e[0], e[1])], 'hl': [h for h in sheets.get(e[0], {}).get('hl', []) if h in rows[(e[0], e[1])]]}
@@ -3763,11 +3786,15 @@ def analyze(C):
         for r in getattr(C, dom):
             sn.setdefault(r.get('sheet'), nm)
     C.cfg['sheetNames'] = {k: v for k, v in sn.items() if k and v and v != k}
-    KZ = {'cfg': C.cfg, 'meta': {'cutoff': cutoff, 'qs': len(C.queries), 'counts': {k: len(getattr(C, k)) for k in ('subjects', 'visits', 'exposure', 'ae', 'mh', 'cm', 'findings', 'efficacy', 'pd', 'extq')},
+    KZ = {'cfg': C.cfg, 'meta': {'cutoff': cutoff, 'qs': len(C.queries), 'qsSignals': len(C.queries) + getattr(C, 'qMerged', 0),
+                                 'qsMerged': getattr(C, 'qMerged', 0),
+                                 'counts': {k: len(getattr(C, k)) for k in ('subjects', 'visits', 'exposure', 'ae', 'mh', 'cm', 'findings', 'efficacy', 'pd', 'extq')},
                                  'status': dict(stc), 'n': len(S), 'centers': len(C.centers), 'dosed': len(C.pop), 'built': dt.datetime.now().strftime('%Y-%m-%d %H:%M'),
                                  'sources': C.cfg.get('footer', {}).get('left', '')},
           'subs': subs, 'centers': C.centers, 'aes': [{**{k: v for k, v in x.items() if not k.startswith('_') and k != 'sh'}, 'rl': bool(x.get('_rel')), 'ak': ae_action(x.get('act')),
-                   'aesi': bool(x.get('aesi') or x.get('_aesi_term'))} for x in C.aes if x['sid'] in C.pop],   # rl＝TRAE；ak＝措施分类；aesi＝勾选 ∪ 方案定义命中
+                   'aesi': bool(x.get('aesi') or x.get('_aesi_term')),
+                   'aesiM': bool(x.get('aesi')), 'aesiD': bool(x.get('_aesi_term')) and not x.get('aesi')} for x in C.aes if x['sid'] in C.pop],   # rl＝TRAE；ak＝措施分类；aesi＝勾选 ∪ 方案定义命中；aesiM/aesiD＝双口径（H5：已标/符合定义待核实）
+          'aesiCal': aesi_caliber(C),
           'aesum': C.aesum, 'aecat': list(C.aesum), 'ibtag': ibtag, 'labrows': [{k: v for k, v in g.items() if (k != 'mid' or g.get('risk') == 'REL') and k != '_aecov'} for g in C.labrows],
           'others': [{**{k: (cn_quotes(v) if k == 'sum' else v) for k, v in o.items() if not k.startswith('_')},
                       **({'cl': thr_label(o['_rule'])} if o['cat'] == '阈值规则核对' and (o.get('_rule') or {}).get('metric') else {})}

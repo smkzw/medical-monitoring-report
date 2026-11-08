@@ -28,9 +28,13 @@ K.profile=async(el,sc)=>{
   const AE=D.aes.filter(a=>a.te!==false&&!a.dup);   /* F-D：完全重复记录（第 2 份起）不计例次；明细表仍列出并标「重复」 */
   /* 用户 2026-11-04 审阅第 13 条：TEAE 与 TRAE 分栏，各含 例数/%/例次；行＝总体、1–4 级、≥3 级、导致中断、导致停药/终止、SAE、AESI。
    * 措施按构建端受控分类 ak（interrupted/reduced/withdrawn/none/na；「暂时停用后又恢复」＝导致中断）。 */
+  /* H5（第 3 轮 SAR）：AESI 双口径分行——EDC 已标（勾选）与符合定义待核实（方案定义命中未勾选）；
+   * 旧构建无 aesiM/aesiD 时回落并集口径（a.aesi），行为不变。 */
   const aeRows=[['任一不良事件',a=>true],...[1,2,3,4].map(k=>[`${k} 级`,a=>gi(a.g)===k]),['≥3 级',a=>gi(a.g)>=3],
     ['导致暂停/中断给药',a=>a.ak==='interrupted'||(!a.ak&&/暂停|暂时停|中断/.test(a.act||''))],['导致停药/终止',a=>a.ak==='withdrawn'||(!a.ak&&stopRe.test(a.act||''))],
-    ['严重不良事件（SAE）',a=>a.sae],['特别关注不良事件（AESI）',a=>a.aesi]];
+    ['严重不良事件（SAE）',a=>a.sae],
+    ['特别关注不良事件（AESI·EDC 已标）',a=>a.aesiM!==undefined?a.aesiM:a.aesi],
+    ['特别关注不良事件（AESI·符合定义待核实）',a=>a.aesiD!==undefined?a.aesiD:false]];
   const aeCell=(g,f,tr)=>{const I=ids(g),xs=AE.filter(a=>I.has(a.sid)&&(!tr||a.rl)&&f(a)),ns=new Set(xs.map(a=>a.sid)).size;
     return sub&&g[0]==='本例'?`<b>${xs.length}</b> <span class="xs muted">例次</span>`:`<b>${ns}</b> <span class="xs muted">例（${pct(ns,g[1].length)}）· ${xs.length} 例次</span>`};
   const aeTbl=()=>`<table class="t"><thead><tr><th rowspan="2"></th>${groups.map(g=>`<th colspan="2">${g[0]}${sub&&g[0]==='本例'?'':`<span class="xs faint"> n=${g[1].length}</span>`}</th>`).join('')}</tr>
