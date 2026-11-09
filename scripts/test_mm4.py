@@ -4584,6 +4584,30 @@ class ReviewerFix20261109(unittest.TestCase):
         self.assertFalse(_hcg_low({'value': 12.0, 'unit': 'mIU/mL', 'clin': 2}))
         self.assertFalse(_hcg_low({'value': 15808.0, 'unit': 'mIU/ml', 'clin': 2}))
 
+    def test_disposition_ae_withdraw_vs_completed(self):
+        """AE 记导致退出、研究结束页记完成 → 处置一致性提示；未完成的不提示。"""
+        from types import SimpleNamespace
+        import mm_build
+        got = []
+        orig = mm_build.add_other
+        mm_build.add_other = lambda C, sid, cat, pr, summ, *a, **k: got.append((sid, cat))
+        try:
+            ae = {'sid': 'S1', 'wd': '是', 't': '贫血', 's': '2026-01-05', 'sh': 'AE', 'row': 3, 'n': 1}
+            C = SimpleNamespace(aes=[ae, dict(ae, sid='S2')], pop={'S1', 'S2'},
+                                subj={'S1': {'eos_done': '是'}, 'S2': {'eos_done': '否'}})
+            mm_build.disposition_checks(C)
+            self.assertEqual(got, [('S1', '处置与AE一致性核对')])
+        finally:
+            mm_build.add_other = orig
+
+    def test_below_limit_variants(self):
+        """「低出检出限」（笔误）「检出限以下」都是低于检测下限，不得被「检出」阳性正则命中。"""
+        from common import result_state
+        from mm_build import _elig_bad
+        for t in ('低出检出限', '低于检出限', '检出限以下', '<检测下限'):
+            self.assertEqual(result_state(t), ('below', None), t)
+            self.assertFalse(_elig_bad({'re': '阳性|检出'}, t), t)
+
     def test_latest_possible_partial_date(self):
         """部分停药日期按最晚可能日判洗脱：2022-10-uk 早于窗口即满足，不追问。"""
         from mm_build import _latest_date

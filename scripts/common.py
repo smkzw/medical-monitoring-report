@@ -177,7 +177,9 @@ def result_state(raw):
          .replace('低于', '<').replace('小于', '<').replace('高于', '>').replace('大于', '>').replace('超过', '>')
          .replace(' ', '').replace(',', ''))
     # H3②（第 3 轮 SAR）：「低于检出限/<检出下限」与「检测/定量」同族的删失写法统一认 below
-    if re.search(r'<(检测|定量|检出)?下?限|<?LLOQ|<?LOD|^ND$|BLQ|TND|不可测|未检出|未检测到|notdetected', t, re.I):
+    # 审阅者 2026-11-10（D001：源数据「低出检出限」笔误，「检出」被阳性正则命中→误判排除）：限值短语变体都认 below
+    if re.search(r'<(检测|定量|检出)?下?限|<?LLOQ|<?LOD|^ND$|BLQ|TND|不可测|未检出|未检测到|notdetected|'
+                 r'低[于出]?(检测|定量|检出)?下?限|(检测|定量|检出)下?限以下|^(检测|检出)限$', t, re.I):
         return ('below', None)
     sup = t.translate(_SUP_MAP)
     m = _NUM_SCI.match(sup)

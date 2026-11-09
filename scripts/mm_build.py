@@ -2253,6 +2253,22 @@ def restricted_checks(C):
                           bkey=f"{t_}|rst", wb=c.get('wb') or '')
 
 
+def disposition_checks(C):
+    """处置一致性（审阅者 2026-11-10，D001 05015：SAE「是否因此退出＝是」、有提前退出访视，研究结束页却记「完成」，未发质疑）：
+    AE 记录导致退出研究/治疗，而研究结束页记完成 → 请核实处置记录。"""
+    for a in C.aes:
+        sid = a['sid']
+        s = C.subj.get(sid) or {}
+        if sid not in C.pop or a.get('wd') != '是':
+            continue
+        if re.match(r'^\s*(是|Y|Yes|完成)', str(s.get('eos_done') or ''), re.I):
+            add_other(C, sid, '处置与AE一致性核对', 3,
+                      f"AE「{a['t']}」（{dshow(a['s'])}）记为导致退出，但研究结束页记为完成研究"
+                      + (f"（治疗结束原因：{s.get('eot_why')}）" if s.get('eot_why') else ''),
+                      None, a['s'], a['sh'], a['row'], a['t'], rel=[['AE', a['t'], a['s'], a['n']]], risk='AE', wb=a.get('wb') or '',
+                      rule={'ask': '请核实 AE「是否导致退出」与研究结束/治疗结束页的处置记录，并更正不一致之处。'})
+
+
 def _latest_date(d) -> str:
     """部分日期的最晚可能日：「2025-07-uk」→ 2025-07-31，「2025-uk-uk」→ 2025-12-31；完整日期原样；空/无法识别 → 9999-12-31。"""
     s = str(d or '').strip()
@@ -3904,6 +3920,7 @@ def analyze(C):
     ae_checks(C)
     cm_checks(C)
     transfusion_checks(C)                                # 审阅者 2026-11-09：Hb 短期大幅上升无输血记录、输血记录缺日期
+    disposition_checks(C)                                # 审阅者 2026-11-10：AE 记导致退出 vs 研究结束页记完成
     eligibility_checks(C)
     ie_checks(C)                                         # V6：入排标准页不满足但已入组
     range_checks(C)

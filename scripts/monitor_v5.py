@@ -501,9 +501,15 @@ def kri(C):
     if wd_def is not None:
         wd_ids = {x for x in dosed if _early_wd(S[x])}
         exit_only = {x for x in wd_ids if re.search(r'退出|脱落|失访|撤回', str(S[x].get('status') or ''))}
-        term_only = len(wd_ids) - len(exit_only)
-        if term_only:
-            wd_def['note'] += f"；其中另 {term_only} 例仅提前终止治疗（未退出研究，仍在随访），未计入状态分布的「提前退出」"
+        term = wd_ids - exit_only
+        # 审阅者 2026-11-10（D001：注释写「仍在随访」，其中 2 例实为研究结束页记完成）：按状态分别计数，与状态分布同口径
+        n_fu = sum(1 for x in term if S[x].get('status') == '提前终止治疗')
+        n_done = sum(1 for x in term if S[x].get('status') == '完成试验')
+        n_oth = len(term) - n_fu - n_done
+        if term:
+            parts = [f"{n_fu} 例仍在随访（状态「提前终止治疗」）" if n_fu else '', f"{n_done} 例已完成研究随访（状态「完成试验」）" if n_done else '',
+                     f"{n_oth} 例其他状态" if n_oth else '']
+            wd_def['note'] += f"；其中另 {len(term)} 例仅提前终止治疗、未退出研究（{'，'.join(p for p in parts if p)}），未计入状态分布的「提前退出」"
     return {'defs': defs, 'tiers': QTL_TIERS, 'tierDefault': 'std', 'study': study, 'sites': out_sites, 'na': na,
             'pem': {'visits': sorted(cv), 'items': ci_hit},
             'source': '容忍限度为经验默认值，需研究团队确认（ICH E6(R3) §3.10.1.3 要求申办方预设可接受范围）'}
