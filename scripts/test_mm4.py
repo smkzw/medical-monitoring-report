@@ -4491,12 +4491,13 @@ class ReviewerFix20261109(unittest.TestCase):
         for c in ('Init Dose', '中心缩写', '检验项目缩写', '研究药物名称'):
             self.assertFalse(pii_column(c), c)
 
-    def test_above_limit_is_detected(self):
+    def test_censored_value_not_asserted_positive(self):
+        """竞争法试剂高值＝阴性：「>2.70 Index」不得据删失符号断言阳性（审阅者 2026-11-09 回放实证）。"""
         from mm_build import _elig_bad
         E = {'re': r'阳性|\+|检出'}
-        self.assertTrue(_elig_bad(E, '>1.0E+08'))
+        self.assertFalse(_elig_bad(E, '>2.70'))
         self.assertFalse(_elig_bad(E, '<1.0E+02'))
-        self.assertFalse(_elig_bad(E, '5.0E+1') and False)
+        self.assertTrue(_elig_bad(E, '阳性'))
 
     def test_stratification_errors_are_randomisation_pd(self):
         import re

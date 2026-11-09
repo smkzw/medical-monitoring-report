@@ -2396,10 +2396,8 @@ def _elig_bad(E, x):
         # H3①②（第 3 轮 SAR）：定性判定统一先看 result_state——删失界/低于检测限/阴性类写法不是阳性
         # （旧编译规则的「\+」会吃科学计数 E+、「检出」会吃「低于检出限」）；真阳性写法再走正则
         st = result_state(x)
-        if st is not None and st[0] in ('below', 'neg'):
-            return False
-        if st is not None and st[0] == 'above':
-            return True                  # 「>1.0E+08」高于检测上限＝检出（审阅者 2026-11-09：曾判阴性，与确切值 1.2E+05 判阳性矛盾）
+        if st is not None and st[0] in ('below', 'above', 'neg'):
+            return False                 # 删失写法的阳/阴取决于试剂判定方向（竞争法 HBcAb 高值＝阴性）——须按本行参考范围判，见交接挂账
         return bool(re.search(E['re'], str(x or ''), re.I)) and not re.search(r'阴性|negative|未检出', str(x or ''), re.I)
     return cmp(E['op'], x, E['v'])
 
@@ -2557,10 +2555,8 @@ def _gate_ok(C, sid, G, r):
         t = str(x.get('raw') or '')
         # H3①②：伴随阳性同样先看 result_state（删失界/低于检测限不是阳性；旧编译正则的 \+ 会吃 E+）
         st = result_state(t)
-        if st is not None and st[0] in ('below', 'neg'):
-            return False
-        if st is not None and st[0] == 'above':
-            return True                  # 高于检测上限＝检出
+        if st is not None and st[0] in ('below', 'above', 'neg'):
+            return False                 # 删失写法的阳/阴取决于试剂判定方向（竞争法 HBcAb 高值＝阴性）——须按本行参考范围判，见交接挂账
         return bool(re.search(G['re'], t, re.I)) and not re.search(r'阴性|negative|未检出', t, re.I)
     st = result_state(x.get('raw')) if not isinstance(x.get('value'), (int, float)) or re.match(r'\s*[<＜>＞≤≥]', str(x.get('raw') or '')) \
         else ('value', float(x['value']))
