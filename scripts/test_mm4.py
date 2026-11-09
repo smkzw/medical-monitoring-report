@@ -4551,5 +4551,28 @@ class ReviewerFix20261109(unittest.TestCase):
         self.assertTrue(_elig_bad_r({'re': '阳性|\\+'}, {'raw': '>250.00', 'hi': 0.05}))
         self.assertFalse(_elig_bad_r({'re': '阳性|\\+'}, {'raw': '>2.70', 'lo': 1.0}))
 
+    def test_transfusion_checks(self):
+        """有输血记录的研究：Hb 从输血区间 14 天上升 ≥20 g/L 且期间无输血 → 提示；疗效区间（≥80）回升不提示；无输血记录的研究不触发。"""
+        from types import SimpleNamespace
+        import mm_build
+        got = []
+        orig = mm_build.add_other
+        mm_build.add_other = lambda C, sid, cat, pr, summ, *a, **k: got.append((sid, cat, summ))
+        try:
+            def C_(proc):
+                F = {('S1', 'lab:血红蛋白'): [
+                    {'post': True, 'value': 55.0, 'date': '2026-01-01', 'unit': 'g/L'},
+                    {'post': True, 'value': 95.0, 'date': '2026-01-15', 'unit': 'g/L'},
+                    {'post': True, 'value': 125.0, 'date': '2026-01-29', 'unit': 'g/L'}]}
+                return SimpleNamespace(proc=proc, cm_by={'S1': []}, pop={'S1'}, subj={'S1': {'icf': '2025-12-01'}},
+                                       F=F, metric={'lab:血红蛋白': {'label': '血红蛋白'}})
+            mm_build.transfusion_checks(C_([{'sid': 'S1', 'term': '悬浮红细胞输注', 'date': '2025-06-01', 'sheet': 'TR', 'row': 2}]))
+            self.assertEqual([g[1] for g in got], ['输血记录核对'])          # 55→95 提示；95→125 不提示
+            got.clear()
+            mm_build.transfusion_checks(C_([]))
+            self.assertEqual(got, [])                                       # 研究不采集输血：不触发
+        finally:
+            mm_build.add_other = orig
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)

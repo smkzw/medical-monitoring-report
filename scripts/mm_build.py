@@ -2252,6 +2252,54 @@ def restricted_checks(C):
                           bkey=f"{t_}|rst", wb=c.get('wb') or '')
 
 
+_TRANSF_RX = re.compile(r'输血|红细胞(悬液|输注)|悬浮红|洗涤红|去白(细胞)?红|浓缩红|全血输注|血小板输注|血浆输注|transfusion', re.I)
+_HGB_RX = re.compile(r'(?<!化)(?<!胞)(?<!离)(?<!尿)血红蛋白(?!尿)|(?<![A-Za-z])HG?B(?![A-Za-z0-9])|Hemoglobin', re.I)
+
+
+def transfusion_checks(C):
+    """审阅者 2026-11-09（MY008 血液科复审：S01004 Hb 14 天内 50→96 g/L 无输血记录、S02006 输血日期缺失）：
+    研究采集了输血记录（操作/合并用药里至少一条输血）时才启用——①给药后 Hb 从输血区间（<80 g/L）起，相邻两次 ≤21 天上升
+    ≥20 g/L（2 g/dL），期间（前次前 3 天至本次）无输血记录 → 请核实是否漏记输血；②研究期间输血记录缺少完整日期 → 请补充。
+    非血液学研究（无输血记录）不触发。"""
+    tr = defaultdict(list)
+    for p_ in list(getattr(C, 'proc', []) or []) + [dict(c, term=c.get('t'), date=c.get('s')) for v in C.cm_by.values() for c in v]:
+        if _TRANSF_RX.search(str(p_.get('term') or '')):
+            tr[p_.get('sid')].append(p_)
+    if not tr:
+        return
+    for sid, recs in tr.items():
+        if sid not in C.pop:
+            continue
+        icf = str(C.subj.get(sid, {}).get('icf') or C.subj.get(sid, {}).get('fd') or '')
+        for p_ in recs:
+            d0 = str(p_.get('date') or p_.get('start') or '')
+            pre_study = bool(re.match(r'\d{4}-\d{2}', d0)) and is_full_date(icf) and d0[:7] < icf[:7]
+            if not is_full_date(d0) and p_.get('sheet') and not pre_study:      # 知情前的既往输血史写部分日期属常态，不追
+                add_other(C, sid, '输血记录核对', 3, f"研究期间输血记录「{p_.get('term')}」缺少完整日期（{d0 or '未填'}）——输血日期影响输血相关终点与 Hb 解读",
+                          None, d0, p_.get('sheet'), p_.get('row'), p_.get('term') or '', bkey=f"trdate|{p_.get('row')}", wb=p_.get('wb') or '',
+                          rule={'ask': '请补充完整输血日期。'})
+    for (sid, mid), rows in C.F.items():
+        if sid not in C.pop or not _HGB_RX.search(C.metric.get(mid, {}).get('label') or mid):
+            continue
+        pts = [r for r in rows if r.get('post') and isinstance(r.get('value'), (int, float)) and is_full_date(r.get('date'))]
+        dates = [str(p_.get('date') or p_.get('start') or '') for p_ in tr.get(sid, [])]
+        for a, b_ in zip(pts, pts[1:]):
+            gap = days(b_['date'], a['date'])
+            u = str(b_.get('unit') or '').lower()
+            step, trig = (2.0, 8.0) if 'dl' in u else (20.0, 80.0)
+            # 只从输血区间（前值 <80 g/L）起算：疗效显著的研究（补体抑制剂）Hb 快速回升本是药效，不作输血线索
+            if gap is None or gap > 21 or gap < 0 or a['value'] >= trig or (b_['value'] - a['value']) < step:
+                continue
+            lo_ = (dt.date.fromisoformat(a['date']) - dt.timedelta(days=3)).isoformat()
+            if any(is_full_date(d) and lo_ <= d <= b_['date'] for d in dates):
+                continue
+            add_other(C, sid, '输血记录核对', 3,
+                      f"{C.metric.get(mid, {}).get('label') or '血红蛋白'} {dshow(a['date'])} {fmt(a['value'])} → {dshow(b_['date'])} {fmt(b_['value'])} {b_.get('unit') or ''}"
+                      f"（{gap} 天上升 {fmt(b_['value'] - a['value'])}），期间未见输血记录",
+                      b_.get('visit'), b_['date'], b_.get('sheet'), b_.get('row'), b_.get('test') or '', bkey=f"hbjump|{b_['date']}", wb=b_.get('wb') or '',
+                      rule={'ask': '请核实是否有输血未录入；如无输血，请说明 Hb 回升原因。'})
+
+
 def cm_checks(C):
     rescue = (C.A.get('pd') or {}).get('rescue') or {}
     rescue_re = re.compile(r'补救|rescue', re.I)
@@ -3836,6 +3884,7 @@ def analyze(C):
     combo_rules(C)
     ae_checks(C)
     cm_checks(C)
+    transfusion_checks(C)                                # 审阅者 2026-11-09：Hb 短期大幅上升无输血记录、输血记录缺日期
     eligibility_checks(C)
     ie_checks(C)                                         # V6：入排标准页不满足但已入组
     range_checks(C)
