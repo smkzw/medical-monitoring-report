@@ -4576,5 +4576,22 @@ class ReviewerFix20261109(unittest.TestCase):
         finally:
             mm_build.add_other = orig
 
+    def test_hcg_low_values_not_pregnancy(self):
+        """hCG 0.66 mIU/mL（本地参考上限 0.6）不是妊娠证据；15808 是。"""
+        from ext_rules import _hcg_low
+        self.assertTrue(_hcg_low({'value': 0.66, 'unit': 'mIU/mL', 'hi': 0.6, 'clin': 1}))
+        self.assertTrue(_hcg_low({'value': 12.0, 'unit': 'mIU/mL', 'clin': 1}))
+        self.assertFalse(_hcg_low({'value': 12.0, 'unit': 'mIU/mL', 'clin': 2}))
+        self.assertFalse(_hcg_low({'value': 15808.0, 'unit': 'mIU/ml', 'clin': 2}))
+
+    def test_latest_possible_partial_date(self):
+        """部分停药日期按最晚可能日判洗脱：2022-10-uk 早于窗口即满足，不追问。"""
+        from mm_build import _latest_date
+        self.assertEqual(_latest_date('2025-07-uk'), '2025-07-31')
+        self.assertEqual(_latest_date('2024-12-UK'), '2024-12-31')
+        self.assertEqual(_latest_date('2023-uk-uk'), '2023-12-31')
+        self.assertEqual(_latest_date(''), '9999-12-31')
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)

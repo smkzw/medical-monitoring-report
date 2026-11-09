@@ -2253,6 +2253,20 @@ def restricted_checks(C):
                           bkey=f"{t_}|rst", wb=c.get('wb') or '')
 
 
+def _latest_date(d) -> str:
+    """部分日期的最晚可能日：「2025-07-uk」→ 2025-07-31，「2025-uk-uk」→ 2025-12-31；完整日期原样；空/无法识别 → 9999-12-31。"""
+    s = str(d or '').strip()
+    if is_full_date(s):
+        return s
+    m = re.match(r'^(\d{4})-(\d{2})', s)
+    if m and 1 <= int(m.group(2)) <= 12:
+        y, mo = int(m.group(1)), int(m.group(2))
+        nxt = dt.date(y + (mo == 12), mo % 12 + 1, 1)
+        return (nxt - dt.timedelta(days=1)).isoformat()
+    m = re.match(r'^(\d{4})', s)
+    return f"{m.group(1)}-12-31" if m else '9999-12-31'
+
+
 _TRANSF_RX = re.compile(r'输血|红细胞(悬液|输注)|悬浮红|洗涤红|去白(细胞)?红|浓缩红|全血输注|血小板输注|血浆输注|transfusion', re.I)
 _HGB_RX = re.compile(r'(?<!化)(?<!胞)(?<!离)(?<!尿)血红蛋白(?!尿)|(?<![A-Za-z])HG?B(?![A-Za-z0-9])|Hemoglobin', re.I)   # 只认血红蛋白（不含比容）
 
@@ -2332,7 +2346,8 @@ def cm_checks(C):
                     # 「系统治疗」类禁用药不匹配外用/局部给药；按方案作为补救治疗使用的由补救规则（CM-02/03）核查，不按禁用药报
                     if systemic_only and (_TOPICAL.search(c.get('rt') or '') or _TOPICAL.search(c['t']) or _NONDERMAL.search(f"{c.get('rt') or ''} {c['t']}")):
                         continue                 # 眼用/吸入/鼻用等局部给药不是系统性用药
-                    unk_end = not c['ong'] and not is_full_date(c['e']) and is_full_date(c['s']) and c['s'] < (s.get('icf') or s['fd'])
+                    unk_end = not c['ong'] and not is_full_date(c['e']) and is_full_date(c['s']) and c['s'] < (s.get('icf') or s['fd']) \
+                        and _latest_date(c['e']) >= a          # 部分停药日期的最晚可能日仍早于禁用期 → 不追
                     if local_only and not _NONDERMAL.search(f"{c.get('rt') or ''} {c['t']}"):
                         continue
                     if nonsed_ok and _NONSEDATING_AH.search(c['t']):
@@ -2404,7 +2419,9 @@ def cm_checks(C):
                     continue                 # F1：允许非镇静的镇静抗组胺洗脱条款不命中二代非镇静子类
                 if exc_re and exc_re.search(c['t']):
                     continue                 # F1：洗脱条目点名除外（编译层从条款原文生成，与禁用药同口径）
-                if pre.search(c['t']) and not c['ong'] and not is_full_date(c['e']) and is_full_date(c['s']) and c['s'] <= ref:
+                if pre.search(c['t']) and not c['ong'] and not is_full_date(c['e']) and is_full_date(c['s']) and c['s'] <= ref \
+                        and _latest_date(c['e']) > a:
+                    # 部分日期「2025-07-uk」：可能的最晚停药日已在洗脱窗口之前＝洗脱已满足，不追（审阅者 2026-11-09，SAR 95 条 AI 追问）
                     # 审阅者 2026-11-09（RUX：9 例 36 条既往外用激素/TCI 停药日期「uk」，洗脱是否满足无从判断却无任何提示）
                     uk = getattr(C, '_unkend_seen', None) or set()
                     C._unkend_seen = uk

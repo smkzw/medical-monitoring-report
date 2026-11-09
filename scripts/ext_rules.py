@@ -381,6 +381,15 @@ _PREG_RANGE_RX = re.compile(r'(?:非孕|未孕|早孕|孕早|中孕|孕中|晚�
 _NEG_RX = re.compile(r'阴性|未见|未孕|非孕|否认|无妊娠|negative', re.I)
 
 
+def _hcg_low(r) -> bool:
+    """定量 hCG 低于临床阳性下限：<5 mIU/mL（IU/L）一律不算妊娠证据；5–25 且研究者判无临床意义也不算
+    （审阅者 2026-11-09，SAR：本地实验室把检测下限 0.6/1.212 写作参考上限，0.66/1.34 被判「妊娠证据」）。"""
+    v, u = r.get('value'), str(r.get('unit') or '').lower().replace(' ', '')
+    if not isinstance(v, (int, float)) or not re.search(r'miu/ml|iu/l', u):
+        return False
+    return v < 5 or (v < 25 and r.get('clin') in (0, 1))
+
+
 def m18_preg(C):
     """F-I（PREG-ESCALATION）：妊娠暴露升级为专项核查。证据源两路：
     ① 妊娠类定性指标（检查名含 妊娠/怀孕/HCG/pregn）阳性（CS／「阳」／超上限）；
@@ -397,8 +406,8 @@ def m18_preg(C):
         fd = (C.subj.get(sid) or {}).get('fd')
         for r in rows:
             raw = str(r.get('raw') or '')
-            pos = bool(pre.search(mid)) and ((r.get('clin') == 2) or (bool(raw) and bool(re.search(r'阳', raw)) and not _NEG_RX.search(raw)) or
-                                             (r.get('value') is not None and r.get('hi') is not None and r['value'] > r['hi']))
+            pos = bool(pre.search(mid)) and ((r.get('clin') == 2 and not _hcg_low(r)) or (bool(raw) and bool(re.search(r'阳', raw)) and not _NEG_RX.search(raw)) or
+                                             (r.get('value') is not None and r.get('hi') is not None and r['value'] > r['hi'] and not _hcg_low(r)))
             txt = ' '.join(str(r.get(k) or '') for k in ('raw', 'desc'))
             scan = bool(desc_pre.search(txt)) and not _PREG_RANGE_RX.search(txt) and not _NEG_RX.search(txt) \
                 and (bool(pre.search(mid)) or mid.split(':')[0] not in ('lab', 'vs', 'ecg'))   # V6（CRA）：血常规行的备注不作妊娠证据
