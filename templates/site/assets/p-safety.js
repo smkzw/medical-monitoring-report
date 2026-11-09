@@ -131,7 +131,7 @@ function tabAE(){
 /* ---------- consistency（mm4 判定一致性：同中心换芯＋同受试者版；用户 2026-10-30 终版口径） */
 function tabCons(){
   const C=D.cons||[];const sc={'需核实':'red','已有问题覆盖':'line','保留提示':'yel','有解释':'grn'};const kc={'judg':'判定不一致','att':'归因不一致'};
-  const sub={center:'同中心跨受试者 · 同指标/单位/参考范围 · 同向异常同给药阶段——更差者（偏离参考边界更远）判 NCS 而更轻者判 CS → 判定不一致；均判 CS 归因不同 → 归因不一致（旧「相差≤5% 即双向报」口径已废止）',
+  const sub={center:'同中心跨受试者 · 同指标/单位/参考范围 · 同向异常同给药阶段——更差者（偏离参考边界更远）判 NCS 而更轻者判 CS → 判定不一致；均判 CS 归因不同 → 归因不一致',
              subject:'同一受试者 · 同指标/单位/参考范围 · 同向异常同给药阶段——判定/归因成对对照；质疑面同步发「临床意义判定不一致」（更差者已判 CS 或归因相同 → 不发）'};
   const side=(x,sid)=>`${K.sid(sid)} ${K.p(x[0]||'—','blu')} <b>${K.esc(x[2]??'')}</b> <span class="xs muted">${K.esc(x[3]??'')}</span> ${x[4]==='异常有临床意义'?K.p('CS','red'):x[4]==='异常无临床意义'?K.p('NCS','yel'):K.p(x[4]||'—','line')}${x[8]?K.p(x[8],'org'):''}`;
   function render(scope){

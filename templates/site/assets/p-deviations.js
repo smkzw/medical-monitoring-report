@@ -14,7 +14,7 @@ app.innerHTML=`
  <div class="kpi"><div class="l">潜在 PD · 执行层面</div><div class="v">${exe.length}<small>条</small></div><div class="s">${K.p('重要 '+imp(exe),'solid-red')}${K.p('待判定 '+exe.filter(x=>x.grade==='待判定').length,'yel')}</div></div>
  <div class="kpi"><div class="l">潜在 PD · 科学层面</div><div class="v">${sci.length}<small>条</small></div><div class="s">${K.p('重要 '+imp(sci),'solid-red')}${K.p('待判定 '+sci.filter(x=>x.grade==='待判定').length,'yel')}</div></div>
  <div class="kpi"><div class="l">潜在 PD 未见记录</div><div class="v">${P.hasListing===false?'—':POT.filter(x=>x.status==='未见记录').length}<small>/ ${POT.length}</small></div><div class="s">${K.p('已记录 '+POT.filter(x=>x.status==='已记录').length,'grn')}${P.hasListing?'':K.p('无方案偏离记录表可比对','line')}</div></div>
- <div class="kpi blu"><div class="l">涉及受试者 / 中心</div><div class="v">${subj.size}<small>例 · ${sites.size} 个中心</small></div><div class="s">${K.p('数据截止 '+(P.cutoff||D.meta.cutoff||''),'line')}</div></div>
+ <div class="kpi blu"><div class="l">涉及受试者 / 中心</div><div class="v">${subj.size}<small>例 · ${sites.size} 个中心</small></div></div>
  <div class="kpi grn"><div class="l">检查覆盖</div><div class="v">${ran}<small>/ ${RULES.length} 项已执行</small></div><div class="s">${K.p('未执行 '+RULES.filter(r=>r.state!=='ran').length,'line')}${K.p('需源文件核查 '+(P.notDetectable||[]).length+' 类','brn')}</div></div>
 </div>
 <div class="grid g12 mt">

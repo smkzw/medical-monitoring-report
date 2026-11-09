@@ -4539,6 +4539,8 @@ class ReviewerFix20261109(unittest.TestCase):
         out = redact_row(labels, ['01001', 'HLSH', '受试者HLSH 于访视超窗；HLSHX 非整词'])
         self.assertEqual(out[2], '受试者＊＊ 于访视超窗；HLSHX 非整词')
         self.assertEqual(redact_row(labels, ['01001', 'LT', 'LT 升高'])[2], 'LT 升高')
+        self.assertEqual(redact_row(['编号', 'PD 详述'], ['1', '受试者BAYI，筛选号 03005'])[1], '受试者＊＊，筛选号 03005')   # 本行无缩写列
+        self.assertEqual(redact_row(['编号', '说明'], ['1', '受试者ALT升高；患者CRP 升高'])[1], '受试者ALT升高；患者CRP 升高')   # 检验缩写不误伤
 
     def test_serology_positivity_by_reference_range(self):
         """定量报告的定性指标按本行参考范围判阳：上限型 >250（hi 0.05）阳性；竞争法 >2.70（lo 1.0）阴性；无范围不猜。"""

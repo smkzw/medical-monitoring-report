@@ -42,13 +42,13 @@ ok(K.knCard(null) === '', '无 knowledge 键 → 不渲染（旧构建无扰）'
 
 /* ---- 总览顶部警示条 ---- */
 const bar = K.knBar(DEGRADED);
-ok(bar.includes('MedDRA 不可用') && bar.includes('知识层降级'), '总览警示条缺降级文案');
+ok(bar.includes('医学术语词典暂不可用') && !bar.includes('知识层'), '总览警示条缺降级文案（且不得出现工程用语）');
 ok(bar.includes('box red'), '总览警示条应为红色警示样式');
 ok(K.knBar(OKKN) === '' && K.knBar(null) === '', '非降级不渲染总览警示条');
 
 /* ---- query 页头提示 ---- */
 const hint = K.knHint(DEGRADED);
-ok(hint.includes('关联类核对未含知识层预判'), 'query 页头提示缺固定文案');
+ok(hint.includes('关联类核对不完整'), 'query 页头提示缺固定文案');
 ok(K.knHint(OKKN) === '' && K.knHint(null) === '', '非降级不渲染 query 页头提示');
 
 /* ---- 术语一致性按 PT 归并（安全页 AE tab） ---- */

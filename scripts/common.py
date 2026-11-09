@@ -64,16 +64,22 @@ def redact_row(labels, row):
             v = str(row[j] or '').strip()
             if re.fullmatch(r'[A-Za-z]{3,6}', v) or re.fullmatch(r'[\u4e00-\u9fff]{2,4}', v):
                 vals.append(v)
-    if not vals:
-        return list(row)
     pats = [re.compile(rf'(?<![A-Za-z]){re.escape(v)}(?![A-Za-z])', re.I) if v.isascii() else re.compile(re.escape(v)) for v in vals]
     out = []
     for j, c in enumerate(row):
         if isinstance(c, str) and not (j < len(labels or []) and pii_column(labels[j])):
             for p_ in pats:
                 c = p_.sub('＊＊', c)
+            c = _INITIALS_CTX.sub(lambda m: m.group(1) + '＊＊', c)    # 其他表单里写的「受试者BAYI」（本行无缩写列时）
         out.append(c)
     return out
+
+
+# 自由文本里「受试者/患者/参与者/姓名缩写」后紧跟的 2–6 位大写字母＝姓名缩写（PD 详述「受试者BAYI，筛选号…」）
+_INITIALS_CTX = re.compile(r'(受试者|患者|参与者|姓名缩写[:：]?|缩写[:：])\s*'
+                           r'(?!(?:ALT|AST|ALP|GGT|LDH|CRP|ECG|EKG|HGB|HCT|PLT|WBC|RBC|INR|BMI|ICF|SAE|AESI|TEAE|BUN|TBIL|DBIL|MCV|MCH|MCHC|'
+                           r'PNH|HIV|HBV|HCV|EDC|CRF|IGRA|ANC|EOS|IGE|SPT|PT|AE|CK|HB|PK|PD|AD)(?![A-Za-z]))'
+                           r'[A-Z]{2,6}(?=[，,、。；;：:（(\s]|筛选|编号|号|$)')
 
 
 def days(a, b):

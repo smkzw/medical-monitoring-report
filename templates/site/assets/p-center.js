@@ -33,7 +33,7 @@ function draw(site){
   <div class="card mt"><div class="hd"><h2>本中心风险排名</h2><span class="sub">${risks.length} 项（全部角色）· 点行查看证据与原始数据</span><span class="sp"></span><a class="small" href="index.html#rank">全部中心 ›</a></div><div id="ca"></div></div>
   <div class="grid g12 mt"><div class="card"><div class="hd"><h2>潜在方案偏离</h2><span class="sub">${POT.length} 条</span></div><div id="cpd"></div></div>
    <div class="card"><div class="hd"><h2>访视与录入</h2><span class="sub">逾期/超窗访视、疑似录入错误</span></div><div id="cv"></div></div></div>
-  <div class="card mt"><div class="hd"><h2>数据质量</h2><span class="sub">数据可信度（建议核对，不作结论）${TL?' · 录入及时性（按上传谱系推算上限）':''}</span></div><div id="cq"></div></div>`;
+  <div class="card mt"><div class="hd"><h2>数据质量</h2><span class="sub">数据可信度（建议核对，不作结论）${TL?' · 录入及时性':''}</span></div><div id="cq"></div></div>`;
   /* KRI */
   if(KR){const sv=KR.sites[site]||{};document.getElementById('ck').innerHTML=`<table class="t"><thead><tr><th>指标</th><th class="num">本中心</th><th class="num">整体</th><th class="num">限度</th><th></th></tr></thead><tbody>${KR.defs.map(d=>{const nd=sv[d.k],v=K.kriV(d.k,nd),s=d.qtl&&nd&&nd[1]>=5?K.qtlState(d.k,nd):{},na=(KR.na||{})[d.k];
     return `<tr><td class="small" title="${K.esc(d.note)}">${K.esc(d.l)} <span class="xs faint">${d.u}</span></td><td class="num"><b>${na||v==null?'—':K.kriFmt(d.k,v)}</b> <span class="xs faint">${nd&&nd[1]&&d.u!=='天'?nd[0]+'/'+nd[1]:''}</span></td><td class="num">${na?'—':K.kriFmt(d.k,K.kriV(d.k,KR.study[d.k]))}</td><td class="num">${d.qtl?'≤'+K.qtlLim(d.k)+'%':''}</td><td>${s.st?K.p(K.QTLC[s.st][0],K.QTLC[s.st][1]):d.qtl&&nd&&nd[1]<5&&nd[1]?'<span class="xs faint">n<5 不判</span>':''}</td></tr>`}).join('')}</tbody></table>`}

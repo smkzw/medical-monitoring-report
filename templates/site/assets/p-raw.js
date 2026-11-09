@@ -4,7 +4,7 @@ K.init(async()=>{
 const D=KZ,app=document.getElementById('app'),H=K.hash();
 app.innerHTML='<div class="card empty">载入原始数据目录…</div>';
 const I=await K.rawIdx();
-if(!I){app.innerHTML='<div class="card empty">本报告未包含原始数据层（旧版构建）。重新构建后可在此逐表单浏览 listing 原始数据。</div>';return}
+if(!I){app.innerHTML='<div class="card empty">本报告未包含原始数据。</div>';return}
 const EV=K.allEvidence();
 const sheetSig={};Object.entries(EV).forEach(([sid,es])=>es.forEach(e=>{const k=K.rawKey(I,e.sh);if(k)(sheetSig[k]=sheetSig[k]||new Set()).add(sid+'|'+e.row)}));
 const SUB=Object.fromEntries(K.subs().map(s=>[s.id,s]));

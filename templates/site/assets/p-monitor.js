@@ -18,7 +18,7 @@ const UP=(O.upcoming||[]).map(u=>({sid:u[0],site:u[1],v:u[2],lo:u[3],hi:u[4],tg:
 const KR=D.kri,CRD=D.cred,TL=(window.KZS||{}).timeliness;
 const tabs=[['enr','入组与进度',SU.length],['vis','访视执行',visRows.filter(r=>r.st!=='ok').length],['dose','给药与知情'],['dq','退出与数据质量'],
   ['kri','KRI 与容忍限度',KR?K.qtlRows().filter(r=>r.st==='exceed').length||null:null],['time','录入及时性'],['cred','数据可信度',CRD?Object.entries(CRD.sites).filter(([s,v])=>K.credFlags(s,v).length).length||null:null],['ent','疑似录入错误',(O.entry||[]).length]];
-app.innerHTML=`<div class="flex mb"><h1 style="font-size:18px">临床监查</h1><span class="muted small">数据截止 ${K.esc(cut)}${daily?' · 日常监查，数据仍在录入':''}</span><span class="sp"></span><span id="qtlbar"></span></div>
+app.innerHTML=`<div class="flex mb"><h1 style="font-size:18px">临床监查</h1>${daily?'<span class="muted small">日常监查，数据仍在录入</span>':''}<span class="sp"></span><span id="qtlbar"></span></div>
 <div class="tabs" id="tabs"></div><div id="pane"></div>`;
 const pane=document.getElementById('pane');
 const R={enr,vis,dose,dq,kri,time,cred,ent};
@@ -107,7 +107,7 @@ function dq(){
 }
 /* ---------- KRI 与研究层面容忍限度 ---------- */
 function kri(){
-  if(!KR){pane.innerHTML='<div class="card empty">本构建没有 KRI 数据（需 V5 及以上 skill 构建）</div>';return}
+  if(!KR){pane.innerHTML='<div class="card empty">本期数据不足以计算关键风险指标</div>';return}
   const defs=KR.defs,st=KR.study,HS=K.hist();
   /* 列内对照：期望＝研究层面率×分母，按不利方向取尾概率，按列 BH 校正 */
   const colF=d=>{const rows=sites.map(si=>(KR.sites[si]||{})[d.k]||[null,0]),all=st[d.k]&&st[d.k][1]?st[d.k][0]/st[d.k][1]:0;
@@ -129,14 +129,14 @@ function kri(){
   if(HS.length>=2){const q=defs.filter(d=>d.qtl&&!(KR.na||{})[d.k]);kh.innerHTML=`<div class="hd"><h2>跨上传趋势</h2><span class="sub">研究层面数值随上传变化（${HS.length} 次）· 虚线为当前档位限度</span></div><div class="grid g4">${q.map((d,i)=>`<div><div class="xs muted">${K.esc(d.l)}</div><div id="kt${i}" style="height:90px"></div></div>`).join('')}</div>`;
     q.forEach((d,i)=>K.chart(document.getElementById('kt'+i),{grid:{left:30,right:6,top:8,bottom:18},tooltip:{trigger:'axis'},xAxis:{type:'category',data:HS.map(h=>(h.cutoff||'').slice(5)),...K.axis},yAxis:{type:'value',...K.axis},
       series:[{type:'line',data:HS.map(h=>{const nd=(h.kri||{})[d.k];return nd&&nd[1]?+(K.kriV(d.k,nd)).toFixed(2):null}),connectNulls:true,lineStyle:{color:'#FF9900'},itemStyle:{color:'#FF9900'},markLine:{symbol:'none',silent:true,data:[{yAxis:K.qtlLim(d.k)}],lineStyle:{color:'#8B0000',type:'dashed'},label:{show:false}}}]}))}
-  else kh.innerHTML='<div class="hd"><h2>跨上传趋势</h2></div><div class="empty">单次构建：在工作台再次上传数据后显示 KRI 随时间的变化</div>';
+  else kh.innerHTML='<div class="hd"><h2>跨上传趋势</h2></div><div class="empty">首次数据：后续每次上传新数据后，这里显示各指标随时间的变化</div>';
   pane.querySelectorAll('tr[data-site]').forEach(tr=>tr.onclick=()=>location.href='center.html#c='+tr.dataset.site);
 }
 /* ---------- 录入及时性（工作台按快照谱系推算） ---------- */
 function time(){
-  if(!TL||!TL.sites){pane.innerHTML=`<div class="card"><div class="hd"><h2>录入及时性</h2></div><div class="note">listing 中没有 EDC 录入时间戳。在工作台多次上传后，系统按「记录首次出现在哪一次上传（该次数据截止日）− 访视日期」推算录入延迟的上限，并统计各中心被修改/删除的记录占比。本报告为单次构建，暂无可比数据。</div></div>`;return}
+  if(!TL||!TL.sites){pane.innerHTML=`<div class="card"><div class="hd"><h2>录入及时性</h2></div><div class="note">暂无录入时间信息：多次上传数据后，这里显示各中心的录入延迟和记录修改比例。</div></div>`;return}
   const S=TL.sites;
-  pane.innerHTML=`<div class="note small mb">录入延迟＝记录首次出现在哪次上传（该次数据截止日）− 访视日期，是上限（上传越频繁越接近真实值）；首次上传已有的记录不计。修改率＝谱系内被修改或删除的记录占比。共 ${TL.snaps||'—'} 次上传。</div>
+  pane.innerHTML=`<div class="note small mb">录入延迟按记录首次出现的上传批次估算（为上限）；修改率＝被修改或删除的记录占比。共 ${TL.snaps||'—'} 次上传。</div>
   <div class="card"><table class="t heat"><thead><tr><th>中心</th><th class="num">新增访视记录</th><th class="num">延迟中位数（天）</th><th class="num">P90（天）</th><th class="num">>14 天占比</th><th class="num">修改/删除率</th><th>最近一次有新数据</th></tr></thead><tbody>
    ${Object.keys(S).sort().map(si=>{const x=S[si];return `<tr class="click" data-site="${si}"><td class="nowrap">${cname(si)}</td><td class="num">${x.n??'—'}</td><td class="num" style="${x.med>14?'background:rgba(230,126,0,.30)':''}">${x.med??'—'}</td><td class="num">${x.p90??'—'}</td><td class="num">${x.n?(x.gt14/x.n*100).toFixed(0)+'%':'—'}</td><td class="num">${x.mod&&x.mod[1]?(x.mod[0]/x.mod[1]*100).toFixed(1)+'%':'—'}</td><td class="nowrap small">${K.esc(x.lastNew||'—')}</td></tr>`}).join('')}</tbody></table></div>`;
   pane.querySelectorAll('tr[data-site]').forEach(tr=>tr.onclick=()=>location.href='center.html#c='+tr.dataset.site);

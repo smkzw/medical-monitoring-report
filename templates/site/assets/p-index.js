@@ -23,7 +23,7 @@ const freshSub=()=>!freshAll.length?'<span class="xs faint">无分中心新鲜�
 const kpi=(l,v,s,href,cls='')=>`<${href?'a':'div'} class="kpi ${cls}${href?' click':''}"${href?` href="${href}" style="text-decoration:none;color:inherit"`:''}><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></${href?'a':'div'}>`;
 const sec=(n,t,s)=>`<div class="sec-h"><span class="n">${n}</span><b>${t}</b><span class="s">${s}</span></div>`;
 app.innerHTML=`${K.knBar(D.knowledge)}
-${sec('一','综合数据',`研究进展与数据状态 · 数据截止 ${K.esc(cut)}${O.stage==='daily'?' · 日常监查，数据仍在录入':''}`)}
+${sec('一','综合数据',`研究进展与数据状态${O.stage==='daily'?' · 日常监查，数据仍在录入':''}`)}
 ${(()=>{/* V6 首屏吸收：打开即见的关键事实条（结构不变，只把最需要先知道的四件事放在第一屏） */
   const qx=K.qtlRows?K.qtlRows().filter(r=>r.st==='exceed'):[],hi=K.riskFor?K.riskFor('all').filter(a=>a.score>=80).length:0,
     sae=S.reduce((a,s)=>a+s.sae,0),preg=oth.filter(o=>o.cat==='妊娠暴露核查').length,gap=oth.filter(o=>o.cat==='访视中断核对').length;
@@ -85,7 +85,7 @@ if(PD){const TX=K.pdTax(),G=[['重要','#8B0000'],['待判定','#E8C300'],['一�
  const blkP=lay=>{const cs=(PD.taxonomy||[]).filter(t=>t[2]===lay).map(t=>t[0]).filter(c=>POT.some(x=>x.cat===c)||CONF.some(x=>x.cat===c));const n=POT.filter(x=>(TX[x.cat]||[])[2]===lay).length;
   return `<div class="dblk"><div class="dh">${K.p(lay+'层面',lay==='执行'?'blu':'org')}<span class="xs muted">潜在 ${n} 条</span></div>${cs.map(c=>{const ps=POT.filter(x=>x.cat===c),cf=CONF.filter(x=>x.cat===c).length;
    return `<a class="drow" href="deviations.html#tab=${lay==='执行'?'exe':'sci'}&cat=${c}"><span class="dn">${K.esc((TX[c]||[])[1]||c)}</span><div class="bar-in" style="flex:1;display:flex">${G.map(([g,col])=>{const k=ps.filter(x=>x.grade===g).length;return k?`<i style="width:${k/mx*100}%;background:${col}"></i>`:''}).join('')}</div><b>${ps.length}</b><span class="dq">${cf?K.p(cf,'grn sq'):''}</span></a>`}).join('')||'<div class="xs faint" style="padding:4px">无</div>'}</div>`};
- document.getElementById('pdo').innerHTML=`<div class="dgrid">${blkP('执行')}${blkP('科学')}</div><div class="flex wrap mt xs muted" style="gap:10px"><span>已记录 PD <b style="color:var(--ink)">${CONF.length}</b></span><span>潜在未见记录 <b style="color:var(--brand-d)">${(PD||{}).hasListing===false?'—':pdMiss}</b>${(PD||{}).hasListing===false?'（未提供方案偏离记录表，无法比对）':''}</span><span>重要 <b style="color:var(--risk)">${pdImp}</b></span><span>涉及受试者 <b style="color:var(--ink)">${new Set(POT.map(x=>x.sid)).size}</b></span><span class="sp"></span><a href="deviations.html#tab=rules">已执行检查 ${(PD.rules||[]).filter(r=>r.state==='ran').length}/${(PD.rules||[]).length} 项 ›</a></div>`}
+ document.getElementById('pdo').innerHTML=`<div class="dgrid">${blkP('执行')}${blkP('科学')}</div><div class="flex wrap mt xs muted" style="gap:10px"><span>已记录 PD <b style="color:var(--ink)">${CONF.length}</b></span><span>潜在未见记录 <b style="color:var(--brand-d)">${(PD||{}).hasListing===false?'—':pdMiss}</b>${(PD||{}).hasListing===false?'（未提供方案偏离记录表，无法比对）':''}</span><span>重要 <b style="color:var(--risk)">${pdImp}</b></span><span>涉及受试者 <b style="color:var(--ink)">${new Set(POT.map(x=>x.sid)).size}</b></span><span class="sp"></span><a href="deviations.html#tab=rules">查看核查清单 ›</a></div>`}
 /* V6（用户审阅 RUX 第 2 条、裁定 4）：总览中心风险热力图——综合＋各维度；分值＝显著格数加权（q<0.05 计 2、q<0.10 计 1；AE 偏少计 1；数据 >30 天未更新计 1） */
 {const CR=K.centerRisk(),FR=Object.fromEntries(fresh),G=[...new Set(CR.cats.map(c=>c[1]))];
  const cellOf=(site,g)=>{const hits=[];let sc=0;CR.cats.filter(c=>c[1]===g).forEach(([k,,l,,desc])=>{const x=(CR.cell[k]||{})[site];if(!x)return;

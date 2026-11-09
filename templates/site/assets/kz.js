@@ -88,8 +88,8 @@ K.loc=(sh,row)=>`${K.shName(sh)}${row!=null&&row!==''?' 第'+row+'行':''}`;
 K.knCard=kn=>!kn?'':kn.degraded
  ?`<div class="c1"><div class="t">知识层状态<span class="sp"></span>${K.p('降级','red')}</div><div class="v" style="color:var(--risk)">MedDRA 字典不可用：AE 未按器官系统归类、临床意义关联合理性未预判——请检查授权字典配置后重建</div></div>`
  :`<div class="c1"><div class="t">知识层状态<span class="sp"></span>${K.p('可用','grn')}</div><div class="v">MedDRA ${K.esc(kn.meddra_version_note||kn.meddra_version||'版本未记录')} · AE 器官归类 ${kn.ae_soc||0} 条 · 关联预判 ${(kn.implausible||0)+(kn.plausible||0)+(kn.unknown||0)} 行</div></div>`;
-K.knBar=kn=>kn&&kn.degraded?`<div class="box red" style="margin-bottom:10px">⚠ MedDRA 不可用（知识层降级，报告仍生成）：AE 未按器官系统归类、临床意义关联合理性未预判——请检查授权字典配置后重建（研究依据页「知识层状态」有详情）</div>`:'';
-K.knHint=kn=>kn&&kn.degraded?`<div class="box red mt small">⚠ MedDRA 不可用（知识层降级，报告仍生成）：关联类核对未含知识层预判，字典恢复后重建即自动补齐。</div>`:'';
+K.knBar=kn=>kn&&kn.degraded?`<div class="box red" style="margin-bottom:10px">⚠ 医学术语词典暂不可用：不良事件未按器官系统归类，检验异常与 AE/病史的对应关系未预判。请联系管理员恢复词典后重新生成报告。</div>`:'';
+K.knHint=kn=>kn&&kn.degraded?`<div class="box red mt small">⚠ 医学术语词典暂不可用：本页关联类核对不完整，词典恢复后重新生成即可补齐。</div>`:'';
 /* ---- 术语一致性按 PT 归并（安全页 AE tab）：以 MedDRA 首选术语（PT）为归并单位，
  * 只列「同一 PT 下 ≥2 个不同原文术语」的桶；pt 覆盖率 <20%（含全空/无 AE）→ 降级，不按原文术语陈列冒充判定。 ---- */
 K.ptCons=aes=>{const L=aes||[];const wp=L.filter(a=>a.pt).length;
