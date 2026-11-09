@@ -204,6 +204,8 @@ def map_visit(v, vm):
 def conv(field, v, M):
     if field in DATE_FIELDS:
         return norm_date(v)
+    if field in ('lo', 'hi'):
+        return num_bound(v)          # 宽表/列绑定的参考范围同样认科学计数与单位乘方（审阅者 2026-11-09：曾只在长表常量路径生效）
     if field in NUM_FIELDS:
         return to_num(v)
     if field in BOOL_FIELDS:
