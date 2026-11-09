@@ -2380,10 +2380,10 @@ def cm_checks(C):
                     # 审阅者 2026-11-09（RUX：禁用期按方案「研究期间」到研究结束，文案却一律写「与治疗期重叠」，末次给药后随访期用药读起来像误报）
                     win = (f"{({'rand': '随机', 'icf': '知情', 'fd': '首剂'}).get(P.get('fromAnchor') or 'fd')}{('前 %d 天' % w0) if w0 else ''}至"
                            f"{({'eos': '研究结束', 'eot': '治疗结束', 'ld': '末次给药'}).get(P.get('toAnchor') or 'ld')}")
-                    fu = is_full_date(c['s']) and is_full_date(s.get('ld')) and c['s'] > s['ld']
+                    fu = is_full_date(c['s']) and is_full_date(s.get('eot_d')) and c['s'] > s['eot_d']   # 只按治疗结束页判随访期（末次给药日可能不全）
                     add_other(C, sid, P.get('cat', '禁限用药核对'), P.get('pr', 4),
                               f"合并用药「{c['t']}」（{c['s'] or '?'}~{'持续' if c['ong'] else c['e'] or '?'}）属于{_cls_txt(P, c)}，在方案禁用期（{win}）内使用"
-                              f"{'（末次给药 ' + s['ld'] + ' 之后的随访期）' if fu else ''}；用药原因：{c['why'] or '—'}",
+                              f"{'（治疗结束 ' + s['eot_d'] + ' 之后的随访期）' if fu else ''}；用药原因：{c['why'] or '—'}",
                               None, c['s'], c['sh'], c['row'], c['t'], ctx=[P.get('note', '')] if P.get('note') else [],
                               bkey=f"{c['t']}|{c['s']}", wb=c.get('wb') or '')
         for pr_ in [x for x in getattr(C, 'proc', []) if x.get('sid') in C.pop]:    # 禁用的治疗/操作（造血干细胞移植等）也核对操作记录
@@ -2411,8 +2411,8 @@ def cm_checks(C):
                 continue
             a = (dt.date.fromisoformat(ref) - dt.timedelta(days=W['days'])).isoformat()
             for c in C.cm_by[sid]:
-                if sys_only and (_TOPICAL.search(c.get('rt') or '') or _TOPICAL.search(c['t'])):
-                    continue
+                if sys_only and (_TOPICAL.search(c.get('rt') or '') or _TOPICAL.search(c['t']) or _NONDERMAL.search(f"{c.get('rt') or ''} {c['t']}")):
+                    continue                 # 眼用/吸入/鼻用不是系统性用药（审阅者 2026-11-10，SAR 眼用地塞米松套了系统激素洗脱）
                 if top_only and _not_topical_cm(c):
                     continue                 # F2：外用＝皮肤局部；吸入/鼻用/眼用/注射复方不按外用洗脱核查
                 if nonsed_ok and _NONSEDATING_AH.search(c['t']):
@@ -2627,6 +2627,7 @@ def _elig_cite(E, kind):
     """质疑里引用入排标准：Word 自动编号不在文本里，抽取编号常与方案不符（RUX「排除标准24」实为第 5 条）——
     引用改为「类别＋原文开头」，编号只在原文自带编号时保留（审阅者 2026-11-09）。"""
     t = re.sub(r'\s+', '', str(E.get('text') or ''))
+    t = re.sub(r'^(入选|排除|纳入)?标准[IE]?\d+[:：、.]?', '', t)      # 抽取时加的「排除标准E42：」前缀不是方案编号（审阅者 2026-11-10）
     lab = _elig_label(E.get('id')).replace(' ', '') if E.get('id') else kind
     head = re.match(r'^[（(]?[0-9]{1,2}(\.[0-9]{1,2})*[)）.、]', t)
     if not t:
