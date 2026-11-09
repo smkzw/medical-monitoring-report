@@ -422,6 +422,9 @@ def no_usable(recs):
     return n > 0 and dup / n <= 0.2
 
 
+_AESI_QUAL = re.compile(r'显著|明显|严重|重度|显著性|marked|severe', re.I)
+
+
 def build_events(C):
     use_ae_no, use_mh_no = no_usable(C.ae), no_usable(C.mh)
     relre = rx(C.A.get('relatedRe', r'肯定|很可能|^可能有关|可能相关|related'))
@@ -446,8 +449,12 @@ def build_events(C):
             # 不依赖 ibtag 的类别键）
             cat = a.get('soc') or next((b for p, b in catmap if p.search(txt)), None) or term
         gi = grade_int(gtxt(a.get('grade'))) or 0
-        aesi_hit = [d.get('name') or d.get('id') for d in C.aesiDefs if (d['_t'] and d['_t'].search(txt)) or (d['_soc'] and d['_soc'].search(str(a.get('soc') or '')))
-                    if gi >= d.get('minGrade', 0)]
+        aesi_all = [d for d in C.aesiDefs if ((d['_t'] and d['_t'].search(txt)) or (d['_soc'] and d['_soc'].search(str(a.get('soc') or ''))))
+                    and gi >= d.get('minGrade', 0)]
+        # 定义带程度限定（「ALT显著增高」）而编译没给分级/检验界值：术语命中只是「可能符合」，不据此断言「符合定义未勾选」
+        # （审阅者 2026-11-09，SAR：方案界值 ALT>5×ULN，ALT 1–2×ULN 的 AE 曾 9 条全部判符合）
+        maybe_ = [d for d in aesi_all if _AESI_QUAL.search(str(d.get('name') or '')) and not d.get('minGrade') and not d.get('labCond')]
+        aesi_hit = [d.get('name') or d.get('id') for d in aesi_all if d not in maybe_]
         rel = a.get('rel') or ''
         related = bool(relre and relre.search(rel)) and not (unrel and unrel.search(rel))
         rec = {'n': (a.get('no') if use_ae_no else None) or len(C.ae_by[sid]) + 1, 't': term, 'c': cat, 's': a.get('start') or '', 'e': a.get('end') or '',
@@ -456,7 +463,7 @@ def build_events(C):
                # wd：只有「是」才算导致退出（「否」曾是真值 → AE 列表几乎全部标「退出治疗」，MY008/SAR/D001）
                'cm': a.get('cm') or '', 'wd': '是' if yes(a.get('withdraw')) else '', 'row': a['row'], 'sh': a['sheet'], 'wb': a.get('wb') or '', 'sid': sid, 'site': s['site'], 'fd': s['fd'] or '',
                'pre': _pre_dose(a.get('start'), s['fd']), '_rel': related,
-               '_aesi_term': bool(aesi_hit), '_aesi_def': aesi_hit, 'pt': a.get('pt') or '', 'soc': a.get('soc') or '',
+               '_aesi_term': bool(aesi_all), '_aesi_def': aesi_hit, 'pt': a.get('pt') or '', 'soc': a.get('soc') or '',
                'rpt': a.get('rpt') or '', 'aware': a.get('aware') or '', 'sae_crit': a.get('sae_crit') or '',
                'gchg': a.get('gchg') or ''}
         rec['te'] = (not rec['pre']) and bool(s['fd']) and (not C.teEnd.get(sid) or not is_full_date(rec['s']) or rec['s'] <= C.teEnd[sid])
@@ -1242,8 +1249,7 @@ def build_labrows(C):
             # 用户 2026-10-27：归因研究疾病不算「未关联」；只有较基线明显加重、且未记录「研究疾病加重」类 AE 才作为风险
             t_base = float(C.cfg['thresholds'].get('base', 0.3))
             ddir = ext_rules.disease_dir(C, mid, P[0].get('sheet', '') if P else '')
-            bleed_ = ext_rules.bleeding_ctx(C, sid)      # G1：血红蛋白/比容的升高只在出血语境中才算疾病加重
-            wsys = next((w for w in (worse_vs_base(r, r.get('base') or b, t_base, disease=True, pre=pre_v, ddir=ddir, bleed=bleed_) for r in cs_pts if r['post']) if w), None) if b else None
+            wsys = next((w for w in (worse_vs_base(r, r.get('base') or b, t_base, disease=True, pre=pre_v, ddir=ddir) for r in cs_pts if r['post']) if w), None) if b else None
             wst = None if wsys else next((w for w in map(ext_rules.stated_worse, cs_pts) if w), None)   # 研究者备注写明加重：研究者判定优先
             wf = wsys or wst
             dae = disease_ae(sid, mid, cs_pts) if wf else []
@@ -1288,7 +1294,7 @@ def build_labrows(C):
                     ctx.append(f'研究疾病表现（{nm}）；基线缺失，无法判断是否较基线加重')
                 else:
                     ddir = ext_rules.disease_dir(C, mid, P[0].get('sheet', '') if P else '')
-                    wf = next((w for w in (worse_vs_base(r, r.get('base') or b, float(C.cfg['thresholds'].get('base', 0.3)), disease=True, pre=pre_v, ddir=ddir, bleed=ext_rules.bleeding_ctx(C, sid)) for r in cs_pts if r['post']) if w), None)
+                    wf = next((w for w in (worse_vs_base(r, r.get('base') or b, float(C.cfg['thresholds'].get('base', 0.3)), disease=True, pre=pre_v, ddir=ddir) for r in cs_pts if r['post']) if w), None)
                     dae = disease_ae(sid, mid, cs_pts) if wf else []
                     if wf and dae:
                         risk = 'DIS'
@@ -1815,7 +1821,7 @@ def ae_checks(C):
             if not ref and any(c.get('aeno') or c['wk'] for c in C.cm_by[sid]):
                 add_other(C, sid, 'AE合并用药记录核对', 3, f"AE「{a['t']}」（{dshow(a['s'])}）记「是否有合并用药=是」，合并用药页未见引用该 AE 的记录", None, a['s'], a['sh'], a['row'], a['t'],
                           rel=[['AE', a['t'], a['s'], a['n']]], risk='AE', wb=a.get('wb') or '')
-        if 'aesi_terms' in on and a['_aesi_term'] and not a['aesi'] and not a['pre']:
+        if 'aesi_terms' in on and a['_aesi_def'] and not a['aesi'] and not a['pre']:
             add_other(C, sid, 'AESI标记核对', 3, f"AE「{a['t']}」符合方案 AESI 定义（{'、'.join(a['_aesi_def'])}），但「是否AESI」未勾选", None, a['s'], a['sh'], a['row'], a['t'], rel=[['AE', a['t'], a['s'], a['n']]], risk='AE')
         if 'severity_logic' in on:
             # F-E（IMP-04）：高级别（默认 ≥3 级）AE 未按 SAE 且 SAE 标准全未勾选 → 内部矛盾，请核实严重性判定
@@ -2249,6 +2255,9 @@ def cm_checks(C):
         exc_re = re.compile(P['exceptRe'], re.I) if P.get('exceptRe') else None
         exc_mh = re.compile(P['exceptMH'], re.I) if P.get('exceptMH') else None
         nonsed_ok = _nonsedating_exempt(P)                  # F1：「镇静抗组胺（允许非镇静）」条款不扫二代非镇静
+        # 适应症限定：方案疾病名（forDisease）＋研究疾病同义词（diseaseTerms，如 特应性皮炎/AD）＋「研究疾病」
+        for_dz = re.compile('|'.join([P['forDisease']] + [re.escape(str(t)) for t in (C.A.get('diseaseTerms') or []) if t] + ['研究疾病', '原发病']),
+                            re.I) if P.get('forDisease') else None
         for sid in sorted(C.pop):
             s = C.subj[sid]
             if not s['fd']:
@@ -2272,6 +2281,8 @@ def cm_checks(C):
                         continue                 # F1：允许非镇静的镇静抗组胺条款不命中二代非镇静子类
                     if exc_re and exc_re.search(c['t']):
                         continue                 # 方案点名除外（SAR 背景药糠酸莫米松）
+                    if for_dz and (c.get('why') or '').strip() and not for_dz.search(c['why']):
+                        continue                 # 「治疗AD的口服中药」：写明用于其他疾病（月经不调）的不判（审阅者 2026-11-09）
                     if exc_mh and (exc_mh.search(c.get('why') or '') or any(exc_mh.search(m.get('t') or '') for m in C.mh_by.get(sid, []))):
                         continue                 # 以病史为条件的允许（SAR：合并哮喘者允许稳定剂量吸入激素；用药原因写「哮喘」同样算）
                     if topical_only and _not_topical_cm(c):
@@ -2282,14 +2293,24 @@ def cm_checks(C):
                         continue                 # 同一条用药落在两个重叠类别（白三烯受体拮抗剂 / 白三烯调节剂）只报一次
                     cm_seen.add((sid, c['sh'], c['row'], c['t']))
                     if unk_end:
+                        uk = getattr(C, '_unkend_seen', None) or set()
+                        C._unkend_seen = uk
+                        if (sid, c['sh'], c['row']) in uk:
+                            continue
+                        uk.add((sid, c['sh'], c['row']))
                         # 入组前开始、停药日期未知且未标持续（RUX：2014–2019 年的既往外用激素，结束「uk」）：不能据此判与治疗期重叠——
                         # 只请核实停药日期（低优先级、不进偏离）
                         add_other(C, sid, '用药日期核对', 2,
                                   f"合并用药「{c['t']}」（{c['s']}~停药日期未知）属于{_cls_txt(P, c)}，未标持续，请核实停药日期是否在首剂（{s['fd']}）之前",
                                   None, c['s'], c['sh'], c['row'], c['t'], bkey=f"{c['t']}|{c['s']}|unkend", wb=c.get('wb') or '')
                         continue
+                    # 审阅者 2026-11-09（RUX：禁用期按方案「研究期间」到研究结束，文案却一律写「与治疗期重叠」，末次给药后随访期用药读起来像误报）
+                    win = (f"{({'rand': '随机', 'icf': '知情', 'fd': '首剂'}).get(P.get('fromAnchor') or 'fd')}{('前 %d 天' % w0) if w0 else ''}至"
+                           f"{({'eos': '研究结束', 'eot': '治疗结束', 'ld': '末次给药'}).get(P.get('toAnchor') or 'ld')}")
+                    fu = is_full_date(c['s']) and is_full_date(s.get('ld')) and c['s'] > s['ld']
                     add_other(C, sid, P.get('cat', '禁限用药核对'), P.get('pr', 4),
-                              f"合并用药「{c['t']}」（{c['s'] or '?'}~{'持续' if c['ong'] else c['e'] or '?'}）属于{_cls_txt(P, c)}，与{('首剂前 %d 天至' % w0) if w0 else ''}治疗期重叠；用药原因：{c['why'] or '—'}",
+                              f"合并用药「{c['t']}」（{c['s'] or '?'}~{'持续' if c['ong'] else c['e'] or '?'}）属于{_cls_txt(P, c)}，在方案禁用期（{win}）内使用"
+                              f"{'（末次给药 ' + s['ld'] + ' 之后的随访期）' if fu else ''}；用药原因：{c['why'] or '—'}",
                               None, c['s'], c['sh'], c['row'], c['t'], ctx=[P.get('note', '')] if P.get('note') else [],
                               bkey=f"{c['t']}|{c['s']}", wb=c.get('wb') or '')
         for pr_ in [x for x in getattr(C, 'proc', []) if x.get('sid') in C.pop]:    # 禁用的治疗/操作（造血干细胞移植等）也核对操作记录
@@ -2325,6 +2346,16 @@ def cm_checks(C):
                     continue                 # F1：允许非镇静的镇静抗组胺洗脱条款不命中二代非镇静子类
                 if exc_re and exc_re.search(c['t']):
                     continue                 # F1：洗脱条目点名除外（编译层从条款原文生成，与禁用药同口径）
+                if pre.search(c['t']) and not c['ong'] and not is_full_date(c['e']) and is_full_date(c['s']) and c['s'] <= ref:
+                    # 审阅者 2026-11-09（RUX：9 例 36 条既往外用激素/TCI 停药日期「uk」，洗脱是否满足无从判断却无任何提示）
+                    uk = getattr(C, '_unkend_seen', None) or set()
+                    C._unkend_seen = uk
+                    if (sid, c['sh'], c['row']) not in uk:
+                        uk.add((sid, c['sh'], c['row']))
+                        add_other(C, sid, '用药日期核对', 2,
+                                  f"合并用药「{c['t']}」（{c['s']}~停药日期未知）属于{_cls_txt(W, c)}，方案要求{ {'icf': '知情', 'rand': '随机'}.get(W.get('ref'), '首剂')}前停用 {W['days']} 天，请核实停药日期",
+                                  None, c['s'], c['sh'], c['row'], c['t'], bkey=f"{c['t']}|{c['s']}|unkend", wb=c.get('wb') or '')
+                    continue
                 # 末次用药距参照日恰好 N 天＝洗脱期已满（D001 间隔正好 14/28 天曾判「不足」）：只算严格晚于窗口起点的
                 if pre.search(c['t']) and (c['ong'] or (is_full_date(c['e']) and c['e'] > a)) and (not is_full_date(c['s']) or c['s'] <= ref):
                     add_other(C, sid, W.get('cat', '入排洗脱用药核对'), W.get('pr', 3),
@@ -2365,8 +2396,10 @@ def _elig_bad(E, x):
         # H3①②（第 3 轮 SAR）：定性判定统一先看 result_state——删失界/低于检测限/阴性类写法不是阳性
         # （旧编译规则的「\+」会吃科学计数 E+、「检出」会吃「低于检出限」）；真阳性写法再走正则
         st = result_state(x)
-        if st is not None and st[0] in ('below', 'above', 'neg'):
+        if st is not None and st[0] in ('below', 'neg'):
             return False
+        if st is not None and st[0] == 'above':
+            return True                  # 「>1.0E+08」高于检测上限＝检出（审阅者 2026-11-09：曾判阴性，与确切值 1.2E+05 判阳性矛盾）
         return bool(re.search(E['re'], str(x or ''), re.I)) and not re.search(r'阴性|negative|未检出', str(x or ''), re.I)
     return cmp(E['op'], x, E['v'])
 
@@ -2524,8 +2557,10 @@ def _gate_ok(C, sid, G, r):
         t = str(x.get('raw') or '')
         # H3①②：伴随阳性同样先看 result_state（删失界/低于检测限不是阳性；旧编译正则的 \+ 会吃 E+）
         st = result_state(t)
-        if st is not None and st[0] in ('below', 'above', 'neg'):
+        if st is not None and st[0] in ('below', 'neg'):
             return False
+        if st is not None and st[0] == 'above':
+            return True                  # 高于检测上限＝检出
         return bool(re.search(G['re'], t, re.I)) and not re.search(r'阴性|negative|未检出', t, re.I)
     st = result_state(x.get('raw')) if not isinstance(x.get('value'), (int, float)) or re.match(r'\s*[<＜>＞≤≥]', str(x.get('raw') or '')) \
         else ('value', float(x['value']))
@@ -2762,7 +2797,7 @@ def aesi_caliber(C):
     总览/安全页两页同源取数（此前总览用已标数、安全概况用勾选∪定义命中并集，两种口径无标签）。"""
     aes = [x for x in C.aes if x['sid'] in C.pop and x.get('te') and not x.get('dup')]   # 与总览/概况同口径（TEAE、去重复导出）
     return {'marked': sum(1 for x in aes if x.get('aesi')),
-            'defHit': sum(1 for x in aes if x.get('_aesi_term') and not x.get('aesi'))}
+            'defHit': sum(1 for x in aes if x.get('_aesi_def') and not x.get('aesi'))}
 
 
 def build_queries(C):
@@ -2829,17 +2864,16 @@ def build_queries(C):
             # V6 医学审阅（RUX Q007：W24 1.69 写成「较基线 1.51 加重 1→2 级」，2 级其实来自 W4 1.44）：
             # 加重说明必须就所写的这一个点重新计算，并优先写真正满足「加重」的那次（等级高者优先，其次变化幅度）
             # V6 第 2 轮 MY008（G2①）：重算与判定同一输入——基线取该点自己的 base（本表基线/每行 base），
-            # 疾病归因类同样带 disease/ddir/bleed；不得拿组内首行基线拼「0→3 级」（抽屉全程表显示基线已 3 级）
+            # 疾病归因类同样带 disease/ddir；不得拿组内首行基线拼「0→3 级」（抽屉全程表显示基线已 3 级）
             rows_ = C.F[(g['sid'], g['mid'])]
             b0 = next((r.get('base') for r in rows_ if r.get('base')), None)
             dis_ = g['risk'] == 'DISW' or bool(bg)
             ddir_ = ext_rules.disease_dir(C, g.get('mid') or '', g.get('grp') or '') if dis_ else None
-            bleed_ = ext_rules.bleeding_ctx(C, g['sid']) if dis_ else False
             sc = []
             for x in P:
                 fx = next((r for r in rows_ if r['sheet'] == x[7] and r['row'] == x[8]), None)
                 w_ = fx and (fx.get('base') or b0) and (worse_vs_base(fx, fx.get('base') or b0, float(C.cfg['thresholds'].get('base', 0.3)),
-                                                                     disease=dis_, pre=ext_rules.pre_values(rows_), ddir=ddir_, bleed=bleed_)
+                                                                     disease=dis_, pre=ext_rules.pre_values(rows_), ddir=ddir_)
                                                             or (ext_rules.qual_worse(fx, fx.get('base') or b0) if not dis_ else None))
                 if w_:
                     sc.append(((fx.get('grade') or 0), abs(x[6] or 0), x, w_))
@@ -3792,8 +3826,8 @@ def analyze(C):
                                  'status': dict(stc), 'n': len(S), 'centers': len(C.centers), 'dosed': len(C.pop), 'built': dt.datetime.now().strftime('%Y-%m-%d %H:%M'),
                                  'sources': C.cfg.get('footer', {}).get('left', '')},
           'subs': subs, 'centers': C.centers, 'aes': [{**{k: v for k, v in x.items() if not k.startswith('_') and k != 'sh'}, 'rl': bool(x.get('_rel')), 'ak': ae_action(x.get('act')),
-                   'aesi': bool(x.get('aesi') or x.get('_aesi_term')),
-                   'aesiM': bool(x.get('aesi')), 'aesiD': bool(x.get('_aesi_term')) and not x.get('aesi')} for x in C.aes if x['sid'] in C.pop],   # rl＝TRAE；ak＝措施分类；aesi＝勾选 ∪ 方案定义命中；aesiM/aesiD＝双口径（H5：已标/符合定义待核实）
+                   'aesi': bool(x.get('aesi') or x.get('_aesi_def')),
+                   'aesiM': bool(x.get('aesi')), 'aesiD': bool(x.get('_aesi_def')) and not x.get('aesi')} for x in C.aes if x['sid'] in C.pop],   # rl＝TRAE；ak＝措施分类；aesi＝勾选 ∪ 方案定义命中；aesiM/aesiD＝双口径（H5：已标/符合定义待核实）
           'aesiCal': aesi_caliber(C),
           'aesum': C.aesum, 'aecat': list(C.aesum), 'ibtag': ibtag, 'labrows': [{k: v for k, v in g.items() if (k != 'mid' or g.get('risk') == 'REL') and k != '_aecov'} for g in C.labrows],
           'others': [{**{k: (cn_quotes(v) if k == 'sum' else v) for k, v in o.items() if not k.startswith('_')},

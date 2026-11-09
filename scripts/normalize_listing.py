@@ -500,7 +500,7 @@ def findings(spec, books, M):
             if not f['test']:
                 continue
             if isinstance(f['unit'], str) and f['unit']:
-                f['unit'] = f['unit'].replace('μ', 'µ')   # F12⑤修正：数据层归一到 U+00B5（与分级表键一致，V5 F10 既有约定——ext1 夹具实证 03BC 方向破坏 CSW 判定翻转路径的键比较）；显示层 µ→μ 由前端 fmt 做
+                f['unit'] = f['unit'].replace('μ', 'µ')   # F12⑤修正：数据层归一到 U+00B5（与分级表键一致，V5 F10 既有约定——ext1 夹具实证 03BC 方向破坏 CSW 判定翻转路径的键比较）
             if isinstance(f['unit'], str) and re.search(r'10\s*[Ee]\s*\d', f['unit']):
                 f['unit'] = re.sub(r'(?<![\d.])10\s*[Ee]\s*(\d+)', r'10^\1', f['unit'])   # V6（MY008）：10E12/L＝×10^12/L
             if isinstance(f['unit'], str) and '10^' in f['unit']:

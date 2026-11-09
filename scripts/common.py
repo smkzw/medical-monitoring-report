@@ -45,7 +45,9 @@ def is_full_date(s):
 
 # H1（第 3 轮 SAR，R10）：隐私列判定收口一处——三出口共用（原始数据层 raw_export、质疑/偏离抽屉摘录
 # mm_build.build_ex、工作台工作簿导出同口径复写）。受试者/研究者身份与联系方式列不进任何交付面。
-PII_COL_RX = re.compile(r'姓名|缩写|\binitials\b|\binits?\b|身份证|证件号|电话|手机|住址|家庭地址|联系方式|邮箱|e-?mail', re.I)
+# 审阅者 2026-11-09：「initials」按子串认（SUBJ_INITIALS / SubjectInitials 曾漏剔）；不认「Init」（Init Dose 误剔）；
+# 「缩写」排除中心/项目/检验/单位/药物缩写这类非身份列
+PII_COL_RX = re.compile(r'姓名|(?<!中心)(?<!项目)(?<!检验)(?<!单位)(?<!药物)(?<!名称)缩写|initials|身份证|证件号|电话|手机|住址|家庭地址|联系方式|邮箱|e-?mail|出生日期|出生年月|生日|birth\s*date|date\s*of\s*birth|\bDOB\b|BRTHDAT', re.I)   # 完整出生日期属身份识别信息（年龄由映射另算）
 
 
 def pii_column(label):
@@ -79,15 +81,14 @@ def to_num(v):
     return None
 
 
-_NUM_SCI = re.compile(r'^(<=|<|>=|>)?([0-9]+(?:\.[0-9]+)?)(?:[eE]([+-]?\d+)|[*×xX]10\^?([+-]?\d+))?')
+# 带符号数值（碱剩余/心电轴/较基线变化「-2.5」曾丢值）；「×10^9/L」这类紧跟「/」的乘方是单位不是数量级（曾把 9.5×10^9/L 放大 10⁹ 倍）
+_NUM_SCI = re.compile(r'^(<=|<|>=|>)?([+-]?[0-9]+(?:\.[0-9]+)?)(?:[eE]([+-]?\d+)|[*×xX]10\^?([+-]?\d+)(?![\d/]))?')
 
 # 上标丢失形态（复制/导出链吞掉 ^ 的成品写法「10³」）：统一还原为十进制指数再进 _NUM_SCI
 _SUP_MAP = str.maketrans('⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻', '0123456789+-')
 
 # 内嵌分数/级别词（量表值域写法，F8）：「3分-中度…」显式分值优先；「中度（2）」「2-中度」数字带在括号/连字符处取数字；
-# 裸分级词（轻度/中度/重度）按通用 3 级量表映射 1/2/3——只认整串即分级词的写法（「轻度升高说明」等描述文本不猜数值）。
-_GRADE_NUM = {'轻度': 1.0, '中度': 2.0, '重度': 3.0}
-_SCORE_PREFIX = re.compile(r'^\s*(\d+(?:\.\d+)?)\s*分')
+_SCORE_PREFIX = re.compile(r'^\s*(\d+(?:\.\d+)?)\s*分(?!钟)')
 _GRADE_PAREN = re.compile(r'(轻度|中度|重度)[^\d（）()]{0,4}[（(]\s*(\d+)(?:\s*级)?\s*[)）]')
 _NUM_GRADE = re.compile(r'^\s*(\d+(?:\.\d+)?)\s*[-－~～]\s*(?:轻度|中度|重度)')
 
@@ -102,10 +103,7 @@ def _score_state(s):
     m = _NUM_GRADE.match(s)
     if m:
         return ('value', float(m.group(1)))
-    t = s.strip(' 　。;；,，')
-    if t in _GRADE_NUM:
-        return ('value', _GRADE_NUM[t])
-    return None
+    return None                    # 裸分级词（「中度」）不赋数值：分值随量表而异（IGA 0–4 中度＝3），猜数会编出主要终点
 
 
 _QUAL_GRADE = re.compile(r'^[±]|[+＋]{1,4}|\d{1,2}\s*[+＋]$')   # 半定量分级（尿蛋白 1+/2+、±、+++）：定性非数值
@@ -155,7 +153,7 @@ def result_state(raw):
     if re.search(r'<(检测|定量|检出)?下?限|<?LLOQ|<?LOD|^ND$|BLQ|TND|不可测|未检出|未检测到|notdetected', t, re.I):
         return ('below', None)
     sup = t.translate(_SUP_MAP)
-    m = _NUM_SCI.match(sup if sup != t else t)
+    m = _NUM_SCI.match(sup)
     if m:
         v = float(m.group(2)) * (10 ** int(m.group(3) or m.group(4) or 0))
         op = m.group(1)

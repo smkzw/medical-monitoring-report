@@ -639,43 +639,6 @@ def metric_dir(mid_or_label) -> str | None:
     return None if d in (None, 'both') else d
 
 
-# 疾病归因加重判定中的「升高＝好转」类（通用医学知识，按指标类型/措辞形态分流，非项目特判）：
-# comp＝代偿性/反应性升高指标——治疗有效时升高＝好转信号（骨髓/铁储备恢复性增生），升高不作为疾病加重证据；
-# hgb＝血红蛋白/红细胞比容——无出血语境时升高＝好转信号（失血语境中由 bleed 旁路恢复疾病不利方向判定）。
-DISEASE_RISE_OK = [
-    (r'网织红(细胞)?(计数|百分比|比率|比例|绝对值)?|(?<![A-Za-z])RET%(?![A-Za-z0-9])|(?<![A-Za-z])Retic', 'comp'),
-    (r'铁蛋白|(?<![A-Za-z])FERR(ITIN)?(?![A-Za-z])', 'comp'),
-    (r'(?<!化)(?<!胞)(?<!离)(?<!尿)血红蛋白|(?<![A-Za-z])HG[BO](?![A-Za-z])|(?<![A-Za-z])HB(?![A-Za-z])|红细胞比容|红细胞压积|血细胞比容|'
-     r'(?<![A-Za-z])HCT(?![A-Za-z])|(?<![A-Za-z])PCV(?![A-Za-z])', 'hgb'),
-    (r'代偿|反应性升高|再生性', 'comp'),   # 措辞形态兜底：名称自述为代偿性/反应性升高类指标（虚构/新指标同判）
-]
-_BLEED_RX = re.compile(r'出血|失血|血肿|咯血|呕血|便血|黑便|血尿|消化道出血|颅内出血|bleed|haemorrhage|hemorrhage', re.I)
-
-
-_RISE_OK_RX = [(re.compile(a), c) for a, c in DISEASE_RISE_OK]
-
-
-def disease_rise_ok(mid_or_label, bleed: bool = False) -> bool:
-    """该指标的「升高」在疾病归因加重判定中＝好转信号（不作为疾病加重证据）。
-    comp 类恒成立；hgb 类仅无出血语境时成立（同受试者有出血类记录时升高仍按疾病不利方向判）。"""
-    s = str(mid_or_label or '')
-    for rx_, cls in _RISE_OK_RX:
-        if rx_.search(s):
-            return True if cls == 'comp' else not bleed
-    return False
-
-
-def bleeding_ctx(C, sid) -> bool:
-    """出血语境：同受试者 AE/病史记录含出血类术语（通用措辞形态，非项目词表）。"""
-    for a in (getattr(C, 'ae_by', {}).get(sid) or ()):
-        if _BLEED_RX.search(str(a.get('t') or '')):
-            return True
-    for m in (getattr(C, 'mh_by', {}).get(sid) or ()):
-        if _BLEED_RX.search(str(m.get('t') or '')):
-            return True
-    return False
-
-
 def daily_open(C, sid) -> bool:
     """日常监查阶段且受试者尚未出组（无研究结束日期、状态不是完成/退出/终止/死亡/失访）：后续数据可能尚未录入。"""
     s = C.subj.get(sid) or {}
@@ -729,19 +692,17 @@ def disease_dir(C, mid, sheet=''):
     return None
 
 
-def worse_vs_base(r, b, t_base, disease=False, pre=None, ddir=None, bleed=False, overload=False):
+def worse_vs_base(r, b, t_base, disease=False, pre=None, ddir=None):
     """D14/D19 较基线加重：分级升高（0→1 级不单独算，见 grade_up），或超出范围且同向较基线变化 ≥T_base。
     返回说明文本或 None；仅临床意义 NCS→CS 的判定波动不算加重。
     V6 R3（审阅者 2026-11-02）：disease=True（研究疾病本身的表现，如嗜酸粒细胞）时，小基数指标的相对变化须同时达到
     绝对变化下限（monitor_v5.abs_floor，0.5→0.7 ×10^9/L 这类相对 40% 的波动不算「明显加重」）。
-    V6 第 2 轮 MY008（G1）：disease=True 且疾病不利方向为「升高」时，代偿性/反应性升高类指标与（无出血语境的）
-    血红蛋白/红细胞比容的升高＝好转信号，数值与分级两路都不作为疾病加重证据（研究者备注写明加重仍优先，见 stated_worse）。"""
+    疾病不利方向只取方案/IB 抽取（disease_dir）：用户 2026-11-05 口径——PNH 网织红细胞下降＝好转、升高（溶血代偿）＝加重；
+    审阅者 2026-11-09 撤回 G1 的「网织红/铁蛋白/血红蛋白升高一律＝好转」硬名单（推翻已定口径且与抽取方向相反）。"""
     if not b:                                        # 基线缺失：不虚构「0→2 级」，由调用方按「无法判断」处理
         return None
     if within_pre(r, pre):                           # pre＝给药前数值（pre_values）；给药前本就到过这个水平 → 不算加重
         return None
-    if disease and ddir == 'high' and not overload and disease_rise_ok(r.get('mid'), bleed=bleed):
-        return None                                  # 升高＝好转类：分级与数值两路的「升高＝加重」一并排除
     if grade_up(b.get('grade'), r.get('grade'), r.get('value'), b.get('value')) and \
             not (ddir in ('high', 'low') and isinstance(r.get('value'), (int, float)) and isinstance(b.get('value'), (int, float))
                  and ((ddir == 'high') != (r['value'] > b['value']))):
