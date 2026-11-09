@@ -15,7 +15,7 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
-from common import open_workbook_lenient, pii_column   # H1（第 3 轮 SAR）：隐私列判定收口 common.pii_column，摘录/导出出口共用
+from common import open_workbook_lenient, pii_column, redact_row   # H1（第 3 轮 SAR）：隐私列判定收口 common.pii_column，摘录/导出出口共用
 SID_HDR = re.compile(r'^(受试者(筛选)?(编号|号|代码)?|参与者(编号|号)?|筛选号|SUBJID|USUBJID|Subject\s*ID|Participant\s*ID)$', re.I)
 MAX_CELL = 300
 FLAG_HDR = re.compile(r'^(Flag|变更标记|数据状态|记录状态)$', re.I)
@@ -110,7 +110,7 @@ def export_raw(C, out):
                 if fl and any(j < len(r) and DELETED.search(_cell(r[j])) for j in fl):
                     continue
                 if sid in subj:
-                    data.append((sid, i + 1, [_cell(r[j]) if j < len(r) else '' for j in range(len(labels))]))
+                    data.append((sid, i + 1, redact_row(labels, [_cell(r[j]) if j < len(r) else '' for j in range(len(labels))])))
             if not data:
                 continue
             keep = []
@@ -119,7 +119,7 @@ def export_raw(C, out):
             # V6 第 8 轮医学审阅（SAR：分组表按组别排序，第 2–88 行安慰剂、89–176 行试验组）：盲态下含分组列的表，
             # 只剔除分组列不够——原始行号（行序）本身就能还原分组。整表不进原始数据层；剔除记录不写列名（列名本身是分组用语）
             if blind_on and any(arm_column(lab, [d[2][j] for d in data], arm_names) for j, lab in enumerate(labels) if j != sc):
-                dropped.add(f"表单「{ws.title}」整表（盲态：含分组信息，行序可推断分组）")
+                dropped.add(f"表单「{ws.title}」整表（盲态保护）")   # 说明不写「分组」「行序」字样（审阅者 2026-11-09）
                 continue
             for j, lab in enumerate(labels):
                 if j == sc:

@@ -55,6 +55,27 @@ def pii_column(label):
     return bool(PII_COL_RX.search(str(label or '')))
 
 
+def redact_row(labels, row):
+    """同一行里隐私列的取值（受试者姓名缩写、姓名）在其他单元格的自由文本中出现时打码（审阅者 2026-11-09，SAR：PD 详述
+    「受试者HLSH…」29 处）。拉丁缩写只认 ≥3 字母的整词（避免误伤 LT/AE 类缩写），中文姓名按 ≥2 字子串。返回新列表。"""
+    vals = []
+    for j, lb in enumerate(labels or []):
+        if j < len(row) and pii_column(lb):
+            v = str(row[j] or '').strip()
+            if re.fullmatch(r'[A-Za-z]{3,6}', v) or re.fullmatch(r'[\u4e00-\u9fff]{2,4}', v):
+                vals.append(v)
+    if not vals:
+        return list(row)
+    pats = [re.compile(rf'(?<![A-Za-z]){re.escape(v)}(?![A-Za-z])', re.I) if v.isascii() else re.compile(re.escape(v)) for v in vals]
+    out = []
+    for j, c in enumerate(row):
+        if isinstance(c, str) and not (j < len(labels or []) and pii_column(labels[j])):
+            for p_ in pats:
+                c = p_.sub('＊＊', c)
+        out.append(c)
+    return out
+
+
 def days(a, b):
     """a - b in days (None when either is not a full date)."""
     if not (is_full_date(a) and is_full_date(b)):

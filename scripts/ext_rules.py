@@ -718,6 +718,10 @@ def worse_vs_base(r, b, t_base, disease=False, pre=None, ddir=None):
         above, below = above and ddir == 'high' and v > bv, below and ddir == 'low' and v < bv
         if not (above or below):
             return None
+    elif disease and d is None:
+        # 审阅者 2026-11-09（MY008：铁指标/C3/红细胞比容升高被判疾病加重 18 条）：归因研究疾病、而方案/IB 与通用方向表都没给
+        # 不利方向（铁指标双向、补体、比容）——不凭数值断言「加重」，分级路径仍生效
+        return None
     if bv == 0:                                      # 基线为 0（如乙肝表面抗原 0→199.68）：现超出范围即视为加重
         return '基线为 0，现超出参考范围' if above else None
     pct = (v - bv) / abs(bv)

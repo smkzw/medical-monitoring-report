@@ -23,7 +23,7 @@ import ext_rules
 import monitor_v5
 import raw_export
 import pd_rules
-from common import ae_action, cn_quotes, cs_plain, days, dose_state, dshow, dump_json, fmt, is_dosing, parse_links, is_full_date, load_json, move_word, not_done, open_workbook_lenient, pii_column, quantile, result_state, state_meets, study_day, yes, zero_dose
+from common import ae_action, cn_quotes, cs_plain, days, dose_state, dshow, dump_json, fmt, is_dosing, parse_links, is_full_date, load_json, move_word, not_done, open_workbook_lenient, pii_column, quantile, redact_row, result_state, state_meets, study_day, yes, zero_dose
 
 AGG_EXCL = set()
 
@@ -822,8 +822,17 @@ def build_findings(C):
                 bb, _ = pick_baseline(C, sid, mid, rs, rules)
                 if bb is not None:
                     sh_base[sh] = bb
+        # 审阅者 2026-11-09（MY008 复审：本地/中心两表并行，LB8 无给药前值时借 LB1 基线，参考范围/方法不同，43 行比较失真）：
+        # 本表无基线时，只借「只有给药前记录」的表（筛选期专表）的基线；对方表给药后也有数据＝并行检测来源，不跨表比较
+        post_sh = {sh for sh, rs in by_sh.items() if any(x.get('post') for x in rs)} if len(by_sh) > 1 else set()
         for r in rows:
-            r['base'] = sh_base.get(r.get('sheet'), b)
+            sh_ = r.get('sheet')
+            if sh_ in sh_base:
+                r['base'] = sh_base[sh_]
+            elif b is not None and len(by_sh) > 1 and b.get('sheet') != sh_ and b.get('sheet') in post_sh:
+                r['base'] = None
+            else:
+                r['base'] = b
             rb = r['base']
             r['isb'] = r is rb or (rb is not None and rb.get('_of') is not None and r in rb['_of'])
             u = r.get('unit') or ''
@@ -1249,7 +1258,7 @@ def build_labrows(C):
             # 用户 2026-10-27：归因研究疾病不算「未关联」；只有较基线明显加重、且未记录「研究疾病加重」类 AE 才作为风险
             t_base = float(C.cfg['thresholds'].get('base', 0.3))
             ddir = ext_rules.disease_dir(C, mid, P[0].get('sheet', '') if P else '')
-            wsys = next((w for w in (worse_vs_base(r, r.get('base') or b, t_base, disease=True, pre=pre_v, ddir=ddir) for r in cs_pts if r['post']) if w), None) if b else None
+            wsys = next((w for w in (worse_vs_base(r, (r['base'] if 'base' in r else b), t_base, disease=True, pre=pre_v, ddir=ddir) for r in cs_pts if r['post']) if w), None) if b else None
             wst = None if wsys else next((w for w in map(ext_rules.stated_worse, cs_pts) if w), None)   # 研究者备注写明加重：研究者判定优先
             wf = wsys or wst
             dae = disease_ae(sid, mid, cs_pts) if wf else []
@@ -1280,7 +1289,7 @@ def build_labrows(C):
                 mh_ = ext_rules.mh_explains(C, sid, mid, cs_pts)
                 if mh_ is not None:
                     t_base_ = float(C.cfg['thresholds'].get('base', 0.3))
-                    wf_ = next((w for w in (worse_vs_base(r, r.get('base') or b, t_base_, pre=pre_v) for r in cs_pts if r['post']) if w), None) if b else None
+                    wf_ = next((w for w in (worse_vs_base(r, (r['base'] if 'base' in r else b), t_base_, pre=pre_v) for r in cs_pts if r['post']) if w), None) if b else None
                     if not wf_ and b:
                         risk = 'MHL'                     # 病史延续：不作风险，提示可补关联（与 CSB 步骤 3「病史可解释」同口径）
                         ctx.append(f"未关联，但病史「{mh_['t']}」覆盖该期间，较基线未明显加重（病史延续，可请研究者补关联）")
@@ -1294,7 +1303,7 @@ def build_labrows(C):
                     ctx.append(f'研究疾病表现（{nm}）；基线缺失，无法判断是否较基线加重')
                 else:
                     ddir = ext_rules.disease_dir(C, mid, P[0].get('sheet', '') if P else '')
-                    wf = next((w for w in (worse_vs_base(r, r.get('base') or b, float(C.cfg['thresholds'].get('base', 0.3)), disease=True, pre=pre_v, ddir=ddir) for r in cs_pts if r['post']) if w), None)
+                    wf = next((w for w in (worse_vs_base(r, (r['base'] if 'base' in r else b), float(C.cfg['thresholds'].get('base', 0.3)), disease=True, pre=pre_v, ddir=ddir) for r in cs_pts if r['post']) if w), None)
                     dae = disease_ae(sid, mid, cs_pts) if wf else []
                     if wf and dae:
                         risk = 'DIS'
@@ -1354,7 +1363,7 @@ def build_labrows(C):
 
             dz_mh = bool(dz) and any(l[0] == 'MH' and dz.search(l[1] or '') for l in links)
             cs_ = [r for r in P if r.get('clin') == 2]
-            wf = next((w for w in (worse_vs_base(r, r.get('base') or b, t_base, pre=pre_v) or ext_rules.qual_worse(r, b) or (dz_mh and ext_rules.stated_worse(r)) for r in cs_) if w), None)
+            wf = next((w for w in (worse_vs_base(r, (r['base'] if 'base' in r else b), t_base, pre=pre_v) or ext_rules.qual_worse(r, b) or (dz_mh and ext_rules.stated_worse(r)) for r in cs_) if w), None)
             undet = None if wf else ('基线缺失，无法判断是否加重' if not b else
                                      '描述性结果，无法自动判断是否加重' if all(r.get('value') is None and ext_rules.qual_level(r.get('raw')) is None for r in cs_) else None)
             dae = disease_ae(sid, mid, [r for r in P if r.get('clin') == 2]) if wf and dz_mh else []
@@ -2451,8 +2460,31 @@ def _exc_state(C, sid, E, r):
     return None
 
 
+def _ref_positive(r):
+    """定量报告的定性指标（乙肝表面抗原 >250 IU/mL、竞争法核心抗体 COI）：按本行参考范围判阳性——结果落在正常范围外＝阳性。
+    正常范围只给上限（<0.05）→ 高于上限阳性；只给下限（竞争法「>1.0」）→ 低于下限阳性。无参考范围 → None（不猜）。
+    审阅者 2026-11-09：删失符号本身不决定阴阳（竞争法高值＝阴性），曾两头出错（判阴漏报 / 判阳误报）。"""
+    st = result_state(r.get('raw'))
+    if st is None or st[0] not in ('value', 'below', 'above') or st[1] is None:
+        return None
+    v, lo, hi = st[1], r.get('lo'), r.get('hi')
+    if isinstance(hi, (int, float)):
+        if st[0] == 'below':
+            return False if v <= hi else None
+        return v > hi
+    if isinstance(lo, (int, float)):
+        if st[0] == 'above':
+            return False if v >= lo else None
+        return v < lo
+    return None
+
+
 def _elig_bad_r(E, r):
     """V6：删失/定性写法（「<50」被 to_num 读成 50）按结果状态判；其余沿用数值比较。"""
+    if E.get('re'):
+        rp = _ref_positive(r)
+        if rp is not None:
+            return rp and not re.search(r'阴性|negative|未检出', str(r.get('raw') or ''), re.I)
     if not E.get('re') and E.get('on') in (None, 'val'):
         st = result_state(r.get('raw'))
         if st is not None and st[0] in ('below', 'above', 'neg'):
@@ -2525,6 +2557,19 @@ def _elig_label(eid):
     return f"{'入选' if m.group(1) == 'I' else '排除'}标准 {m.group(2)}" if m else str(eid or '')
 
 
+def _elig_cite(E, kind):
+    """质疑里引用入排标准：Word 自动编号不在文本里，抽取编号常与方案不符（RUX「排除标准24」实为第 5 条）——
+    引用改为「类别＋原文开头」，编号只在原文自带编号时保留（审阅者 2026-11-09）。"""
+    t = re.sub(r'\s+', '', str(E.get('text') or ''))
+    lab = _elig_label(E.get('id')).replace(' ', '') if E.get('id') else kind
+    head = re.match(r'^[（(]?[0-9]{1,2}(\.[0-9]{1,2})*[)）.、]', t)
+    if not t:
+        return lab
+    kind_ = '入选标准' if str(E.get('id') or '').startswith('IE-I') or kind == '入选标准' else '排除标准' if str(E.get('id') or '').startswith('IE-E') or kind == '排除标准' else kind
+    short = t[:26] + ('…' if len(t) > 26 else '')
+    return f"{kind_}「{short}」" if not head else f"{kind_} {head.group(0).strip('（()）.、')}「{short}」"
+
+
 def _near_val(C, sid, mre, r):
     """同受试者、指标匹配 mre、距判定记录最近日期（同表单优先）的数值结果行；无 → None。
     用户 2026-11-01 裁定：复合条件/例外的伴随值按「同 sheet/同受试者/最近日期」取。"""
@@ -2552,6 +2597,9 @@ def _gate_ok(C, sid, G, r):
         kw = G.get('kw') or G['metric']
         return False if txt and re.search(f'(?:{kw}){_NEG_TXT}', txt, re.I) else None
     if G.get('re'):
+        rp = _ref_positive(x)                 # 有参考范围时按范围判阴阳（与入排主条件同口径）
+        if rp is not None:
+            return rp
         t = str(x.get('raw') or '')
         # H3①②：伴随阳性同样先看 result_state（删失界/低于检测限不是阳性；旧编译正则的 \+ 会吃 E+）
         st = result_state(t)
@@ -2593,7 +2641,7 @@ def eligibility_checks(C):
                 ctx.append(f"判定值＝{'入组前末次测量' if pick == 'last' else '首次筛选测量' if pick == 'first' else '任一测量'}（共 {len(pool)} 次）")
             # V6 措辞排查：只引用命中的子条件（此前整段标准原文塞进引号再截断，ALP 信号引用了「AST或ALT…」）；原文进判读背景
             det = f"入组前 {lab} {r.get('raw')} {r.get('unit') or ''}（{r.get('visit')} {dshow(r.get('date'))}）".replace(' （', '（')
-            crit = (_elig_label(E['id']) if E.get('id') else kind).replace(' ', '')
+            crit = _elig_cite(E, kind)
             hit = f"，为{crit}规定的排除情形" if E.get('re') else f"，{_elig_rel(E, r)}{crit}规定的{_elig_thr(E, r)}"
             if E.get('text'):
                 ctx.append('标准原文：' + str(E['text'])[:160])
@@ -2727,6 +2775,11 @@ def pd_reconcile(C):
             o['ctx'].append('方案偏离记录表未见对应记录')
 
 
+def disease_not_ae(C) -> bool:
+    """方案是否规定「研究疾病相关异常/进展除非较预期更严重否则不作为 AE」（analysis.diseaseNotAEClause，PM5＋确定性正则双通道）。"""
+    return bool(C.A.get('diseaseNotAEClause'))
+
+
 # ----------------------------------------------------------------------------- queries
 QT = {  # 默认 query 措辞：写给 CRC，一句话＝异常点＋冲突点＋建议（不写日期：query 已定位到 listing 行）。可用 analysis.queryTemplates 覆盖
     'CSX': ('CS未关联AE/MH', '{btxt}{visit}访视{test}{move}{raw}{unit}（参考范围 {rng}{gtxt}），判为有临床意义，但未关联AE或病史，',
@@ -2802,6 +2855,10 @@ def build_queries(C):
         if f.get('group'):
             C.sheet_groups[f['sheet']].add(f['group'])
     T = dict(QT)
+    if disease_not_ae(C):
+        # 用户 2026-11-09：方案规定「研究疾病相关异常除非较预期更严重否则不作为 AE」时，问法改为「是否较预期病情更严重」，照常发
+        T['DISW'] = (QT['DISW'][0], QT['DISW'][1].replace('但未记录研究疾病加重AE，', '较基线加重，'),
+                     '方案规定研究疾病相关异常除非较预期病情更严重否则不作为AE：请评估该异常是否较预期病情更严重；如是，请记录为AE并关联。')
     T.update({k: tuple(v) for k, v in C.A.get('queryTemplates', {}).items()})
     risks = list(C.A.get('queryRisks', ['CSX', 'MH', 'NCS2', 'NA2', 'DISW', 'NA'])) + ['G2NF']
     Q = []
@@ -2868,9 +2925,9 @@ def build_queries(C):
             sc = []
             for x in P:
                 fx = next((r for r in rows_ if r['sheet'] == x[7] and r['row'] == x[8]), None)
-                w_ = fx and (fx.get('base') or b0) and (worse_vs_base(fx, fx.get('base') or b0, float(C.cfg['thresholds'].get('base', 0.3)),
+                w_ = fx and ((fx['base'] if 'base' in fx else b0)) and (worse_vs_base(fx, (fx['base'] if 'base' in fx else b0), float(C.cfg['thresholds'].get('base', 0.3)),
                                                                      disease=dis_, pre=ext_rules.pre_values(rows_), ddir=ddir_)
-                                                            or (ext_rules.qual_worse(fx, fx.get('base') or b0) if not dis_ else None))
+                                                            or (ext_rules.qual_worse(fx, (fx['base'] if 'base' in fx else b0)) if not dis_ else None))
                 if w_:
                     sc.append(((fx.get('grade') or 0), abs(x[6] or 0), x, w_))
             if sc:
@@ -3480,6 +3537,7 @@ def build_ex(C):
             if i in rs and labels:
                 # H1（第 3 轮 SAR，R10）：摘录出口与原始数据层同一隐私列判定（common.pii_column）——
                 # 「姓名缩写/研究者姓名/电话…」列不进质疑/偏离抽屉的原文摘录（≤14 字段全显时同样过滤）
+                r = redact_row(labels, list(r))                    # 自由文本里夹带的本行姓名缩写同样打码
                 rows[(sh, i)] = {labels[j]: ('' if v is None else str(v)[:120]) for j, v in enumerate(r)
                                  if j < len(labels) and v not in (None, '') and not pii_column(labels[j])}
     ex = {}

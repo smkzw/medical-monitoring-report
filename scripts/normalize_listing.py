@@ -30,7 +30,7 @@ from pathlib import Path
 
 import openpyxl
 
-from common import clin_code, dump_json, load_json, norm_date, num_bound, num_state, open_workbook_lenient, parse_desc_links, parse_links, parse_typed_links, to_num, yes
+from common import clin_code, dump_json, load_json, norm_date, num_bound, num_state, open_workbook_lenient, parse_desc_links, parse_links, parse_typed_links, redact_row, to_num, yes
 from inspect_listing import STRUCT_OK, guess, is_meta_col, is_struct_col
 
 DATE_FIELDS = {'date', 'start', 'end', 'icf', 'eot_d', 'eos_d', 'rand_d', 'fd', 'ld', 'aware', 'rpt', 'win_lo', 'win_hi'}
@@ -277,6 +277,7 @@ def read_spec(spec, books, M, dom=None):
     hdr_sid = {str(x).strip() for x in ((labels[si] if si is not None and si < len(labels) else None),
                                          (vars_[si] if si is not None and si < len(vars_) else None)) if x}
     for rown, r in data:
+        r = redact_row(labels, list(r))    # 审阅者 2026-11-09：自由文本里夹带的本行姓名缩写打码（PD 详述「受试者HLSH…」）
         rec = {k: conv(k, r[i] if i is not None and i < len(r) else None, M) for k, i in cols.items()}
         if not rec.get('sid') or str(rec['sid']).strip() in hdr_sid:
             continue              # V6（MY008 MH1）：表中间重复导出的表头行（受试者列＝「SUBJID」）不是记录

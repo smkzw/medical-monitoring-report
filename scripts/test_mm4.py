@@ -4512,5 +4512,44 @@ class ReviewerFix20261109(unittest.TestCase):
         self.assertTrue(_AESI_QUAL.search('ALT显著增高'))
         self.assertFalse(_AESI_QUAL.search('角膜炎'))
 
+    def test_disease_not_ae_clause_changes_disw_wording(self):
+        """用户 2026-11-09：方案有「研究疾病相关异常除非较预期更严重否则不作为 AE」时，DISW 问「是否较预期病情更严重」。"""
+        from types import SimpleNamespace
+        from mm_build import disease_not_ae
+        self.assertTrue(disease_not_ae(SimpleNamespace(A={'diseaseNotAEClause': {'quote': '…'}})))
+        self.assertFalse(disease_not_ae(SimpleNamespace(A={})))
+        src = open(__file__.replace('test_mm4.py', 'mm_build.py'), encoding='utf-8').read()
+        self.assertIn('是否较预期病情更严重', src)
+
+    def test_disease_no_direction_no_numeric_worsening(self):
+        """归因研究疾病且无疾病方向/通用方向（铁蛋白双向、补体 C3）：不凭数值判加重；有通用方向的（尿红细胞 ↑）照判。"""
+        from ext_rules import worse_vs_base, set_metric_dir
+        set_metric_dir(None)
+        b = {'value': 100.0, 'grade': 0}
+        for mid in ('lab:铁蛋白', 'lab:补体C3水平'):
+            r = {'value': 400.0, 'hi': 300, 'grade': 0, 'clin': 2, 'mid': mid, 'unit': 'x'}
+            self.assertIsNone(worse_vs_base(r, b, 0.3, disease=True, ddir=None), mid)
+        r = {'value': 50.0, 'hi': 5, 'grade': 0, 'clin': 2, 'mid': 'lab:尿红细胞', 'unit': '/ul'}
+        self.assertIn('较基线升高', worse_vs_base(r, {'value': 10.0, 'grade': 0}, 0.3, disease=True, ddir=None) or '')
+
+    def test_redact_row_masks_initials_in_free_text(self):
+        """同一行隐私列取值（姓名缩写）夹在自由文本里同样打码；短缩写/非整词不误伤（审阅者 2026-11-09）。"""
+        from common import redact_row
+        labels = ['受试者编号', '姓名缩写', 'PD 详述']
+        out = redact_row(labels, ['01001', 'HLSH', '受试者HLSH 于访视超窗；HLSHX 非整词'])
+        self.assertEqual(out[2], '受试者＊＊ 于访视超窗；HLSHX 非整词')
+        self.assertEqual(redact_row(labels, ['01001', 'LT', 'LT 升高'])[2], 'LT 升高')
+
+    def test_serology_positivity_by_reference_range(self):
+        """定量报告的定性指标按本行参考范围判阳：上限型 >250（hi 0.05）阳性；竞争法 >2.70（lo 1.0）阴性；无范围不猜。"""
+        from mm_build import _ref_positive, _elig_bad_r
+        self.assertTrue(_ref_positive({'raw': '>250.00', 'hi': 0.05}))
+        self.assertFalse(_ref_positive({'raw': '>2.70', 'lo': 1.0}))
+        self.assertTrue(_ref_positive({'raw': '0.35', 'lo': 1.0}))
+        self.assertFalse(_ref_positive({'raw': '<0.05', 'hi': 0.05}))
+        self.assertIsNone(_ref_positive({'raw': '>2.70'}))
+        self.assertTrue(_elig_bad_r({'re': '阳性|\\+'}, {'raw': '>250.00', 'hi': 0.05}))
+        self.assertFalse(_elig_bad_r({'re': '阳性|\\+'}, {'raw': '>2.70', 'lo': 1.0}))
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)
