@@ -373,6 +373,10 @@ KRI_DEFS = [
     ('sae', 'SAE 报告率', '安全', '/100人月', 'both', None, 'SAE 例次 / 随访人月 ×100'),
     ('late', 'SAE/AESI 报告超时', '安全', '%', 'high', (0, 5, 10), '报告超时 / SAE 与 AESI 例次'),
     ('csx', 'CS 未关联（检验）', '安全', '/例', 'high', None, '检验风险层：判 CS 未关联 AE/病史（受试者×指标，一个指标多次只计一次）/ 给药。专项（心电图/生命体征整份判定等）与质疑另计'),
+    # 审阅者 2026-11-10（用户：研究者「过严」方向）：轻微超限判 CS、相关性判定偏倚——中心层面展示，不发质疑
+    ('csm', '轻微超限判 CS', '安全', '%', 'high', None, '给药后轻微超出参考范围（超限 <10%、≤1 级）且已评价的检验值中判有临床意义的比例（偏高提示判定偏严、易多报 AE）'),
+    ('rel', 'AE 判相关比例', '安全', '%', 'both', None, 'TEAE 中研究者判与研究药物相关的比例（显著偏高或偏低都提示相关性判定习惯偏倚）'),
+    ('relx', '极端相关性判定', '安全', '%', 'high', None, '判「肯定相关」或「肯定无关」的 TEAE 比例（极端判定通常需去激发/再激发等证据）'),
     ('q', '申办方质疑', '数据', '/例', 'high', None, '申办方医学质疑 / 给药'),
     ('ent', '疑似录入错误', '数据', '/千条', 'high', None, '疑似录入错误 / 数值型检验检查记录 ×1000'),
     ('fresh', '数据新鲜度', '数据', '天', 'high', None, '数据截止 − 最近一条记录日期（研究层面取各中心中位数）'),
@@ -456,6 +460,19 @@ def kri(C):
     elif not due and C.ops.get('visitUnmapped'):
         na['ovd'] = na['oow'] = f"方案访视（{'、'.join(C.ops['visitUnmapped'][:6])}）在数据中找不到对应访视代码"
 
+    marg = defaultdict(lambda: [0, 0])               # 受试者 → [轻微超限判 CS, 轻微超限已评价]
+    for (sid_, _mid), rows_ in (getattr(C, 'F', None) or {}).items():
+        for r_ in rows_:
+            v_, hi_, lo_ = r_.get('value'), r_.get('hi'), r_.get('lo')
+            if not r_.get('post') or not isinstance(v_, (int, float)) or r_.get('clin') not in (1, 2) or (r_.get('grade') or 0) > 1:
+                continue
+            m_ = (isinstance(hi_, (int, float)) and hi_ > 0 and hi_ < v_ <= hi_ * 1.10) or \
+                 (isinstance(lo_, (int, float)) and lo_ > 0 and lo_ * 0.90 <= v_ < lo_)
+            if m_:
+                marg[sid_][1] += 1
+                marg[sid_][0] += r_.get('clin') == 2
+    _EXT = re.compile(r'肯定|definitely|certain', re.I)
+
     def calc(ids):
         ids = set(ids)
         ds = [x for x in dosed if x in ids]
@@ -481,6 +498,9 @@ def kri(C):
             'sae': [sum(1 for a in te_ if a.get('sae')), fud],
             'late': [sum(1 for p in pd if p['rule'] == 'SAFE-02' and p['sid'] in ids), len(ssa)],
             'csx': [sum(1 for g in C.labrows if g['sid'] in ids and g['risk'] == 'CSX'), len(ds)],
+            'csm': [sum(marg[x][0] for x in ids), sum(marg[x][1] for x in ids)],
+            'rel': [sum(1 for a in te_ if a.get('_rel')), len(te_)],
+            'relx': [sum(1 for a in te_ if _EXT.search(str(a.get('rel') or ''))), len(te_)],
             'q': [sum(1 for q in C.queries if q['sid'] in ids), len(ds)],
             'ent': [sum(1 for e in C.entry if e['sid'] in ids), sum(nnum.get(s, 0) for s in site_set)],
         }

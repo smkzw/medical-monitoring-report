@@ -23,6 +23,7 @@ import ext_rules
 import monitor_v5
 import raw_export
 import pd_rules
+import whodrug  # noqa: E402  本地授权 WHODrug 对照（按路径加载，不进仓库）
 from common import ae_action, cn_quotes, cs_plain, days, dose_state, dshow, dump_json, fmt, is_dosing, parse_links, is_full_date, load_json, move_word, not_done, open_workbook_lenient, pii_column, quantile, redact_row, result_state, state_meets, study_day, yes, zero_dose
 
 AGG_EXCL = set()
@@ -485,7 +486,12 @@ def build_events(C):
         C.cm_by[c['sid']].append({'n': c.get('no') or len(C.cm_by[c['sid']]) + 1, 't': c.get('term') or '', 's': c.get('start') or '',
                                   'e': c.get('end') or '', 'ong': bool(c.get('ongoing')), 'dose': c.get('dose') or '', 'fq': c.get('freq') or '',
                                   'rt': c.get('route') or '', 'why': ind, 'wk': wk, 'row': c['row'], 'sh': c['sheet'], 'wb': c.get('wb') or '', 'f': '',
-                                  'aeno': str(c.get('aeno') or '')})
+                                  'aeno': str(c.get('aeno') or ''),
+                                  # 审阅者 2026-11-10：ATC——项目自带 WHODrug 编码优先，否则本地 WHODrug 对照（无对照表时为空，行为不变）
+                                  # 中成药不走 WHODrug 子串对照（「地榆升白片」会拆出地榆等草药的十余个 ATC，全是噪声）
+                                  'atc': list(c.get('atc') or []) or ([] if whodrug.tcm_for(c.get('term')) else whodrug.atc_for(c.get('term'), c.get('route'))),
+                                  'atc_src': 'edc' if c.get('atc') else 'lookup',
+                                  'tcm': whodrug.tcm_for(c.get('term'))})   # 中成药类别（国家医保目录）：「中草药/中成药」类禁用不再依赖药名里有「中药」
     build_events_dup(C)
 
 
@@ -1172,6 +1178,15 @@ def hb_short_jump_note(C, mid, rows) -> str:
     return ''
 
 
+def _marginal(r) -> bool:
+    """轻微超限：超出参考上/下限不足 10% 且分级 ≤1（数值或分级不可得 → False）。"""
+    v, hi, lo = r.get('value'), r.get('hi'), r.get('lo')
+    if not isinstance(v, (int, float)) or (r.get('grade') or 0) > 1:
+        return False
+    return bool((isinstance(hi, (int, float)) and hi > 0 and hi < v <= hi * 1.10) or
+                (isinstance(lo, (int, float)) and lo > 0 and lo * 0.90 <= v < lo))
+
+
 def disease_gate(C, mid, pts, b):
     """研究疾病归因异常已判「较基线加重」后是否发质疑（用户 2026-11-05）：有 CTCAE 分级的指标只在最差 ≥3 级或分级上升
     （同 ext_rules.grade_up：已 ≥1 级再升级或升到 ≥2 级、且变化 ≥5%）时发；其余列「研究疾病指标波动」清单。无分级的指标 → 发（≥T_base 已满足）。
@@ -1396,7 +1411,12 @@ def build_labrows(C):
         if jn:
             ctx.append(jn)
         f0 = P[0]
+        # 审阅者 2026-11-10（用户：研究者「过严」）：判 CS 的点都只是轻微超限（超出参考限 <10%、≤1 级）→ 问法改为请确认临床意义判定
+        marg_ = risk == 'CSX' and bool(cs_pts) and all(_marginal(r) for r in cs_pts)
+        if marg_:
+            ctx.append('判 CS 的结果仅轻微超出参考范围（<10%、≤1 级）：先请确认临床意义判定，不直接要求记录 AE')
         C.labrows.append({
+            'marg': marg_,
             'sid': sid, 'site': C.subj[sid]['site'], 'cat': cat, 'test': C.metric[mid]['label'], 'mid': mid, 'grp': f0.get('group') or '',
             'pr': {'CSX': 4, 'MH': 3, 'NCS2': 3, 'NA2': 3, 'G2NF': 3, 'DISW': 3, 'NA': 3, 'MHU': 2}.get(risk, 1),
             'base': [b.get('visit'), b.get('raw'), b.get('unit') or '', b.get('clin')] if b else None,
@@ -1797,7 +1817,8 @@ def ae_lab_same(C, a, r):
 
 def ae_checks(C):
     on = set(C.A.get('aeChecks', ['predose_related', 'grade_vs_lab', 'cm_flag', 'cm_missing', 'aesi_terms', 'aesi_unmatched',
-                                  'duplicate', 'severity_logic', 'grade_floor']))
+                                  'duplicate', 'severity_logic', 'grade_floor', 'rel_expected', 'rel_extreme', 'grade_over_lab']))
+    unrel_rx = rx(C.A.get('unrelatedRe', r'无关|不相关|可能无关|unrelated'))
     lab_by_ae = defaultdict(list)
     for (sid, mid), rows in C.F.items():
         for r in rows:
@@ -1816,6 +1837,11 @@ def ae_checks(C):
             rs = [r for r in lab_by_ae[(sid, str(a['n']))] if r.get('grade') and ae_lab_same(C, a, r)]
             gi = grade_int(a['g']) or 0
             mx = max(rs, key=lambda r: r['grade']) if rs else None
+            if 'grade_over_lab' in on and mx and gi >= mx['grade'] + 2:
+                # 审阅者 2026-11-10（用户：研究者「过严」）：AE 分级明显高于对应检验分级——只提示，请核实分级依据（症状/处理可能另有依据）
+                add_other(C, sid, 'AE分级偏高提示', 2, f"AE「{a['t']}」记 {a['g']}，关联检验 {mx['test']} 最高仅 {C.GL} {mx['grade']} 级（{dshow(mx.get('date'))}）",
+                          mx.get('visit'), mx.get('date'), mx['sheet'], mx['row'], mx['test'], mx.get('clin'), [['AE', a['t'], a['s'], a['n']]], risk='AE',
+                          rule={'ask': '请核实分级依据（如为症状或处理所致的分级，可在说明中注明）。'})
             if mx and mx['grade'] > gi:
                 add_other(C, sid, 'AE分级与检验等级核对', 3, f"AE「{a['t']}」记 {a['g']}，关联检验 {mx['test']} {mx.get('raw')} {mx.get('unit') or ''}（{dshow(mx.get('date'))}）达 {C.GL} {mx['grade']} 级（{mx['gterm']}）",
                           mx.get('visit'), mx.get('date'), mx['sheet'], mx['row'], mx['test'], mx.get('clin'), [['AE', a['t'], a['s'], a['n']]], risk='AE')
@@ -1831,6 +1857,19 @@ def ae_checks(C):
             if not ref and any(c.get('aeno') or c['wk'] for c in C.cm_by[sid]):
                 add_other(C, sid, 'AE合并用药记录核对', 3, f"AE「{a['t']}」（{dshow(a['s'])}）记「是否有合并用药=是」，合并用药页未见引用该 AE 的记录", None, a['s'], a['sh'], a['row'], a['t'],
                           rel=[['AE', a['t'], a['s'], a['n']]], risk='AE', wb=a.get('wb') or '')
+        rel_ = str(a.get('rel') or '')
+        ib_exp = [x for x in (a.get('ib') or []) if re.search(r'预期不良反应|已识别风险|已知不良反应|ADR|identified', x, re.I)
+                  and not re.search(r'潜在风险|类效应|potential|同SOC', x, re.I) and _same_event(a, x)]   # 只认预期不良反应/已识别风险、且术语对得上
+        if 'rel_expected' in on and a.get('te') and ib_exp and not a['_rel'] and unrel_rx and unrel_rx.search(rel_):
+            # 用户 2026-11-10：研究者手册列明的风险/预期不良反应、给药期间发生，却判「无关」——请说明判定依据（相关性偏松）
+            add_other(C, sid, 'AE相关性核对', 3,
+                      f"AE「{a['t']}」（{dshow(a['s'])}，给药期间）属研究者手册列明的预期不良反应/已识别风险（{'、'.join(ib_exp[:2])}），相关性判为「{rel_}」",
+                      None, a['s'], a['sh'], a['row'], a['t'], rel=[['AE', a['t'], a['s'], a['n']]], risk='AE', wb=a.get('wb') or '',
+                      rule={'ask': '请说明相关性判定依据（时间关系、去激发/再激发、其他可解释原因）；如需更正，请更新相关性。'})
+        if 'rel_extreme' in on and re.search(r'肯定相关|definitely\s*related', rel_, re.I):
+            # 「肯定相关」通常需要去激发/再激发等证据——只列清单（相关性是研究者的判断权），不发质疑
+            add_other(C, sid, '相关性判定提示', 2, f"AE「{a['t']}」（{dshow(a['s'])}）判为「{rel_}」，请医学人员关注是否有去激发/再激发等支持依据",
+                      None, a['s'], a['sh'], a['row'], a['t'], rel=[['AE', a['t'], a['s'], a['n']]], risk='AE', wb=a.get('wb') or '')
         if 'aesi_terms' in on and a['_aesi_def'] and not a['aesi'] and not a['pre']:
             add_other(C, sid, 'AESI标记核对', 3, f"AE「{a['t']}」符合方案 AESI 定义（{'、'.join(a['_aesi_def'])}），但「是否AESI」未勾选", None, a['s'], a['sh'], a['row'], a['t'], rel=[['AE', a['t'], a['s'], a['n']]], risk='AE')
         if 'severity_logic' in on:
@@ -2218,20 +2257,20 @@ def restricted_checks(C):
             end_tx = s.get('ld') if is_full_date(s.get('ld')) else (s.get('lo') or '')
             hits = defaultdict(list)                  # 同一药物多条记录（减量/逐段录入）合并为一条：按药名归组
             for c in C.cm_by[sid]:
-                if not rx_.search(c['t']):
+                if not _drug_hit(R, c, rx_):
                     continue
                 loc_ = f"{c.get('rt') or ''} {c['t']}"
                 if rescue_re_r.search(c.get('why') or ''):
                     continue                          # 方案补救治疗由补救规则核查（D001 第 4 周后外用激素补救曾被套进限用药）
-                if R.get('route') == 'local' and not re.search(r'吸入|雾化|气雾|喷鼻|鼻喷|滴鼻|鼻用|鼻.{0,2}喷雾', loc_):
+                if not _atc_decided(R, c) and R.get('route') == 'local' and not re.search(r'吸入|雾化|气雾|喷鼻|鼻喷|滴鼻|鼻用|鼻.{0,2}喷雾', loc_):
                     continue
-                if R.get('route') == 'eye' and not re.search(r'滴眼|眼用|眼膏|眼凝胶|眼部', loc_):
+                if not _atc_decided(R, c) and R.get('route') == 'eye' and not re.search(r'滴眼|眼用|眼膏|眼凝胶|眼部', loc_):
                     continue
                 if (sid, c['sh'], c['row'], c['t']) in rst_seen:
                     continue
-                if R.get('route') == 'systemic' and (_TOPICAL.search(loc_) or _NONDERMAL.search(loc_)):
+                if not _atc_decided(R, c) and R.get('route') == 'systemic' and (_TOPICAL.search(loc_) or _NONDERMAL.search(loc_)):
                     continue                          # 「全身用糖皮质激素」不含外用/吸入/鼻用/眼用（与禁用药同口径）
-                if R.get('route') == 'topical' and (not _TOPICAL.search(loc_) or _NONDERMAL.search(loc_)):
+                if not _atc_decided(R, c) and R.get('route') == 'topical' and (not _TOPICAL.search(loc_) or _NONDERMAL.search(loc_)):
                     continue
                 why = ''
                 if is_full_date(c['s']) and c['s'] > s['fd'] and (not end_tx or c['s'] <= end_tx):
@@ -2254,6 +2293,13 @@ def restricted_checks(C):
                           bkey=f"{t_}|rst", wb=c.get('wb') or '')
 
 
+def _same_event(a, ib_name) -> bool:
+    """AE 术语与 IB 风险术语是同一事件（互相包含核心词，或 PT 相同）——「尿路感染」≠「上呼吸道感染」。"""
+    t = re.sub(r'[（(].*?[)）]', '', str(ib_name).split('·', 1)[-1]).strip()
+    at = re.sub(r'[？?\s]', '', str(a.get('t') or ''))
+    return bool(t) and (t in at or at in t or (a.get('pt') and str(a['pt']) == t))
+
+
 def disposition_checks(C):
     """处置一致性（审阅者 2026-11-10，D001 05015：SAE「是否因此退出＝是」、有提前退出访视，研究结束页却记「完成」，未发质疑）：
     AE 记录导致退出研究/治疗，而研究结束页记完成 → 请核实处置记录。"""
@@ -2268,6 +2314,53 @@ def disposition_checks(C):
                       + (f"（治疗结束原因：{s.get('eot_why')}）" if s.get('eot_why') else ''),
                       None, a['s'], a['sh'], a['row'], a['t'], rel=[['AE', a['t'], a['s'], a['n']]], risk='AE', wb=a.get('wb') or '',
                       rule={'ask': '请核实 AE「是否导致退出」与研究结束/治疗结束页的处置记录，并更正不一致之处。'})
+
+
+_TCM_SPEC = [('ZH', r'皮炎|湿疹|银屑|白癜风|荨麻疹|痤疮|特应性|皮肤|(?<![A-Za-z])AD(?![A-Za-z])'), ('ZF', r'鼻|咽|喉|耳|(?<![A-Za-z])[SP]?AR(?![A-Za-z])'), ('ZE', r'眼|结膜'),
+             ('ZD', r'妇|月经|乳腺|宫|卵巢'), ('ZG', r'骨|关节|伤|筋'), ('ZC', r'癌|瘤')]
+
+
+def _tcm_off_target(P, c, C) -> bool:
+    """「治疗X的中药」只靠中成药类别命中、而该药类别全是与 X 无关的专科（耳鼻喉/眼/妇/骨伤/肿瘤…）→ 不算（RUX：鼻炎片被判 AD 中药洗脱）。"""
+    fd = P.get('forDisease')
+    if not fd:     # 旧版编译结果洗脱条目没有 forDisease：按条目名「治疗X的…」补（与工作台 compile._for_disease 同一写法）
+        m = re.search(r'对([^的，,。；（(]{1,24}?)有(?:治疗|改善|缓解)?作用', str(P.get('name') or '')) or \
+            re.search(r'(?:用于治疗|用于|治疗|针对)([^的，,。；（(]{1,12}?)的', str(P.get('name') or ''))
+        fd = m.group(1) if m and not re.search(r'疾病|病症|病变|疾患|治疗|作用', m.group(1)) else ''
+    if not fd or not c.get('tcm') or re.search(P.get('re') or '(?!)', c['t'], re.I):
+        return False
+    fd_terms = [x.replace('\\', '') for x in re.split(r'\||或|及|和|、|/', str(fd)) if x.strip()]
+    dz = ' '.join(fd_terms + [str(t) for t in (C.A.get('diseaseTerms') or [])])
+    spec = {k for k, r_ in _TCM_SPEC if re.search(r_, dz)}
+    tops = {str(x)[:2] for x in c['tcm']}
+    if not tops or tops & spec:          # 对口专科 → 算
+        return False
+    if spec:
+        # 疾病对得上专科（皮肤→ZH、鼻→ZF）时，内科类（ZA，如小建中片、乌灵胶囊）与民族药（ZI 不分专科，如阿娜尔妇洁液）
+        # 只有用药原因写的就是该病才算（RUX 百癣夏塔热片原因「本研究疾病」照算）
+        why = str(c.get('why') or '')
+        dz_terms = [str(t) for t in fd_terms + list(C.A.get('diseaseTerms') or []) if t]
+        return not (why and any(t in why or why in t for t in dz_terms + ['研究疾病', '原发病']))
+    return tops <= {k for k, _ in _TCM_SPEC}       # 疾病专科不明：只排除全落在其他专科的，内科/民族药照算（宁可多问）
+
+
+def _drug_hit(P, c, rx) -> bool:
+    """药物是否属于该禁用/洗脱/限用条目：药名正则命中，或 ATC 前缀命中（ATC 来自项目 WHODrug 编码或本地对照）。
+    审阅者 2026-11-10 实测：申办方按用途编码（西替利嗪用于止痒编 D04），本地对照对复方只认点名成分——ATC 只「补」药名漏掉的
+    商品名/复方，不否决药名命中。"""
+    if rx.search(c['t']):
+        return True
+    codes = c.get('atc') or []
+    # 本地对照查到的 ATC 跨多个解剖大类（布地奈德途径未知：A/D/H/R 全有）→ 途径不明，不能单凭 ATC 断言属于某类；
+    # 申办方逐条编码的 ATC 照常可信
+    if c.get('atc_src') == 'lookup' and len({str(x)[:1] for x in codes}) > 1:
+        codes = []
+    return whodrug.atc_hit(P.get('atc'), codes) or bool(P.get('tcm') and c.get('tcm'))
+
+
+def _atc_decided(P, c) -> bool:
+    """只由 ATC 命中（药名没认出来）：途径以 ATC 为准，药名/途径文本的途径守卫不再套用（文本里常常没有剂型）。"""
+    return bool(P.get('atc') and c.get('atc')) and whodrug.atc_hit(P['atc'], c['atc']) and not re.search(P.get('re') or '(?!)', c['t'], re.I)
 
 
 def _latest_date(d) -> str:
@@ -2359,11 +2452,12 @@ def cm_checks(C):
             e0 = {'eos': s.get('eos_d') or s.get('lo'), 'eot': s.get('eot_d') or s.get('ld'), 'ld': s.get('ld')}.get(P.get('toAnchor') or 'ld')
             b = (dt.date.fromisoformat(e0) + dt.timedelta(days=P.get('daysAfter', 0))).isoformat() if is_full_date(e0) else (s.get('eos_d') or s['lo'])
             for c in C.cm_by[sid]:
-                if pre.search(c['t']) and overlap(c, a, b):
+                if _drug_hit(P, c, pre) and overlap(c, a, b):
+                    by_atc = _atc_decided(P, c)
                     # 「系统治疗」类禁用药不匹配外用/局部给药；按方案作为补救治疗使用的由补救规则（CM-02/03）核查，不按禁用药报
-                    if systemic_only and (_TOPICAL.search(c.get('rt') or '') or _TOPICAL.search(c['t']) or _NONDERMAL.search(f"{c.get('rt') or ''} {c['t']}")):
+                    if not by_atc and systemic_only and (_TOPICAL.search(c.get('rt') or '') or _TOPICAL.search(c['t']) or _NONDERMAL.search(f"{c.get('rt') or ''} {c['t']}")):
                         continue                 # 眼用/吸入/鼻用等局部给药不是系统性用药
-                    if systemic_only and _INHALED_TYPICAL.search(c['t']) and not _SYSTEMIC.search(f"{c.get('rt') or ''} {c['t']}") \
+                    if not by_atc and systemic_only and _INHALED_TYPICAL.search(c['t']) and not _SYSTEMIC.search(f"{c.get('rt') or ''} {c['t']}") \
                             and not re.search(r'片|胶囊|口服液|注射', c['t']):
                         # 常用吸入/鼻用的激素、途径未写明（RUX Q051 布地奈德途径「未知」）：不断言系统性，请核实途径
                         add_other(C, sid, '用药途径核对', 3,
@@ -2374,17 +2468,24 @@ def cm_checks(C):
                         continue
                     unk_end = not c['ong'] and not is_full_date(c['e']) and is_full_date(c['s']) and c['s'] < (s.get('icf') or s['fd']) \
                         and _latest_date(c['e']) >= a          # 部分停药日期的最晚可能日仍早于禁用期 → 不追
-                    if local_only and not _NONDERMAL.search(f"{c.get('rt') or ''} {c['t']}"):
+                    if not by_atc and local_only and not _NONDERMAL.search(f"{c.get('rt') or ''} {c['t']}"):
                         continue
                     if nonsed_ok and _NONSEDATING_AH.search(c['t']):
                         continue                 # F1：允许非镇静的镇静抗组胺条款不命中二代非镇静子类
                     if exc_re and exc_re.search(c['t']):
                         continue                 # 方案点名除外（SAR 背景药糠酸莫米松）
+                    if _tcm_off_target(P, c, C):
+                        continue                 # 中成药类别是与该病无关的专科
                     if for_dz and (c.get('why') or '').strip() and not for_dz.search(c['why']):
                         continue                 # 「治疗AD的口服中药」：写明用于其他疾病（月经不调）的不判（审阅者 2026-11-09）
-                    if exc_mh and (exc_mh.search(c.get('why') or '') or any(exc_mh.search(m.get('t') or '') for m in C.mh_by.get(sid, []))):
+                    if P.get('exceptAE') and (c.get('wk') == 'AE' or str(c.get('aeno') or '').strip()):
+                        continue                 # 方案允许用于治疗 AE（审阅者 2026-11-10：一药多类别时按用途判，用途允许即非禁用药风险）
+                    ae_t = [a['t'] for a in (getattr(C, 'ae_by', None) or {}).get(sid, [])
+                            if str(a.get('n')) and str(a.get('n')) in re.split(r'[,，;；、\s]+', str(c.get('aeno') or ''))] if exc_mh else []
+                    if exc_mh and (exc_mh.search(c.get('why') or '') or any(exc_mh.search(m.get('t') or '') for m in C.mh_by.get(sid, []))
+                                   or any(exc_mh.search(t_) for t_ in ae_t)):
                         continue                 # 以病史为条件的允许（SAR：合并哮喘者允许稳定剂量吸入激素；用药原因写「哮喘」同样算）
-                    if topical_only and _not_topical_cm(c):
+                    if not by_atc and topical_only and _not_topical_cm(c):
                         continue                 # F2：「外用」＝皮肤局部；吸入/雾化/鼻用/眼用/注射不属于（RUX 方案明确允许吸入型糖皮质激素）
                     if rescue and rescue_re.search(c.get('why') or '') and (not is_full_date(c['s']) or c['s'] >= s['fd']):
                         continue
@@ -2439,9 +2540,10 @@ def cm_checks(C):
                 continue
             a = (dt.date.fromisoformat(ref) - dt.timedelta(days=W['days'])).isoformat()
             for c in C.cm_by[sid]:
-                if sys_only and (_TOPICAL.search(c.get('rt') or '') or _TOPICAL.search(c['t']) or _NONDERMAL.search(f"{c.get('rt') or ''} {c['t']}")):
+                by_atc = _atc_decided(W, c)
+                if not by_atc and sys_only and (_TOPICAL.search(c.get('rt') or '') or _TOPICAL.search(c['t']) or _NONDERMAL.search(f"{c.get('rt') or ''} {c['t']}")):
                     continue                 # 眼用/吸入/鼻用不是系统性用药（审阅者 2026-11-10，SAR 眼用地塞米松套了系统激素洗脱）
-                if top_only and _not_topical_cm(c):
+                if not by_atc and top_only and _not_topical_cm(c):
                     continue                 # F2：外用＝皮肤局部；吸入/鼻用/眼用/注射复方不按外用洗脱核查
                 if nonsed_ok and _NONSEDATING_AH.search(c['t']):
                     continue                 # F1：允许非镇静的镇静抗组胺洗脱条款不命中二代非镇静子类
@@ -2449,7 +2551,9 @@ def cm_checks(C):
                     continue                 # F1：洗脱条目点名除外（编译层从条款原文生成，与禁用药同口径）
                 if wdz and (c.get('why') or '').strip() and not wdz.search(c['why']):
                     continue
-                if pre.search(c['t']) and not c['ong'] and not is_full_date(c['e']) and is_full_date(c['s']) and c['s'] <= ref \
+                if _tcm_off_target(W, c, C):
+                    continue
+                if _drug_hit(W, c, pre) and not c['ong'] and not is_full_date(c['e']) and is_full_date(c['s']) and c['s'] <= ref \
                         and _latest_date(c['e']) > a:
                     # 部分日期「2025-07-uk」：可能的最晚停药日已在洗脱窗口之前＝洗脱已满足，不追（审阅者 2026-11-09，SAR 95 条 AI 追问）
                     # 审阅者 2026-11-09（RUX：9 例 36 条既往外用激素/TCI 停药日期「uk」，洗脱是否满足无从判断却无任何提示）
@@ -2462,7 +2566,7 @@ def cm_checks(C):
                                   None, c['s'], c['sh'], c['row'], c['t'], bkey=f"{c['t']}|{c['s']}|unkend", wb=c.get('wb') or '')
                     continue
                 # 末次用药距参照日恰好 N 天＝洗脱期已满（D001 间隔正好 14/28 天曾判「不足」）：只算严格晚于窗口起点的
-                if pre.search(c['t']) and (c['ong'] or (is_full_date(c['e']) and c['e'] > a)) and (not is_full_date(c['s']) or c['s'] <= ref):
+                if _drug_hit(W, c, pre) and (c['ong'] or (is_full_date(c['e']) and c['e'] > a)) and (not is_full_date(c['s']) or c['s'] <= ref):
                     add_other(C, sid, W.get('cat', '入排洗脱用药核对'), W.get('pr', 3),
                               f"合并用药「{c['t']}」末次 {c['e'] or '持续'}，距{ {'icf': '知情', 'rand': '随机'}.get(W.get('ref'), '首剂')}（{ref}）不足 {W['days']} 天洗脱期（{_cls_txt(W, c)}）",
                               None, c['e'] or c['s'], c['sh'], c['row'], c['t'], bkey=f"{c['t']}|{c['s']}", wb=c.get('wb') or '')
@@ -2881,6 +2985,8 @@ def disease_not_ae(C) -> bool:
 QT = {  # 默认 query 措辞：写给 CRC，一句话＝异常点＋冲突点＋建议（不写日期：query 已定位到 listing 行）。可用 analysis.queryTemplates 覆盖
     'CSX': ('CS未关联AE/MH', '{btxt}{visit}访视{test}{move}{raw}{unit}（参考范围 {rng}{gtxt}），判为有临床意义，但未关联AE或病史，',
             '请核实是否需记录AE，或补充病史并关联。'),
+    'CSX_MARG': ('CS判定核对·轻微超限', '{btxt}{visit}访视{test}{move}{raw}{unit}（参考范围 {rng}，仅轻微超出），判为有临床意义，但未关联AE或病史，',
+                 '请确认临床意义判定；如确属有临床意义，请记录AE或病史并关联。'),
     'MH': ('CS仅关联病史·加重核对', '{btxt}{visit}访视{test}{move}{raw}{unit}（{wf}），判为有临床意义，仅关联病史“{mh}”，未见对应AE，',
            '请评估是否为给药后加重、需记录AE。'),
     'CSX_DIS': ('CS未关联·研究疾病表现较基线加重', '{btxt}{visit}访视{test}{move}{raw}{unit}（{wf}），判为有临床意义，该指标异常可见于{bg}，但较基线明显加重且未记录AE，',
@@ -2999,7 +3105,9 @@ def build_queries(C):
         cat, ft, ask = T[g['risk']]
         cand = [c for c in g['ctx'] if c.startswith('同期 AE')]
         bg = next((b for rx, b in ind_bg if rx.search(g.get('mid') or '') and ext_rules.bg_applies(b, g.get('mid') or '', g.get('grp') or '')), None) if g['risk'] == 'CSX' else None
-        if g['risk'] == 'CSX' and cand:  # a plausible AE exists but the finding is not linked → ask to link instead of "report AE"
+        if g['risk'] == 'CSX' and g.get('marg') and not cand:
+            cat, ft, ask = T.get('CSX_MARG', T['CSX'])   # 轻微超限判 CS：请确认判定（用户 2026-11-10「过严」方向）
+        elif g['risk'] == 'CSX' and cand:  # a plausible AE exists but the finding is not linked → ask to link instead of "report AE"
             cat, ft, ask = T.get('CSX_AE', T['CSX'])
             ft = ft.replace('{cand}', '、'.join(re.sub(r'可能对应，但检验页未关联', '', c).replace('同期 ', '') for c in cand))
         elif bg:                         # mm4：研究疾病表现且较基线进一步加重（未加重的已归 DIS，不发 query）

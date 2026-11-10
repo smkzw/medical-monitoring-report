@@ -4608,6 +4608,54 @@ class ReviewerFix20261109(unittest.TestCase):
             self.assertEqual(result_state(t), ('below', None), t)
             self.assertFalse(_elig_bad({'re': '阳性|检出'}, t), t)
 
+    def test_whodrug_lookup_and_atc_match(self):
+        """本地 WHODrug 对照（虚构迷你表）：最长物质名子串＋剂型收窄途径组；条目与记录都有 ATC 时按 ATC 判。"""
+        import importlib
+        import json
+        import os
+        import tempfile
+        import whodrug
+        tbl = {"names": {"地塞米松": ["D07AB", "H02AB", "S01BA"], "地塞米松磷酸钠": ["H02AB", "S01BA"], "糠酸莫米松": ["D07AC", "R01AD", "R03BA"]}}
+        p = os.path.join(tempfile.mkdtemp(), "w.json")
+        open(p, "w", encoding="utf-8").write(json.dumps(tbl, ensure_ascii=False))
+        os.environ["MM_WHODRUG"] = p
+        try:
+            importlib.reload(whodrug)
+            self.assertEqual(whodrug.atc_for("地塞米松磷酸钠注射液"), ["H02AB"])
+            self.assertEqual(whodrug.atc_for("糠酸莫米松乳膏"), ["D07AC"])
+            self.assertEqual(whodrug.atc_for("糠酸莫米松鼻喷雾剂"), ["R01AD"])
+            self.assertEqual(whodrug.atc_for("虚构药"), [])
+            from mm_build import _drug_hit, _atc_decided
+            import re as _re
+            c = {"t": "糠酸莫米松鼻喷雾剂", "atc": ["R01AD"]}
+            P = {"atc": ["D07"], "re": "莫米松"}
+            self.assertTrue(_drug_hit(P, c, _re.compile("莫米松")))          # 药名命中照旧（ATC 不否决）……
+            self.assertFalse(_atc_decided(P, c))                              # ……途径仍由文本守卫排除鼻用
+            c2 = {"t": "某虚构商品名乳膏", "atc": ["D07AC"]}
+            self.assertTrue(_drug_hit(P, c2, _re.compile("莫米松")))         # 药名认不出的商品名：ATC 补上
+            self.assertTrue(_atc_decided(P, c2))                              # 只由 ATC 命中 → 途径以 ATC 为准
+            c3 = {"t": "某虚构商品名", "atc": ["D07AC", "R03BA"], "atc_src": "lookup"}
+            self.assertFalse(_drug_hit(P, c3, _re.compile("莫米松")))        # 对照跨解剖大类（途径不明）→ 不凭 ATC 断言
+            c3["atc_src"] = "edc"
+            self.assertTrue(_drug_hit(P, c3, _re.compile("莫米松")))         # 申办方逐条编码照常可信
+        finally:
+            os.environ.pop("MM_WHODRUG", None)
+            importlib.reload(whodrug)
+
+    def test_tcm_specialty_and_ib_term_match(self):
+        """「治疗AR的中药」只认对口专科（ZF）；内科类（ZA）要用药原因写的是该病；IB 预期不良反应要术语对得上。"""
+        from types import SimpleNamespace
+        from mm_build import _tcm_off_target, _same_event
+        C = SimpleNamespace(A={'diseaseTerms': ['过敏性鼻炎']})
+        P = {'forDisease': '过敏性鼻炎', 're': '中药'}
+        self.assertFalse(_tcm_off_target(P, {'t': '通窍鼻炎片', 'tcm': ['ZF02'], 'why': ''}, C))
+        self.assertTrue(_tcm_off_target(P, {'t': '小建中片', 'tcm': ['ZA05A'], 'why': '胃痛'}, C))
+        self.assertFalse(_tcm_off_target(P, {'t': '玉屏风颗粒', 'tcm': ['ZA01D'], 'why': '过敏性鼻炎'}, C))
+        C2 = SimpleNamespace(A={'diseaseTerms': ['SAR']})        # 研究疾病只写缩写（SAR）也要认出耳鼻喉专科
+        self.assertTrue(_tcm_off_target({'name': '治疗AR的中药（全身性中药制剂）', 're': '中药'}, {'t': '小建中片', 'tcm': ['ZA05A'], 'why': ''}, C2))
+        self.assertTrue(_same_event({'t': '上呼吸道感染'}, '预期不良反应·上呼吸道感染'))
+        self.assertFalse(_same_event({'t': '尿路感染'}, '预期不良反应·上呼吸道感染'))
+
     def test_latest_possible_partial_date(self):
         """部分停药日期按最晚可能日判洗脱：2022-10-uk 早于窗口即满足，不追问。"""
         from mm_build import _latest_date

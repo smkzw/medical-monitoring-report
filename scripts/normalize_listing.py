@@ -275,6 +275,10 @@ def read_spec(spec, books, M, dom=None):
                and i not in set(cols.values())]       # V6（MY008）：「…(Code Value)」编码副本列不重复计入 SAE 标准
     crit_txt = next((i for i, lb in enumerate(labels) if re.search(r'SAE\s*标准|严重(性)?标准', lb) and not re.search(r'是否|Code Value|编码值', lb, re.I)
                      and i not in crit_is), None) if dom == 'ae' else None
+    # 审阅者 2026-11-10：合并用药表自带 WHODrug 编码时（锁库/稽查数据常见：ATC1–4 编码/代码列），收集全部层级 ATC 代码——
+    # 引擎按 ATC 判类别与途径（比药名准）；无编码列时由本地 WHODrug 对照表按药名补
+    atc_is = [i for i, lb in enumerate(labels) if re.search(r'ATC\s*\d?\s*(编码|代码|code|cd)$|^ATC\d?CD$|ATC\s*\d?\s*(编码|代码)', lb, re.I)
+              and not re.search(r'术语|名称|term|text', lb, re.I)] if dom == 'cm' else []
     si = cols.get('sid')
     hdr_sid = {str(x).strip() for x in ((labels[si] if si is not None and si < len(labels) else None),
                                          (vars_[si] if si is not None and si < len(vars_) else None)) if x}
@@ -297,6 +301,11 @@ def read_spec(spec, books, M, dom=None):
         if crit_is:               # F03：SAE 标准勾选（1/是/true/Y→勾选），勾选的条目名收集为 sae_crit
             hit = [labels[i].strip() for i in crit_is if i < len(r) and yes(r[i])]
             rec['sae_crit'] = '、'.join(hit)
+        if atc_is:
+            codes = sorted({str(r[i]).strip().upper() for i in atc_is if i < len(r) and r[i] not in (None, '')
+                            and re.fullmatch(r'[A-Z]\d{2}([A-Z]([A-Z](\d{2})?)?)?', str(r[i]).strip().upper())})
+            if codes:
+                rec['atc'] = codes
         if crit_txt is not None and crit_txt < len(r) and r[crit_txt] not in (None, '') and not rec.get('sae_crit'):
             rec['sae_crit'] = str(r[crit_txt]).strip()   # D001：SAE 标准是文本列（「需要住院治疗或延长住院时间」），曾判「标准均未勾选」
         if cfi is not None:
