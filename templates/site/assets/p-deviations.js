@@ -5,7 +5,7 @@ const POT=P.potential||[],CONF=P.confirmed||[],TAX=P.taxonomy||[],TX=K.pdTax(),R
 const G=['重要','待判定','一般'],GC={'重要':'#8B0000','待判定':'#E8C300','一般':'#C9CCD1'};
 const imp=a=>a.filter(x=>x.grade==='重要').length;
 const exe=POT.filter(x=>x.layer==='执行'),sci=POT.filter(x=>x.layer!=='执行');
-const subj=new Set(POT.map(x=>x.sid).concat(CONF.map(x=>x.sid))),sites=new Set(POT.map(x=>x.site).concat(CONF.map(x=>x.site)));
+const subj=new Set(POT.map(x=>x.sid).concat(CONF.map(x=>x.sid))),sites=new Set(POT.map(x=>x.site).concat(CONF.map(x=>x.site)).filter(Boolean));
 const ran=RULES.filter(r=>r.state==='ran').length;
 app.innerHTML=`
 <div class="flex mb"><h1 style="font-size:18px">方案偏离</h1><span class="muted small">已记录 PD（方案偏离记录表）· 潜在 PD（数据推断，待 CRA/研究者核实，不计入 PD 率）· 分级：重要 / 待判定 / 一般</span><span class="sp"></span>${(K.cfg().blind||{}).on?K.p('盲态','blu'):''}</div>
@@ -14,7 +14,7 @@ app.innerHTML=`
  <div class="kpi"><div class="l">潜在 PD · 执行层面</div><div class="v">${exe.length}<small>条</small></div><div class="s">${K.p('重要 '+imp(exe),'solid-red')}${K.p('待判定 '+exe.filter(x=>x.grade==='待判定').length,'yel')}</div></div>
  <div class="kpi"><div class="l">潜在 PD · 科学层面</div><div class="v">${sci.length}<small>条</small></div><div class="s">${K.p('重要 '+imp(sci),'solid-red')}${K.p('待判定 '+sci.filter(x=>x.grade==='待判定').length,'yel')}</div></div>
  <div class="kpi"><div class="l">潜在 PD 未见记录</div><div class="v">${P.hasListing===false?'—':POT.filter(x=>x.status==='未见记录').length}<small>/ ${POT.length}</small></div><div class="s">${K.p('已记录 '+POT.filter(x=>x.status==='已记录').length,'grn')}${P.hasListing?'':K.p('无方案偏离记录表可比对','line')}</div></div>
- <div class="kpi blu"><div class="l">涉及受试者 / 中心</div><div class="v">${subj.size}<small>例 · ${sites.size} 个中心</small></div></div>
+ <div class="kpi blu"><div class="l" title="潜在偏离与已登记偏离合计（含筛选期的已登记偏离）">涉及受试者 / 中心（潜在＋已登记）</div><div class="v">${subj.size}<small>例 · ${sites.size} 个中心</small></div></div>
  <div class="kpi grn"><div class="l">检查覆盖</div><div class="v">${ran}<small>/ ${RULES.length} 项已执行</small></div><div class="s">${K.p('未执行 '+RULES.filter(r=>r.state!=='ran').length,'line')}${K.p('需源文件核查 '+(P.notDetectable||[]).length+' 类','brn')}</div></div>
 </div>
 <div class="grid g12 mt">
@@ -35,10 +35,11 @@ drawMx();
 /* ---------- 中心分布 ---------- */
 const dosedBy={};K.subs().filter(s=>s.fd).forEach(s=>dosedBy[s.site]=(dosedBy[s.site]||0)+1);
 const st=[...sites].sort().map(s=>{const p=POT.filter(x=>x.site===s),f=CONF.filter(x=>x.site===s);const cc={};p.forEach(x=>cc[x.cat]=(cc[x.cat]||0)+1);return {site:s,name:K.center(s),n:dosedBy[s]||0,pot:p.length,rate:dosedBy[s]?p.length/dosedBy[s]:null,imp:imp(p),conf:f.length,top:Object.entries(cc).sort((a,b)=>b[1]-a[1]).slice(0,3)}});
-const rmax=Math.max(.01,...st.map(r=>r.rate||0));
+{const nc=CONF.filter(x=>!x.site).length;if(nc)st.push({site:'',name:'中心未填写',n:0,pot:0,rate:null,imp:0,conf:nc,top:[]})}   /* 已登记 PD 缺中心：单列，不算作一个中心 */
+const rmax=Math.max(.01,...st.filter(r=>r.n>=5).map(r=>r.rate||0));
 K.table(app.querySelector('#st'),{rows:st,sort:'rate',h:'300px',noPage:true,onRow:r=>{F.site=F.site===r.site?'':r.site;drawPane()},cols:[
- {k:'site',t:'中心',f:r=>`<span class="nowrap">${K.p(r.site,'sq mono')} ${K.esc(r.name.length>10?r.name.slice(0,10)+'…':r.name)}</span>`},{k:'n',t:'给药',cls:'num'},
- {k:'pot',t:'潜在',cls:'num'},{k:'rate',t:'每例',cls:'num',f:r=>r.rate==null?'—':`<span style="background:rgba(139,0,0,${(r.rate/rmax*.45).toFixed(2)});padding:1px 6px;border-radius:4px;color:${r.rate/rmax>.6?'#fff':'inherit'}">${r.rate.toFixed(2)}</span>`,tip:'潜在 PD 条数 / 给药受试者数'},
+ {k:'site',t:'中心',f:r=>`<span class="nowrap">${r.site?K.p(r.site,'sq mono')+' ':''}${K.esc(r.name.length>10?r.name.slice(0,10)+'…':r.name)}</span>`},{k:'n',t:'给药',cls:'num'},
+ {k:'pot',t:'潜在',cls:'num'},{k:'rate',t:'每例',cls:'num',s:r=>r.n>=5?r.rate:-1,f:r=>r.rate==null?'—':r.n<5?`<span class="faint" title="给药不足 5 例，仅供参考">${r.rate.toFixed(2)}</span>`:`<span style="background:rgba(139,0,0,${Math.min(.45,r.rate/rmax*.45).toFixed(2)});padding:1px 6px;border-radius:4px;color:${r.rate/rmax>.6?'#fff':'inherit'}">${r.rate.toFixed(2)}</span>`,tip:'平均每例潜在偏离条数（给药不足 5 例的中心灰显、排在后面）'},
  {k:'imp',t:'重要',cls:'num',f:r=>r.imp?K.p(r.imp,'solid-red'):'·'},{k:'conf',t:'已记录',cls:'num',f:r=>r.conf||'·'},
  {k:'top',t:'主要类别',ns:1,f:r=>r.top.map(([c,n])=>`<span class="xs muted">${K.esc((TX[c]||[])[1]||c)} ${n}</span>`).join(' · ')}]});
 /* ---------- 清单 ---------- */

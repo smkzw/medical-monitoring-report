@@ -36,7 +36,7 @@ function draw(site){
   <div class="card mt"><div class="hd"><h2>数据质量</h2><span class="sub">数据可信度（建议核对，不作结论）${TL?' · 录入及时性':''}</span></div><div id="cq"></div></div>`;
   /* KRI */
   if(KR){const sv=KR.sites[site]||{};document.getElementById('ck').innerHTML=`<table class="t"><thead><tr><th>指标</th><th class="num">本中心</th><th class="num">整体</th><th class="num">限度</th><th></th></tr></thead><tbody>${KR.defs.map(d=>{const nd=sv[d.k],v=K.kriV(d.k,nd),s=d.qtl&&nd&&nd[1]>=5?K.qtlState(d.k,nd):{},na=(KR.na||{})[d.k];
-    return `<tr><td class="small" title="${K.esc(d.note)}">${K.esc(d.l)} <span class="xs faint">${d.u}</span></td><td class="num"><b>${na||v==null?'—':K.kriFmt(d.k,v)}</b> <span class="xs faint">${nd&&nd[1]&&d.u!=='天'?nd[0]+'/'+nd[1]:''}</span></td><td class="num">${na?'—':K.kriFmt(d.k,K.kriV(d.k,KR.study[d.k]))}</td><td class="num">${d.qtl?'≤'+K.qtlLim(d.k)+'%':''}</td><td>${s.st?K.p(K.QTLC[s.st][0],K.QTLC[s.st][1]):d.qtl&&nd&&nd[1]<5&&nd[1]?'<span class="xs faint">n<5 不判</span>':''}</td></tr>`}).join('')}</tbody></table>`}
+    return `<tr><td class="small" title="${K.esc(d.note)}">${K.esc(d.l)} <span class="xs faint">${d.u}</span></td><td class="num"><b>${na||v==null?'—':K.kriFmt(d.k,v)}</b> <span class="xs faint">${nd&&nd[1]&&d.u!=='天'?K.kriND(d.k,nd):''}</span></td><td class="num">${na?'—':K.kriFmt(d.k,K.kriV(d.k,KR.study[d.k]))}</td><td class="num">${d.qtl?'≤'+K.qtlLim(d.k)+'%':''}</td><td>${s.st?K.p(K.QTLC[s.st][0],K.QTLC[s.st][1]):d.qtl&&nd&&nd[1]<5&&nd[1]?'<span class="xs faint">n<5 不判</span>':''}</td></tr>`}).join('')}</tbody></table>`}
   else document.getElementById('ck').innerHTML='<div class="empty">本构建没有 KRI 数据</div>';
   /* 风险类别 */
   document.getElementById('cr').innerHTML=`<table class="t"><thead><tr><th>组</th><th>类别</th><th class="num">观察</th><th class="num">期望</th><th></th></tr></thead><tbody>${cats.map(([k,g,l,,desc])=>{const x=(CR.cell[k]||{})[site];if(!x)return '';
@@ -54,7 +54,7 @@ function draw(site){
   /* 数据质量 */
   const cf=CRD?K.credFlags(site,CRD.sites[site]):[],tl=TL&&TL.sites?TL.sites[site]:null;
   document.getElementById('cq').innerHTML=`<div class="grid g2"><div><div class="xs muted mb">数据可信度</div>${cf.length?cf.map(f=>`<div class="box small mb">${K.p(f.l,'yel')} ${K.esc(f.why)}</div>`).join(''):'<div class="small muted">未见中心层面的异常模式</div>'}</div>
-   <div><div class="xs muted mb">录入及时性</div>${tl?`<div class="kv"><dt>新增访视记录</dt><dd>${tl.n??'—'}</dd><dt>延迟中位数 / P90</dt><dd>${tl.med??'—'} / ${tl.p90??'—'} 天</dd><dt>修改/删除率</dt><dd>${tl.mod&&tl.mod[1]?(tl.mod[0]/tl.mod[1]*100).toFixed(1)+'%':'—'}</dd><dt>最近一次有新数据</dt><dd>${K.esc(tl.lastNew||'—')}</dd></div>`:'<div class="small muted">单次构建：在工作台多次上传后按上传谱系推算</div>'}</div></div>`;
+   <div><div class="xs muted mb">录入及时性</div>${tl?`<div class="kv"><dt>新增访视记录</dt><dd>${tl.n??'—'}</dd><dt>延迟中位数 / P90</dt><dd>${tl.med??'—'} / ${tl.p90??'—'} 天</dd><dt>修改/删除率</dt><dd>${tl.mod&&tl.mod[1]?(tl.mod[0]/tl.mod[1]*100).toFixed(1)+'%':'—'}</dd><dt>最近一次有新数据</dt><dd>${K.esc(tl.lastNew||'—')}</dd></div>`:'<div class="small muted">需至少两次数据更新后才能计算</div>'}</div></div>`;
 }
 if(sel.value)go();
 });

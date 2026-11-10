@@ -15,12 +15,13 @@ app.innerHTML=`<div class="grid" style="grid-template-columns:270px 1fr;gap:14px
   ${ARMS.length>1?`<div style="padding:0 10px 6px"><select class="s" id="fg" style="width:100%"><option value="">全部分组</option>${ARMS.map(a=>`<option value="${K.esc(a)}">${K.esc(a)}（${subs.filter(s=>s.grp===a&&s.fd).length} 例给药）</option>`).join('')}</select></div>`:''}
   <div style="padding:0 10px 6px" class="chips" id="fs"></div>
   <div style="padding:0 10px 6px" class="flex"><span class="xs muted">排序</span><div class="seg" id="fo"></div></div>
+  <div style="padding:0 10px 6px;line-height:1.9" class="xs muted">${K.p('n','solid-red')} 有临床意义未关联 AE/病史　${K.p('n','red')} 专项核查　${K.p('n','org')} 仅关联病史　${K.p('Q','line')} 质疑条数　AE 不良事件例次　圆点＝受试者状态</div>
   <div class="subj-list" id="sl"></div></div>
  <div id="main"></div></div>`;
 const st={q:'',c:H.c||'',g:'',s:'dosed',o:'risk'};
 const DS=((window.KZS||{}).delta||{}).subjects||null;   /* 较上次：有新增/修改/删除记录的受试者 */
 document.getElementById('fc').value=st.c;
-K.chips(document.getElementById('fs'),[['dosed','已给药',subs.filter(s=>s.fd).length],['risk','有风险提示',subs.filter(s=>s.fd&&(s.sc.csx||s.sc.mh||s.sc.ot)).length],['q','有质疑',subs.filter(s=>s.nq).length],['sf','筛选失败',subs.filter(s=>s.status==='筛选失败').length],...(DS?[['chg','本次有新数据',subs.filter(s=>DS[s.id]).length]]:[])],v=>{st.s=v;list()},{all:'全部',value:'dosed'});
+K.chips(document.getElementById('fs'),[['dosed','已给药',subs.filter(s=>s.fd).length],['risk','有风险提示',subs.filter(s=>s.fd&&(s.sc.csx||s.sc.mh||s.sc.ot)).length],['q','有质疑',subs.filter(s=>s.sc.q).length],['sf','筛选失败',subs.filter(s=>s.status==='筛选失败').length],...(DS?[['chg','本次有新数据',subs.filter(s=>DS[s.id]).length]]:[])],v=>{st.s=v;list()},{all:'全部',value:'dosed'});
 K.seg(document.getElementById('fo'),[['risk','风险'],['id','编号'],['ae','AE数']],'risk',v=>{st.o=v;list()});
 document.getElementById('fq').oninput=e=>{st.q=e.target.value.trim();list()};
 document.getElementById('fc').onchange=e=>{st.c=e.target.value;list()};
@@ -29,10 +30,10 @@ const rk=s=>s.sc.csx*100+s.sc.ot*20+s.sc.mh*10+s.sc.q*3+s.sc.n2;
 let cur=H.s;
 function list(){
   let r=subs.filter(s=>(!st.c||s.site===st.c)&&(!st.g||s.grp===st.g)&&(!st.q||s.id.includes(st.q)));
-  if(st.s==='dosed')r=r.filter(s=>s.fd);else if(st.s==='risk')r=r.filter(s=>s.fd&&(s.sc.csx||s.sc.mh||s.sc.ot));else if(st.s==='q')r=r.filter(s=>s.nq);else if(st.s==='sf')r=r.filter(s=>s.status==='筛选失败');else if(st.s==='chg')r=r.filter(s=>DS&&DS[s.id]);
+  if(st.s==='dosed')r=r.filter(s=>s.fd);else if(st.s==='risk')r=r.filter(s=>s.fd&&(s.sc.csx||s.sc.mh||s.sc.ot));else if(st.s==='q')r=r.filter(s=>s.sc.q);else if(st.s==='sf')r=r.filter(s=>s.status==='筛选失败');else if(st.s==='chg')r=r.filter(s=>DS&&DS[s.id]);
   r.sort(st.o==='risk'?(a,b)=>rk(b)-rk(a)||a.id.localeCompare(b.id):st.o==='ae'?(a,b)=>b.nae-a.nae||a.id.localeCompare(b.id):(a,b)=>a.id.localeCompare(b.id));
   const el=document.getElementById('sl');
-  el.innerHTML=r.map(s=>`<div class="it ${s.id===cur?'on':''}" data-id="${s.id}"><b style="width:44px;color:var(--ink)">${s.id}</b><span class="dot ${K.STC[s.status]||''}" title="${s.status}"></span>${DS&&DS[s.id]?'<span class="p red sq" title="较上次有新增/修改的记录">新</span>':''}<span class="sp"></span>${s.sc.csx?`<span class="p solid-red sq" title="CS未关联AE/MH">${s.sc.csx}</span>`:''}${s.sc.ot?`<span class="p red sq" title="专项核查（需核实及以上）">${s.sc.ot}</span>`:''}${s.sc.mh?`<span class="p org sq" title="CS仅关联MH">${s.sc.mh}</span>`:''}${s.sc.q?`<span class="p line sq" title="质疑">Q${s.sc.q}</span>`:''}<span class="xs faint" style="width:30px;text-align:right">${s.nae?'AE'+s.nae:''}</span></div>`).join('')||'<div class="empty">无</div>';
+  el.innerHTML=r.map(s=>`<div class="it ${s.id===cur?'on':''}" data-id="${s.id}"><b style="width:44px;color:var(--ink)">${s.id}</b><span class="dot ${K.STC[s.status]||''}" title="${s.status}"></span>${DS&&DS[s.id]?'<span class="p red sq" title="较上次有新增/修改的记录">新</span>':''}<span class="sp"></span>${s.sc.csx?`<span class="p solid-red sq" title="有临床意义但未关联 AE/病史">${s.sc.csx}</span>`:''}${s.sc.ot?`<span class="p red sq" title="专项核查（需核实及以上）">${s.sc.ot}</span>`:''}${s.sc.mh?`<span class="p org sq" title="有临床意义、仅关联病史">${s.sc.mh}</span>`:''}${s.sc.q?`<span class="p line sq" title="质疑条数">Q${s.sc.q}</span>`:''}<span class="xs faint" style="width:30px;text-align:right">${s.nae?'AE'+s.nae:''}</span></div>`).join('')||'<div class="empty">无</div>';
   el.querySelectorAll('.it').forEach(it=>it.onclick=()=>show(it.dataset.id));
   if(!cur&&r.length)show(r[0].id);
 }
@@ -65,7 +66,7 @@ async function show(id){
    </div>
    <div class="flex wrap mt" style="margin-top:10px;gap:6px">${[['AE',d.ae.length,d.ae.some(a=>a.sae)?'SAE':''],['MH',d.mh.length],['合并用药',d.cm.length,iron.length?HL.label+iron.length:''],['检验异常行',lr.length],['专项核查',ot.length],['质疑',qs.length],[EXS+'意见',cro.length]].map(([a,b,c])=>`<span class="chip" style="cursor:default">${a} <b>${b}</b>${c?` <span class="xs" style="color:var(--risk)">${c}</span>`:''}</span>`).join('')}</div>
    ${risks.length?`<div class="flex wrap" style="margin-top:8px;gap:4px"><span class="xs muted" style="margin-right:4px">风险提示</span>${risks.map(([t,c,k])=>`<span class="p ${c} click" data-go="${k}">${K.esc(t)}</span>`).join('')}</div>`:''}
-   ${d.fd?`<div class="jr-wrap"><div class="xs muted" style="margin:10px 0 2px">受试者旅程 · 给药、访视、AE、合并用药、检验异常与质疑同一时间轴（点任一元素查看证据与原始数据）</div><div id="jr" class="chart" style="height:${K.journeyH(d)}px"></div></div>`:''}
+   ${d.fd?`<div class="jr-wrap"><div class="xs muted" style="margin:10px 0 2px">受试者旅程 · 给药、访视、AE、合并用药、检验异常与质疑同一时间轴（默认从知情同意前 30 天起，滚轮缩放可看更早记录；点任一元素查看证据与原始数据）</div><div id="jr" class="chart" style="height:${K.journeyH(d)}px"></div></div>`:''}
   </div>
   <div class="tabs" id="ptabs"></div><div id="pp"></div>`;
   const dayOf=x=>K.studyDay(x,d.fd);

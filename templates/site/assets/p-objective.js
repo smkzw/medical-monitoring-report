@@ -104,7 +104,7 @@ function draw(){
    <div class="card"><div id="sh">${shiftHTML()}</div>
    <div class="xs muted mt">点击着色单元格查看受试者；①含②。CS 判定与 AE 记录在明细中核对</div><div class="xs muted mt">各访视超范围比例${hc?`（实线 = ${hc} 中心，虚线 = 整体）`:''}</div><div class="chart" id="b3" style="height:150px"></div></div></div>
   <div class="card mb"><div class="xs muted">个体轨迹（研究日）· ${hc?`橙色加粗 = ${hc} 中心，其余淡化`:'选择中心后加粗显示该中心'} · 深红 = 离群/阈值受试者 · 点击线查看参与者</div><div class="chart" id="b2" style="height:260px"></div></div>
-  <div class="card mb"><div class="sec-t" style="margin-top:0"><h2>中心偏离</h2><span class="muted small">漏斗图：中心值与整体比较，虚线 ±2SE = 需关注，点线 ±3SE = 明显偏离；n&lt;2 不判 · 点击中心切换选择</span></div>
+  <div class="card mb"><div class="sec-t" style="margin-top:0"><h2>中心偏离</h2><span class="muted small">中心与整体比较：越出虚线＝需关注，越出点线＝明显偏离（按各中心例数放宽范围）；不足 2 例不判 · 点击中心切换选择</span></div>
    <div class="grid g12"><div><div class="xs muted">给药后个体均值（${modeL}）· 整体 ${K.fmt(FM.mu)} · n=${FM.N}</div><div class="chart" id="f1" style="height:260px"></div></div><div><div class="xs muted">给药后超范围比例 · 整体 ${(totAb*100).toFixed(0)}% · n=${FP.N}</div><div class="chart" id="f2" style="height:260px"></div></div></div></div>
   <div class="grid g2"><div class="card"><div class="sec-t" style="margin-top:0"><h2>受试者离群 / 方案阈值</h2><span class="muted small">${MR.map(x=>K.esc(x.note||'')).filter(Boolean).join('；')}${MR.some(x=>x.note)?' · ':''}同访视变化幅度明显离群${hc?` · 仅 ${hc} 中心`:''}</span></div><div id="ot"></div></div>
    <div class="card"><div class="sec-t" style="margin-top:0"><h2>中心对比</h2><span class="muted small">给药后均值 · 超范围比例（整体 ${(totAb*100).toFixed(0)}%）· 点击行选择中心</span></div><div id="ct"></div></div></div>`;
@@ -159,7 +159,7 @@ function draw(){
   K.table(document.getElementById('ot'),{rows:OLc,pageSize:12,h:'360px',onRow:o=>go(SJ[o.r[0]][0]),cols:[
     {k:'sid',t:'受试者',s:o=>SJ[o.r[0]][0],f:o=>`<b style="color:var(--blue)">${SJ[o.r[0]][0]}</b> <span class="faint xs">${SJ[o.r[0]][1]}</span>`},{k:'v',t:'访视',f:o=>K.p(o.v,'blu')},
     {k:'val',t:'值',s:o=>o.r[3],f:o=>`<b>${K.esc(o.r[14])}</b> <span class="xs faint">${K.esc(o.r[15]||'')}</span>`},{k:'chg',t:'Δ / Δ%',s:o=>o.r[10],f:o=>`${o.r[10]!=null?(o.r[10]>0?'+':'')+K.fmt(o.r[10]):'—'} <span class="xs muted">${K.pct(o.r[11])}</span>`},
-    {k:'why',t:'依据',s:o=>o.why?1e9:Math.abs(o.z||0),f:o=>o.why?K.p(o.why,'red'):K.p('z '+(o.z>0?'+':'')+o.z.toFixed(1),'yel')},
+    {k:'why',t:'依据',s:o=>o.why?1e9:Math.abs(o.z||0),f:o=>o.why?K.p(o.why,'red'):K.p(Math.abs(o.z)>=5?'变化幅度明显离群':'变化幅度离群','yel','同访视全体变化值的稳健离群度 '+(o.z>0?'+':'')+o.z.toFixed(1)+'（越大越离群）')},
     {k:'lr',t:'判定/关联',ns:1,f:o=>{const g=LRk[SJ[o.r[0]][0]+'|'+cur.label];return g?K.risk(g.risk):''}}]});
   K.table(document.getElementById('ct'),{rows:C.slice().sort((a,b)=>(b.site===hc)-(a.site===hc)||b.sev-a.sev||b.flag.length-a.flag.length||b.pab-a.pab),pageSize:12,h:'360px',onRow:c=>pick(c.site),cols:[{k:'site',t:'中心',f:c=>`<b style="${c.site===hc?'color:#E67E00':''}">${c.site}</b> <span class="xs muted">${K.esc(c.name.slice(0,10))}</span>`},{k:'n',t:'n'},{k:'mm',t:'给药后均值',s:c=>c.m?c.m.m:-1e9,f:c=>c.m?K.fmt(c.m.m):'—'},{k:'pab',t:'超范围',f:c=>`<div class="flex" style="gap:6px"><div class="bar-in" style="width:60px"><i style="width:${c.pab*100}%;background:${c.p&&c.p.flag==='red'&&c.p.z>0?'#8B0000':'#FF9900'}"></i></div><span class="xs">${c.ab}/${c.np}</span></div>`},{k:'flag',t:'提示',s:c=>c.sev*10+c.flag.length,f:c=>c.flag.map(f=>K.p(f[0],f[1])).join(' ')}]});
 }

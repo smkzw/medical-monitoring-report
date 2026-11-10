@@ -17,6 +17,7 @@ K.setQtl=t=>{if(t===K.qtlTier())return;LS.set(K._qtlLS,t);location.reload()};
 K.kriDef=k=>((K.kri()||{}).defs||[]).find(d=>d.k===k);
 K.kriScale=u=>u==='%'?100:u==='/100人月'?100*30.4375:u==='/千条'?1000:1;
 K.kriV=(k,nd)=>{const d=K.kriDef(k);if(!d||!nd||nd[0]==null||!nd[1])return null;return nd[0]/nd[1]*K.kriScale(d.u)};
+K.kriND=(k,nd)=>{if(!nd||nd[1]==null)return '';const d=K.kriDef(k)||{};return d.u==='/100人月'?`${nd[0]} 例次 / ${(nd[1]/30.4375).toFixed(1)} 人月`:nd[0]+'/'+nd[1]};   /* 分母是随访人日：显示时换成人月（中心页曾写 8/347 像人月） */
 K.kriFmt=(k,v)=>{const d=K.kriDef(k)||{};if(v==null)return '—';const s=d.u==='天'?String(Math.round(v)):v>=100?v.toFixed(0):v>=10?v.toFixed(1):v.toFixed(2).replace(/0$/,'');return s+(d.u==='%'?'%':d.u==='天'?' 天':'')};
 K.qtlLim=k=>{const d=K.kriDef(k);if(!d||!d.qtl)return null;return d.qtl[{strict:0,std:1,loose:2}[K.qtlTier()]??1]};
 K.qtlState=(k,nd)=>{const v=K.kriV(k,nd),lim=K.qtlLim(k);if(v==null||lim==null)return {v,lim,st:''};return {v,lim,st:v>lim?'exceed':lim>0&&v>lim*.8?'warn':'ok'}};
@@ -26,7 +27,7 @@ K.qtlBar=el=>{const k=K.kri();if(!el||!k)return;el.innerHTML=`<span class="xs mu
   K.seg(el.querySelector('#kz-qtl'),k.tiers,K.qtlTier(),v=>K.setQtl(v))};
 K.qtlTiles=el=>{const rows=K.qtlRows();if(!el)return;if(!rows.length){el.innerHTML='<div class="empty">本构建没有 KRI 数据</div>';return}
   el.innerHTML=`<div class="qtl">${rows.map(r=>`<a class="qt ${r.st||'na'}" href="monitor.html#tab=kri" title="${K.esc(r.note)}"><div class="l">${K.esc(r.l)}</div>
-   <div class="v">${r.na?'—':K.kriFmt(r.k,r.v)}</div><div class="s">${r.na?`<span class="faint">${K.esc(r.na)}</span>`:`限度 ≤${r.lim}${r.u==='%'?'%':''} · ${r.nd?r.nd[0]+'/'+r.nd[1]:''}${(((D().ops||{}).kriPending)||{})[r.k]?` <span class="faint">另 ${D().ops.kriPending[r.k]} 例待核实未计入</span>`:''} ${r.st?K.p(K.QTLC[r.st][0],K.QTLC[r.st][1]):''}`}</div></a>`).join('')}</div>`};
+   <div class="v">${r.na?'—':K.kriFmt(r.k,r.v)}</div><div class="s">${r.na?`<span class="faint">${K.esc(r.na)}</span>`:`限度 ≤${r.lim}${r.u==='%'?'%':''} · ${r.nd?K.kriND(r.k,r.nd):''}${(((D().ops||{}).kriPending)||{})[r.k]?` <span class="faint">另 ${D().ops.kriPending[r.k]} 例待核实未计入</span>`:''} ${r.st?K.p(K.QTLC[r.st][0],K.QTLC[r.st][1]):''}`}</div></a>`).join('')}</div>`};
 /* 中心 KRI 单元：研究层面限度（有限度的指标，分母 ≥5 才判超限）＋同列中心间的观察/期望（BH） */
 K.kriSite=(site,k)=>((K.kri()||{}).sites||{})[site]?.[k]||null;
 

@@ -45,6 +45,8 @@ K.profile=async(el,sc)=>{
   const topTerms=(rows,col)=>{const I=ids(groups[0]),c={};rows.filter(r=>I.has(r[0])).forEach(r=>{const t=String(r[col]).trim();if(t)(c[t]=c[t]||new Set()).add(r[0])});return Object.entries(c).sort((a,b)=>b[1].size-a[1].size).slice(0,10).map(x=>x[0])};
   const termPct=(rows,col,t,g)=>{const I=ids(g),n=new Set(rows.filter(r=>I.has(r[0])&&String(r[col]).trim()===t).map(r=>r[0])).size;return sub&&g[0]==='本例'?(n?'有':'—'):`${n}（${pct(n,g[1].length)}）`};
   const fdOf=Object.fromEntries(S.map(s=>[s.id,s.fd]));
+  /* 审阅 2026-11-11：既往用药（首剂前已停）不进「最常见」表——SAR 氯雷他定 50% 全是入组前停用的，看着像一半受试者违规用禁用药 */
+  const CMS=MC.cm.filter(r=>{const fd=fdOf[r[0]];if(!fd)return false;const e=String(r[3]||'');return r[4]||!e||!/^\d{4}/.test(e)||e.replace(/-?uk/gi,'-99').slice(0,10)>=fd});
   const cmNew=g=>{const I=ids(g),xs=MC.cm.filter(r=>I.has(r[0])&&r[2]&&fdOf[r[0]]&&r[2].slice(0,10)>=fdOf[r[0]]);return sub&&g[0]==='本例'?`${xs.length} 条`:`${new Set(xs.map(r=>r[0])).size} 例（${pct(new Set(xs.map(r=>r[0])).size,g[1].length)}）`};
   /* ---------- 检验异常：风险层（每例）＋基线→基线后最差（参考范围 L/N/H） ---------- */
   const LAY=[['CSX','CS未关联'],['MH','仅关联病史·加重'],['DISW','研究疾病·加重'],['DISL','研究疾病指标波动（清单）'],['NCS2','NCS·≥2级'],['NA2','未评价·≥2级'],['G2NF','≥2级·无评价字段'],['NA','超范围未评价'],['CSI','判定不一致'],['REL','显著变化·未关联']];
@@ -72,8 +74,8 @@ K.profile=async(el,sc)=>{
    ${sub?`<div class="sec-t"><h2>本例 AE 明细</h2></div><table class="t"><tbody>${subAE.map(a=>`<tr><td><b>${K.esc(a.t)}</b> ${a.sae?K.p('SAE','solid-red'):''}${a.aesi?K.p('AESI','red'):''}${a.rl?K.p('相关','org'):''}${a.dup?' '+K.p(a.dup_kind==='sub'?`严重程度变化×${a.dup_n||2}`:`重复×${a.dup_n||2}`,a.dup_kind==='sub'?'line':'yel'):''}</td><td class="nowrap">${K.esc(a.s||'')} → ${a.e?K.esc(a.e):'持续'}</td><td>${K.p(a.g,gi(a.g)>=3?'solid-red':gi(a.g)>=2?'red':'yel')}</td><td class="small">${K.esc(a.act||'')}</td><td class="small">${K.esc(a.out||'')}</td></tr>`).join('')||'<tr><td class="empty">无 AE 记录</td></tr>'}</tbody></table>`:''}</div>
   <div class="grid g2 mb">
    <div class="card"><div class="sec-t" style="margin-top:0"><h2>病史（MH）</h2><span class="muted small">${sub?'本例全部':'最常见 10 项 · 例数（%）'}</span></div>${sub?mhList(MC.mh.filter(r=>r[0]===sub.id)):tbl(topTerms(MC.mh,1).map(t=>[K.esc(t),groups.map(g=>termPct(MC.mh,1,t,g))]))}</div>
-   <div class="card"><div class="sec-t" style="margin-top:0"><h2>合并用药（CM）</h2><span class="muted small">${sub?'本例全部':'最常见 10 种 · 例数（%）'}</span></div>
-    ${tbl([['给药后新开始的用药',groups.map(cmNew)]])}${sub?cmList(MC.cm.filter(r=>r[0]===sub.id),fdOf[sub.id]):tbl(topTerms(MC.cm,1).map(t=>[K.esc(t),groups.map(g=>termPct(MC.cm,1,t,g))]))}</div></div>
+   <div class="card"><div class="sec-t" style="margin-top:0"><h2>合并用药（CM）</h2><span class="muted small">${sub?'本例全部':'首剂后仍在使用的最常见 10 种 · 例数（%）· 首剂前已停用的既往用药不计'}</span></div>
+    ${tbl([['给药后新开始的用药',groups.map(cmNew)]])}${sub?cmList(MC.cm.filter(r=>r[0]===sub.id),fdOf[sub.id]):tbl(topTerms(CMS,1).map(t=>[K.esc(t),groups.map(g=>termPct(CMS,1,t,g))]))}</div></div>
   ${microCard}
   <div class="card mb"><div class="sec-t" style="margin-top:0"><h2>检验异常</h2><span class="muted small">风险层（受试者×指标，按当前阈值）· 基线→基线后最差（参考范围）</span><span class="sp"></span><a class="small" href="safety.html#tab=lab${site&&!sub?'&c='+site:''}">检验异常明细 ›</a></div>
    <div class="grid ${groups.length>2?'':'g2'}"><div style="min-width:0;overflow-x:auto">${tbl(LAY.filter(([k])=>K.lab.some(x=>x.risk===k)).map(([k,l])=>[`<a href="safety.html#tab=lab&risk=${k}">${l}</a>`,groups.map(g=>layCell(g,k))]))}</div>

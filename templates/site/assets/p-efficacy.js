@@ -10,7 +10,8 @@ const M=(EF.metrics||[]).filter(m=>!MIS.has(m.id)).map(m=>[m.id,m.label,m.unit||
 const val=(e,m,v)=>{const x=((e.v||{})[m[0]]||{})[v];return x==null?null:x};
 const visits=m=>m[4].visits||[];
 const AN=(EF.anomalies||[]).slice();
-const KV=m=>m[4].keyVisit||visits(m)[visits(m).length-1];
+/* 关键访视：方案指定的优先；否则取样本量够的最后一个访视（≥10 例且 ≥ 最大访视例数的一半）——SAR 曾取到只有 1 例的 V6 当头条（审阅 2026-11-11） */
+const KV=m=>{const vs=visits(m),ns=vs.map(v=>atV(m,v).length),mx=Math.max(0,...ns),ok=v=>atV(m,v).length>=Math.max(10,mx*.5);if(m[4].keyVisit&&ok(m[4].keyVisit))return m[4].keyVisit;for(let i=vs.length-1;i>=0;i--)if(ns[i]>=Math.max(10,mx*.5))return vs[i];return vs[vs.length-1]};
 /* KPIs + 中心对比 */
 const CN={};D.centers.forEach(c=>CN[c.site]=c.name);
 const clipOf=m=>m[4].clip!=null?m[4].clip:null;
@@ -61,7 +62,7 @@ function draw(){
     if(BR&&BR.on)document.getElementById('t1').innerHTML+=` · <span style="color:var(--risk)">远端异常值以断轴 / 边缘三角显示（悬停看原值，点击断轴可展开）</span>`;
     K.distLine('#c1',{V,all,sel,clip:null,yr:BR,ml,selName:hc?hc+' 中心':'',allName:'整体',fmt:v=>fmtM(cur,v),onClick:go});
   }
-  document.getElementById('t2').innerHTML=`<b style="color:var(--ink)">中心偏离 · ${lastV} 均值漏斗图</b> · 实线 = 整体均值，虚线 = ±2SE（需关注），点线 = ±3SE（明显偏离）· 点击中心切换选择`;
+  document.getElementById('t2').innerHTML=`<b style="color:var(--ink)">中心偏离 · ${lastV} 均值与整体比较</b> · 实线 = 整体均值，越出虚线＝需关注，越出点线＝明显偏离（按各中心例数放宽范围）· 点击中心切换选择`;
   K.funnelChart('#c2',F,{hc,fmt:v=>fmtM(cur,v),names:CN,onPick:pick});
   const w3=document.getElementById('w3');w3.style.display=ORD?'none':'';
   if(ORD)return;

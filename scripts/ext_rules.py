@@ -401,6 +401,7 @@ def m18_preg(C):
     pre = re.compile(r'妊娠|怀孕|hcg|pregn', re.I)
     desc_pre = re.compile(r'宫内(?:早)?孕|早孕|妊娠囊|宫内妊娠|怀孕|pregnan', re.I)
     by_sub, pre_dose = {}, {}
+    C._preg_rows = set()           # 研究期间的妊娠证据行：CS 未关联类质疑与 CSB 候选不再逐条问「是否记录 AE」（审阅 2026-11-10）
     for (sid, mid), rows in sorted(C.F.items()):
         if sid not in C.pop:
             continue
@@ -419,6 +420,8 @@ def m18_preg(C):
             d = r.get('date')
             tgt = pre_dose if is_full_date(d) and is_full_date(fd) and d < fd else by_sub
             tgt.setdefault(sid, []).append((test, r, pos))
+            if tgt is by_sub:
+                C._preg_rows.add((sid, r.get('sheet'), r.get('row')))
     for sid, ev in sorted(by_sub.items()):
         r0 = min((r for _, r, _ in ev), key=lambda r: str(r.get('date') or '9999'))
         evs = '；'.join(f"{t}「{str(r.get('raw') or r.get('value') or '')[:24]}」（{dshow(r.get('date'))}）"
@@ -571,7 +574,7 @@ def m21_ae_course(C):
                         w0.get('visit'), w0.get('date'), w0['sheet'], w0['row'], C.metric[w0['mid']]['label'],
                         rel=[['AE', a['t'], a['s'], a['n']]],
                         ctx=['检验走势与 AE 转归不一致（提示，必要时可发质疑）'],
-                        rule={'query': False, 'ask': '请评估是否需更新 AE 转归或补充随访检验。'},
+                        rule={'query': False, 'ask': '请核实该 AE 的转归记录是否与检验走势一致，如需更正请更新。'},
                         bkey=f"{a.get('n')}|{C.metric[w0['mid']]['label']}", wb=w0.get('wb') or '')
         else:                                           # ② 末次访视异常未恢复、AE 未结束且无随访安排
             last_d = max((v.get('date') or '' for v in C.visits if v['sid'] == sid), default='')
@@ -581,11 +584,11 @@ def m21_ae_course(C):
                 dn = daily_open(C, sid)                  # 用户 2026-10-28：未出组的受试者在日常阶段降级为提示
                 add_ext(C, sid, 'AE转归与检验走势核对', 'M21', 1 if dn else 2,
                         f"AE「{a['t']}」（{dshow(a['s'])} 起，未结束），末次访视（{last_d or '—'}）关联检验 "
-                        f"{C.metric[r0['mid']]['label']} 仍异常、未见随访安排",
+                        f"{C.metric[r0['mid']]['label']} 仍异常",
                         None, last_d, a['sh'], a['row'], C.metric[r0['mid']]['label'],
                         rel=[['AE', a['t'], a['s'], a['n']]],
                         ctx=['异常未恢复且 AE 未结束（提示）'] + ([DAILY_NOTE] if dn else []),
-                        rule={'query': False, 'ask': '请确认随访安排或更新 AE 转归。'},
+                        rule={'query': False, 'ask': '请核实该 AE 的转归及结束日期记录是否为最新，如有更新请更正。'},
                         bkey=f"{a.get('n')}|{C.metric[r0['mid']]['label']}|未恢复", wb=a.get('wb') or '')
 
 
@@ -1110,10 +1113,11 @@ def m23_csb(C):
                 handled.add((g['sid'], p[7], p[8]))
     candidates, seen = [], set()
     for (sid, mid), rows in sorted(C.F.items()):
-        if sid not in C.subj:
-            continue
+        if sid not in C.subj or (sid not in C.pop and re.search(r'筛选失败|筛败', str(C.subj[sid].get('status') or ''))):
+            continue                  # 筛选失败者检验异常不发质疑、只在受试者页可见（用户 2026-11-09；SAR 31002 曾发）
         for r in rows:
-            if r.get('clin') != 2 or (sid, r['sheet'], r['row']) in handled or (sid, r['sheet'], r['row']) in seen:
+            if r.get('clin') != 2 or (sid, r['sheet'], r['row']) in handled or (sid, r['sheet'], r['row']) in seen \
+                    or (sid, r['sheet'], r['row']) in getattr(C, '_preg_rows', set()):     # 妊娠证据走妊娠暴露核查
                 continue
             seen.add((sid, r['sheet'], r['row']))
             if r.get('value') is None and not r.get('_panel') and _NEG_RES.fullmatch(str(r.get('raw') or '').strip()):
@@ -1247,6 +1251,8 @@ def _link_match(C, r, mid, typ, ev):
     词表未命中只说明词表未覆盖（None，交步骤 5），仅 analysis.linkStrict=true 时判不对应。"""
     lv = (C.A.get('linkVerdicts') or {}).get(f"{r.get('wb') or ''}:{r['sheet']}|{r['row']}") or \
         (C.A.get('linkVerdicts') or {}).get(f"{r['sheet']}|{r['row']}")
+    if lv and lv.get('term') and str(lv['term']).strip() != str(ev.get('t') or '').strip():
+        lv = None          # 宿主预判针对的是另一条记录（编号口径不同）→ 不用，按词表判（SAR 31002：预判看的是「花粉过敏」，质疑写「高血糖症」）
     if lv:
         return {'implausible': False, 'plausible': True}.get(lv.get('v')), lv
     if typ == 'AE':

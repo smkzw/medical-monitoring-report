@@ -4036,6 +4036,15 @@ class Eng2Tests(unittest.TestCase):
         C2 = SimpleNamespace(A={'diseaseWorseTerms': ['SAR']}, S={})
         self.assertIsNone(disease_kw(C2).search('SARS-CoV-2感染'))
 
+    def test_link_verdict_for_other_record_ignored(self):
+        """宿主预判针对的是另一条记录（编号口径不同）时不用；同一记录照用。"""
+        from types import SimpleNamespace
+        from ext_rules import _link_match
+        C = SimpleNamespace(A={'linkVerdicts': {'w:LB|5': {'v': 'implausible', 'term': '花粉过敏', 'why': 'x'}}}, mhMatch=[])
+        r = {'wb': 'w', 'sheet': 'LB', 'row': 5}
+        self.assertIsNone(_link_match(C, r, 'lab:GLU', 'MH', {'t': '高血糖症'})[0])
+        self.assertFalse(_link_match(C, r, 'lab:GLU', 'MH', {'t': '花粉过敏'})[0])
+
     def test_labeled_links_dose_and_plausible(self):
         from common import parse_typed_links
         self.assertEqual(parse_typed_links('序号：4-不良事件名称：白细胞降低-开始日期：2024-11-21；序号：5-不良事件名称：D-二聚体升高-开始日期：2025-01-02；', 'AE'),

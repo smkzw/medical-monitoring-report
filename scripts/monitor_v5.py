@@ -509,7 +509,7 @@ def kri(C):
         ids = [sid for sid, s in S.items() if s['site'] == site]
         v = calc(ids)
         f = fresh.get(site)
-        v['fresh'] = [f[1], 1] if f and f[1] is not None and f[2] else [None, 1]
+        v['fresh'] = [f[1], 1] if f and f[1] is not None else [None, 1]   # 已全部出组的中心也显示天数（与中心卡片一致；排名仍只看在研中心）
         out_sites[site] = v
     study = calc(list(S))
     fr = [f[1] for f in fresh.values() if f[1] is not None and f[2]]

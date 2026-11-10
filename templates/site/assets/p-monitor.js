@@ -47,7 +47,11 @@ function enr(){
   const series=[{type:'line',name:'全部',step:'end',data:fds.map((d,i)=>[d,i+1]),symbol:'none',lineStyle:{color:'#FF9900',width:2},areaStyle:{color:'rgba(255,153,0,.10)'},markLine:pl?{symbol:'none',data:[{yAxis:pl,label:{formatter:'计划 '+pl}}],lineStyle:{type:'dashed',color:'#C9CCD1'}}:undefined}];
   if(proj)series.push({type:'line',name:'预测',data:[[cut,dosed.length],[proj,pl]],symbol:'none',lineStyle:{color:'#FF9900',type:'dashed',width:1.5}});
   K.chart('#enrc',{grid:{left:36,right:12,top:12,bottom:24},tooltip:{trigger:'axis'},xAxis:{type:'time',...K.axis},yAxis:{type:'value',...K.axis},series});
-  const why=by(SU.filter(s=>s.status==='筛选失败'),s=>(s.sf_why||s.eos_why||s.eot_why||'未注明').slice(0,30));   /* V6：入排标准页不满足的标准优先 */
+  /* 筛败原因：EDC 多选分隔符「$」、重复前缀「入选标准 入选标准5」清洗；编号配上标准原文（审阅 2026-11-11） */
+const CRI=((D.study||{}).criteria||[]),criTxt=(k,n)=>{const c=CRI.find(c=>c.no===(k==='入选'?'I':'E')+n);return c?`${k}标准 ${n}：${String(c.text).replace(/^[\s\d.、]+/,'').slice(0,18)}${String(c.text).length>18?'…':''}`:`${k}标准 ${n}`};
+const sfClean=t=>String(t||'未注明').split(/\s*\$\s*|；|;/).map(x=>x.replace(/^(入选|排除)标准\s+(?=(入选|排除)标准)/,'').trim()).filter(Boolean)
+  .map(x=>{const m=x.match(/^(入选|排除)标准\s*(\d+)$/);return m?criTxt(m[1],m[2]):x.slice(0,30)}).filter((x,i,a)=>a.indexOf(x)===i).join('、');
+const why=by(SU.filter(s=>s.status==='筛选失败'),s=>sfClean(s.sf_why||s.eos_why||s.eot_why));   /* V6：入排标准页不满足的标准优先 */
   document.getElementById('sfr').innerHTML=`<table class="t"><tbody>${Object.entries(why).sort((a,b)=>b[1].length-a[1].length).map(([k,v])=>`<tr><td class="small">${K.esc(k)}</td><td class="num">${v.length}</td></tr>`).join('')||'<tr><td class="empty">无</td></tr>'}</tbody></table>`;
   pane.querySelectorAll('tr[data-site]').forEach(tr=>tr.onclick=()=>location.href='center.html#c='+tr.dataset.site);
 }

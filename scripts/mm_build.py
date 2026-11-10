@@ -158,6 +158,10 @@ def load(study_p, norm_p):
     for dom in ('subjects', 'visits', 'exposure', 'ae', 'mh', 'cm', 'proc', 'findings', 'efficacy', 'pd', 'extq', 'groups',
                 'icf', 'sample', 'dispense', 'ie'):   # mm4：知情同意记录 / 样本采集 / 发药回收（可选域）；V6：入排标准页
         setattr(C, dom, load_json(N / f'{dom}.json', []) or [])
+    for f in C.findings:   # EDC 分组名「LB_VIR--实验室检查-传染病筛查」「PT--肺功能测定」：去掉表单代码前缀，页面只显示中文名（审阅 2026-11-11）
+        g0 = f.get('group')
+        if isinstance(g0, str) and re.match(r'^[A-Za-z][A-Za-z0-9_]*--+', g0):
+            f['group'] = re.sub(r'^[A-Za-z][A-Za-z0-9_]*--+', '', g0) or g0
     # V6 运营审阅（RUX S10001 W8 等 5 个访视 SV「访视是否发生=否」被当成已完成，生成 45 条「已完成访视但缺少评估」）：
     # 访视页记录为未发生的访视不算已完成访视——不进访视完成/超窗/SoA 完成度，按缺失访视处理（留在 C.visits_missed 供展示）
     C.visits_missed = [v for v in C.visits if not_done(v.get('done'))]
@@ -1807,7 +1811,10 @@ def _bigrams(s):
 def ae_lab_same(C, a, r):
     """AE 与检验是否同一事件：项目 aeMatch（指标正则→AE 术语正则）命中，或 CTCAE 条目名/指标名与 AE 术语有共同实义双字。"""
     mid = r.get('mid') or ''
-    for x in C.A.get('aeMatch') or []:
+    # aeMatch 是「临床上可能对应」（淋巴细胞增多 ↔ 上呼吸道感染），不等于同一事件：只有 AE 本身是检验型术语（XX升高/降低/血症）
+    # 时才拿来比分级（SAR Q073：淋巴细胞 2 级对比「上呼吸道感染」1 级，医学上不成立）
+    lab_term = bool(re.search(r'升高|降低|增多|减少|增高|减低|异常|血症|下降', a.get('t') or ''))
+    for x in (C.A.get('aeMatch') or []) if lab_term else []:
         try:
             if re.search(x[0], mid) and re.search(x[1], a.get('t') or ''):
                 return True
@@ -1867,7 +1874,7 @@ def ae_checks(C):
             add_other(C, sid, 'AE相关性核对', 3,
                       f"AE「{a['t']}」（{dshow(a['s'])}，给药期间）属研究者手册列明的预期不良反应/已识别风险（{'、'.join(ib_exp[:2])}），相关性判为「{rel_}」",
                       None, a['s'], a['sh'], a['row'], a['t'], rel=[['AE', a['t'], a['s'], a['n']]], risk='AE', wb=a.get('wb') or '',
-                      rule={'ask': '请说明相关性判定依据（时间关系、去激发/再激发、其他可解释原因）；如需更正，请更新相关性。'})
+                      rule={'ask': '请确认相关性评估是否准确；如需更正，请更新相关性。'})   # 用户 2026-11-11：中性、封闭式问法
         if 'rel_extreme' in on and re.search(r'肯定相关|definitely\s*related', rel_, re.I):
             # 「肯定相关」通常需要去激发/再激发等证据——只列清单（相关性是研究者的判断权），不发质疑
             add_other(C, sid, '相关性判定提示', 2, f"AE「{a['t']}」（{dshow(a['s'])}）判为「{rel_}」，请医学人员关注是否有去激发/再激发等支持依据",
@@ -2189,12 +2196,13 @@ def range_checks(C):
         n_site = site_n[(C.subj[sid]['site'], sh)]
         systemic = n_site >= 3
         ctx = [f"同页未填范围的指标：{'、'.join(labs[:12])}{'…' if len(labs) > 12 else ''}"] if len(labs) > 1 else []
+        ctx.append(f"同指标 {stats[items[0][0]][0]}/{stats[items[0][0]][1]} 条记录有范围（内部参考，不写进质疑）")
         if systemic:
             ctx.append(f"中心系统性未填（本中心本表单 {n_site} 例）：建议中心层面沟通，不逐例发 query")
         mid0 = items[0][0]
         add_other(C, sid, '参考范围缺失核对', 2 if systemic else 3,
-                  f"{r.get('visit')}（{dshow(r.get('date'))}）{sh} 有 {len(labs)} 项结果未填写参考范围"
-                  f"（如 {C.metric[mid0]['label']} {r.get('raw')} {r.get('unit') or ''}；同指标 {stats[mid0][0]}/{stats[mid0][1]} 条记录有范围）",
+                  f"{r.get('visit')}（{dshow(r.get('date'))}）{(C.A.get('formNames') or {}).get(sh) or r.get('group') or sh}"
+                  f"有 {len(labs)} 项结果未填写参考范围（如 {C.metric[mid0]['label']} {r.get('raw')} {r.get('unit') or ''}）",
                   r.get('visit'), r.get('date'), r['sheet'], r['row'], '、'.join(labs[:3]), r.get('clin'), ctx=ctx,
                   rule={'ask': '请补充该页检验结果的参考范围（上下限），并据此核对临床意义评价。'},
                   bkey=f"{sh}|{d}|range", wb=r.get('wb') or '')
@@ -3122,9 +3130,12 @@ def build_queries(C):
         return q
 
     ind_bg = [(re.compile(a), str(b or '')) for a, b in (C.A.get('indicationBackground') or [])]
+    preg_rows = getattr(C, '_preg_rows', None) or set()
     for g in C.labrows:
         if g['risk'] not in risks:
             continue
+        if g['risk'] in ('CSX', 'MH', 'NA') and any((g['sid'], p[7], p[8]) in preg_rows for p in g['pts']):
+            continue                     # 妊娠证据（hCG 阳性、超声早孕）统一由「妊娠暴露核查」追踪，不再问「是否记录 AE/病史」
         cat, ft, ask = T[g['risk']]
         cand = [c for c in g['ctx'] if c.startswith('同期 AE')]
         bg = next((b for rx, b in ind_bg if rx.search(g.get('mid') or '') and ext_rules.bg_applies(b, g.get('mid') or '', g.get('grp') or '')), None) if g['risk'] == 'CSX' else None
@@ -3636,6 +3647,12 @@ def build_eff(C):
         if not kv or m.get('pending') is False:
             continue
         had = {v['sid'] for v in C.visits if v.get('visit') == kv}
+        n_had = len(had & C.pop)
+        n_have = sum(1 for sid in had & C.pop if kv in data.get(sid, {'v': {}})['v'].get(m['id'], {}))
+        if n_had >= 10 and n_have < 0.5 * n_had:
+            # 多数受试者在该访视都没有这项数据 → 多半是该访视按访视流程表不采集（SAR V6 rTNSS 1/171），不逐例报缺失（审阅 2026-11-11）
+            C.A.setdefault('effNotes', []).append(f"{kv} 访视 {n_had} 例中仅 {n_have} 例有{m['label']}数据，判断该访视不采集此项，未逐例列缺失；请对照访视流程表确认")
+            continue
         for sid in had & C.pop:
             if kv not in data.get(sid, {'v': {}})['v'].get(m['id'], {}):
                 if C.cfg.get('dataStage') == 'daily':  # 滚动录入阶段：只提示「未见记录」，不当作缺失
@@ -3816,7 +3833,7 @@ DOMAIN_FLOW = {
     '合并用药': ([['方案禁用清单', '药名与禁用时段'], ['用药记录', '用药起止与首剂/治疗期是否重叠'], ['用药原因', '是否有对应病史/AE'], ['处理', '发质疑并核对方案偏离']], ['M08']),
     '入排/访视': ([['方案入排与访视窗', '数值条件、访视目标日与窗口'], ['逐受试者比对', '入组前末次值、实际访视日'], ['处理', '核实入组资格/超窗原因']], ['M09', 'M10']),
     '检验记录质量': ([['记录完整性', '参考范围、单位、临床意义是否填写'], ['判定一致性', '相近结果的临床意义判定是否一致'], ['处理', '请中心补充或统一判定']], ['M05']),
-    '检验异常·绑定核查': ([['关联字段', '检验记录关联的 AE/病史是否存在、是否对应'], ['时间与方向', '异常与关联事件的时间、升降方向'], ['处理', '请核实关联或补充记录']], ['M01', 'M02']),
+    '检验异常·关联核查': ([['关联字段', '检验记录关联的 AE/病史是否存在、是否对应'], ['时间与方向', '异常与关联事件的时间、升降方向'], ['处理', '请核实关联或补充记录']], ['M01', 'M02']),
 }
 
 
@@ -3878,10 +3895,11 @@ def defaults(C):
         grp = defaultdict(list)
         for c in cats:
             k = ('检验变化预警' if c in ('范围内明显变化', '持续变化趋势') else '不良事件记录' if c.startswith('AE') or 'AESI' in c else '合并用药' if '用药' in c else '入排/访视' if re.search('入排|访视', c)
-                 else '检验异常·绑定核查' if re.search(r'CS|关联|研究疾病|病史', c) else '检验记录质量' if re.search(r'参考范围|定性|未评价|判定不一致|量级异常', c) else '方案阈值专项')
+                 else '检验异常·关联核查' if re.search(r'CS|关联|研究疾病|病史', c) else '检验记录质量' if re.search(r'参考范围|定性|未评价|判定不一致|量级异常', c) else '方案阈值专项')
             grp[k].append(c)
-        col = {'检验变化预警': 'yel', '方案阈值专项': 'red', '不良事件记录': 'org', '合并用药': 'brn', '入排/访视': 'blu', '检验异常·绑定核查': 'org', '检验记录质量': ''}
-        tax['domains'] = [[k, v, col.get(k, '')] for k, v in grp.items()] + [['检验异常', list(dict.fromkeys(QT[k][0] for k in QT)), 'org']]
+        col = {'检验变化预警': 'yel', '方案阈值专项': 'red', '不良事件记录': 'org', '合并用药': 'brn', '入排/访视': 'blu', '检验异常·关联核查': 'org', '检验记录质量': ''}
+        used = {c for v in grp.values() for c in v}      # 同一类别只归一个风险域（「CS未关联AE/MH」曾同时挂在两个域，主题数多算）
+        tax['domains'] = [[k, v, col.get(k, '')] for k, v in grp.items()] + [['检验异常', [c for c in dict.fromkeys(QT[k][0] for k in QT) if c not in used], 'org']]
     meths = C.S.get('methods') or [{'id': m[0], 'domain': m[1].replace('{GL}', C.GL), 'data': m[2].replace('{GL}', C.GL), 'principle': m[3].replace('{GL}', C.GL),
                                     'risk': m[4], 'action': m[5], 'source': '报告内置核查方法'} for m in BUILTIN_METHODS]
     # 双阈值方法学卡（F-THR-7：方法学页写入当前 T_dev/T_base；选择器档位变化时以顶栏/信息条为准）

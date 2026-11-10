@@ -23,12 +23,14 @@ const freshSub=()=>!freshAll.length?'<span class="xs faint">无分中心新鲜�
 const kpi=(l,v,s,href,cls='')=>`<${href?'a':'div'} class="kpi ${cls}${href?' click':''}"${href?` href="${href}" style="text-decoration:none;color:inherit"`:''}><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></${href?'a':'div'}>`;
 const sec=(n,t,s)=>`<div class="sec-h"><span class="n">${n}</span><b>${t}</b><span class="s">${s}</span></div>`;
 app.innerHTML=`${K.knBar(D.knowledge)}
-${sec('一','综合数据',`研究进展与数据状态${O.stage==='daily'?' · 日常监查，数据仍在录入':''}`)}
-${(()=>{/* V6 首屏吸收：打开即见的关键事实条（结构不变，只把最需要先知道的四件事放在第一屏） */
-  const qx=K.qtlRows?K.qtlRows().filter(r=>r.st==='exceed'):[],hi=K.riskFor?K.riskFor('all').filter(a=>a.score>=80).length:0,
+${(()=>{/* 用户 2026-11-11：首屏「本期风险提示」——交互式报告不设待办，按风险口径把最需要先知道的事放在第一屏，每项可点进明细 */
+  const qx=K.qtlRows?K.qtlRows().filter(r=>r.st==='exceed'):[],hi=K.riskFor?K.riskFor('mm').filter(a=>a.score>=80).length:0,
     sae=S.reduce((a,s)=>a+s.sae,0),preg=oth.filter(o=>o.cat==='妊娠暴露核查').length,gap=oth.filter(o=>o.cat==='访视中断核对').length;
   const f=(lab,v,u,href,risk,tip)=>`<span class="f${risk?' risk':''}"${tip?` title="${tip}"`:''}>${href?`<a href="${href}">`:''}${lab} <b>${v}</b> ${u}${href?'</a>':''}</span>`;
-  return `<div class="facts">${f('容忍限度超限',qx.length,'项','monitor.html#tab=kri',qx.length>0)}${f('高风险项',hi,'项','#rank',hi>0)}${f('SAE',sae,'例次','profile.html',sae>0,'例次＝治疗期（TEAE）SAE 记录数；完全重复导出第 2 份起、首剂前不计——与 AE 谱/中心矩阵同一口径')}${preg?f('妊娠暴露待追踪',preg,'例','safety.html#tab=oth',true):''}${gap?f('访视中断',gap,'例','safety.html#tab=oth',true):''}</div>`})()}
+  const nq=D.queries.length,nqs=new Set(D.queries.map(q=>q.sid)).size,g3=new Set((D.aes||[]).filter(a=>a.te&&(parseInt(String(a.g).replace(/\D/g,''))||0)>=3).map(a=>a.sid)).size,
+    aesiU=oth.filter(o=>o.cat==='AESI标记核对').length;
+  return `<div class="card mb"><div class="hd"><h2>本期风险提示</h2><span class="sub">数据截至 ${K.esc(D.meta.cutoff||'—')} · 点任一项查看明细</span></div><div class="facts">${f('医学质疑',nq,`条 · ${nqs} 例`,'queries.html',nq>0,'程序与 AI 核对后建议向中心提出的质疑；是否发出由您决定')}${f('高风险项（医学监查）',hi,'项','#rank',hi>0)}${f('容忍限度超限',qx.length,'项','monitor.html#tab=kri',qx.length>0)}${f('SAE',sae,'例次','profile.html',sae>0,'治疗期（TEAE）SAE 记录数；完全重复导出第 2 份起、首剂前不计')}${g3?f('≥3 级 AE',g3,'例','profile.html',true):''}${aesiU?f('符合 AESI 定义但未标记',aesiU,'条','safety.html#tab=oth',true):''}${preg?f('妊娠暴露',preg,'例','safety.html#tab=oth',true):''}${gap?f('访视中断',gap,'例','safety.html#tab=oth',true):''}</div></div>`})()}
+${sec('一','综合数据',`研究进展与数据状态${O.stage==='daily'?' · 日常监查，数据仍在录入':''}`)}
 <div class="kpis">
  ${kpi('筛选 / 随机并给药',`${m.n}<small>/ ${m.dosed} 例</small>`,Object.entries(st).map(([k,v])=>K.p(k+' '+v,K.STC[k]??'')).join(''),'monitor.html#tab=enr')}
  ${kpi('入组进度',planned?`${(dosed.length/planned*100).toFixed(0)}<small>% · ${dosed.length}/${planned}</small>`:`${dosed.length}<small>例给药</small>`,planned?(dosed.length>=planned?K.p('已达计划例数','grn'):proj?K.p('按近 90 天速率预计 '+proj+' 达成','line'):K.p('近 90 天入组不足 3 例，无法预测','line')):'<span class="xs faint">方案未给计划例数</span>','monitor.html#tab=enr','blu')}
@@ -48,16 +50,16 @@ ${sec('二','风险数据','研究层面容忍限度 · 医学风险分层 · �
  ${PD?`<div class="card"><div class="hd"><h2>方案偏离</h2><span class="sub">潜在 PD 按分级堆叠 · 右侧为已记录数</span><span class="sp"></span><span class="legend"><span><i class="dot red"></i> 重要</span><span><i class="dot yel"></i> 待判定</span><span><i class="dot"></i> 一般</span></span><a class="small" href="deviations.html" style="margin-left:8px">进入 ›</a></div><div id="pdo"></div></div>`:'<div></div>'}
 </div>
 <div class="grid g12 mt">
- <div class="card"><div class="hd"><h2>中心风险热力图</h2><span class="sub">每格＝该维度下明显偏高的风险类别数（按${K.esc(K.centerRisk().unit)}推算期望、校正多重比较；明显偏高计 2、偏高计 1，AE 报告偏少计 1）；综合＝各维度之和 · 点格看明细</span><span class="sp"></span><a class="small" href="safety.html#tab=ov">逐类热力图 ›</a></div><div id="ctr"></div></div>
+ <div class="card"><div class="hd"><h2>中心风险热力图</h2><span class="sub">每格＝该中心在这一维度上比其他中心明显偏高的风险类别数（已按各中心入组和随访时间折算；明显偏高计 2、偏高计 1，AE 报告偏少计 1）；综合＝各维度之和 · 点格看明细</span><span class="sp"></span><a class="small" href="safety.html#tab=ov">逐类热力图 ›</a></div><div id="ctr"></div></div>
  <div class="card"><div class="hd"><h2>AE 谱 × IB / 类效应</h2><span class="sub">${(CF.blind||{}).on?'盲态合并 · ':''}给药后 · 点击条形进入明细</span></div><div id="aech" class="chart" style="height:280px"></div></div>
 </div>
-${sec('三','风险排名','按角色筛选并加权排序（医学监查侧重检验与安全性，临床监查侧重访视、录入与执行偏离）· 可按中心筛选 · 点行查看证据与原始数据')}
-<div class="card" id="rank"><div class="tbar"><span class="seg" id="role"></span><select class="s" id="rsite"></select><span class="sp"></span><span id="rankn" class="small muted"></span></div><div id="rkt"></div></div>`;
+${sec('三','风险排名','按职能分列：医学监查侧重检验与安全性，临床监查侧重访视、录入与执行偏离，项目经理侧重容忍限度与中心 · 点行查看证据与原始数据')}
+<div id="rank"><div class="tbar"><select class="s" id="rsite"></select><span class="sp"></span><span class="xs muted">每列显示前 10 项，点「全部」看完整排名</span></div><div class="grid g3" id="rkcards"></div></div>`;
 /* ---------- 一、综合数据 ---------- */
 {const pts=fds.map((d,i)=>[d,i+1]),ser=[{type:'line',step:'end',data:pts,symbol:'none',lineStyle:{color:'#FF9900',width:2},areaStyle:{color:'rgba(255,153,0,.12)'},
    markLine:planned?{symbol:'none',data:[{yAxis:planned,label:{formatter:'计划 '+planned,color:'#64676B'},lineStyle:{color:'#C9CCD1',type:'dashed'}}]}:undefined}];
  if(proj)ser.push({type:'line',data:[[cut,dosed.length],[proj,planned]],symbol:'none',lineStyle:{color:'#FF9900',type:'dashed',width:1.5},tooltip:{show:false}});
- K.chart('#enr',{grid:{left:36,right:12,top:10,bottom:24},tooltip:{trigger:'axis'},xAxis:{type:'time',...K.axis},yAxis:{type:'value',...K.axis,max:planned?Math.ceil(planned*1.08):null},series:ser})}
+ K.chart('#enr',{grid:{left:36,right:12,top:10,bottom:24},tooltip:{trigger:'axis'},xAxis:{type:'time',...K.axis},yAxis:{type:'value',...K.axis,max:planned?Math.ceil(Math.max(planned,dosed.length)*1.08):null},series:ser})}
 {const H=K.hist(),el=document.getElementById('hist');
  if(H.length>=2){const met=[['lab','检验风险项'],['oth','专项信号'],['pd','潜在方案偏离'],['ent','疑似录入错误'],['q','申办方质疑']];
   el.innerHTML=`<div class="hd"><h2>跨上传趋势</h2><span class="sub">最近 ${H.length} 次上传 · 数据截止 ${K.esc(H[0].cutoff||'')} → ${K.esc(H[H.length-1].cutoff||'')}</span></div>
@@ -68,7 +70,7 @@ ${sec('三','风险排名','按角色筛选并加权排序（医学监查侧重�
    series:[{type:'bar',name:'新增',stack:'a',data:H.map(h=>(h.rd||{}).new||0),itemStyle:{color:'#E67E00'}},{type:'bar',name:'加重',stack:'a',data:H.map(h=>(h.rd||{}).worse||0),itemStyle:{color:'#8B0000'}},
     {type:'bar',name:'已解决',data:H.map(h=>-((h.rd||{}).resolved||0)),itemStyle:{color:'#587B3B'}}]})}
  else{const g=[['完成试验','#587B3B'],['已入组','#407AAA'],['治疗结束','#9A9DA3'],['提前终止治疗','#B07A3B'],['提前退出','#8B0000'],['筛选失败','#C9CCD1']].filter(([k])=>st[k]);
-  el.innerHTML=`<div class="hd"><h2>受试者状态</h2><span class="sub">上传第二次数据后，这里显示跨上传趋势与风险项消化情况</span></div><div id="stc" style="height:170px"></div>`;
+  el.innerHTML=`<div class="hd"><h2>受试者状态</h2><span class="sub">下次数据更新后，这里显示变化趋势与风险项的消化情况</span></div><div id="stc" style="height:170px"></div>`;
   K.chart('#stc',{grid:{left:70,right:40,top:4,bottom:4},tooltip:{trigger:'item',formatter:p=>`${p.name} ${p.value} 例（${(p.value/m.n*100).toFixed(0)}%）`},xAxis:{type:'value',show:false},
    yAxis:{type:'category',inverse:true,data:g.map(x=>x[0]),...K.axis,axisLabel:{color:'#404040'}},
    series:[{type:'bar',barWidth:12,data:g.map(([k,c])=>({value:st[k],itemStyle:{color:c}})),label:{show:true,position:'right',color:'#404040',fontSize:11}}]})}}
@@ -78,14 +80,14 @@ K.qtlBar(document.getElementById('qtlbar'));K.qtlTiles(document.getElementById('
  rows.splice(1,0,{name:'检验异常 → AE/MH',c:'org',lab:true});
  const cnt=oth.reduce((a,o)=>{a[o.cat]=(a[o.cat]||0)+1;return a},{}),maxN=Math.max(1,...Object.values(cnt));
  const bar=(n,max,col)=>`<div class="bar-in" style="flex:1"><i style="width:${Math.max(3,n/max*100)}%;background:${col}"></i></div>`;
- const blk=r=>{if(r.lab)return `<div class="dblk"><div class="dh">${K.p(r.name,'org')}<span class="xs muted">${lab.length} 行 / ${lab.reduce((a,g)=>a+g.pts.length,0)} 点</span></div>${['CSX','DISW','MH','MHU','NCS2','NA2','G2NF','NA','CSI','DISL','DIS','AE','MHL','NCS'].filter(k=>rc(k)).map(k=>`<a class="drow" href="safety.html#tab=lab&risk=${k}"><span class="dn">${K.risk(k)}</span>${bar(rc(k),lab.length,k==='CSX'?'#8B0000':k==='MH'?'#FF9900':k==='NCS2'?'#E8C300':k==='AE'?'#587B3B':'#C9CCD1')}<b>${rc(k)}</b><span class="dq">${(()=>{const n=lab.filter(g=>g.risk===k&&g.q.length).length;return n?K.p('Q'+n,'org sq'):''})()}</span></a>`).join('')}</div>`;
+ const blk=r=>{if(r.lab)return `<div class="dblk"><div class="dh">${K.p(r.name,'org')}<span class="xs muted">${lab.length} 行 / ${lab.reduce((a,g)=>a+g.pts.length,0)} 点</span></div>${(()=>{const pref=['CSX','DISW','MH','MHU','NCS2','NA2','G2NF','NA','CSI','DISL','DIS','AE','MHL','NCS'];return pref.concat([...new Set(lab.map(g=>g.risk))].filter(k=>!pref.includes(k)))})().filter(k=>rc(k)).map(k=>`<a class="drow" href="safety.html#tab=lab&risk=${k}"><span class="dn">${K.risk(k)}</span>${bar(rc(k),lab.length,k==='CSX'?'#8B0000':k==='MH'?'#FF9900':k==='NCS2'?'#E8C300':k==='AE'?'#587B3B':'#C9CCD1')}<b>${rc(k)}</b><span class="dq">${(()=>{const n=lab.filter(g=>g.risk===k&&g.q.length).length;return n?K.p('Q'+n,'org sq'):''})()}</span></a>`).join('')}</div>`;
   return `<div class="dblk"><div class="dh">${K.p(r.name,r.c)}<span class="xs muted">${r.items.reduce((a,i)=>a+i.n,0)} 条</span></div>${r.items.map(it=>`<a class="drow" href="safety.html#tab=oth&cat=${encodeURIComponent(it.cat)}"><span class="dn">${K.catN(it.cat)}</span>${bar(it.n,maxN,it.p4?'#8B0000':it.p3?'#FF9900':'#E8C300')}<b>${it.n}</b><span class="dq">${it.q?K.p('Q'+it.q,'org sq'):''}</span></a>`).join('')}</div>`};
  document.getElementById('dom').innerHTML=`<div class="dgrid">${rows.map(blk).join('')}</div><div class="xs muted mt" style="line-height:1.6">口径：「检验异常 → AE/MH」按受试者×指标计（同一指标多次异常只计一行）；专项核查里的「CS未关联AE/MH」按单条记录计（含心电图/生命体征/体检整份判定与逐点复核）；橙色 Q＝已写入质疑交付表格的条数。三者不相加。</div>`}
 if(PD){const TX=K.pdTax(),G=[['重要','#8B0000'],['待判定','#E8C300'],['一般','#C9CCD1']];const mx=Math.max(1,...Object.values(POT.reduce((a,x)=>{a[x.cat]=(a[x.cat]||0)+1;return a},{})));
  const blkP=lay=>{const cs=(PD.taxonomy||[]).filter(t=>t[2]===lay).map(t=>t[0]).filter(c=>POT.some(x=>x.cat===c)||CONF.some(x=>x.cat===c));const n=POT.filter(x=>(TX[x.cat]||[])[2]===lay).length;
   return `<div class="dblk"><div class="dh">${K.p(lay+'层面',lay==='执行'?'blu':'org')}<span class="xs muted">潜在 ${n} 条</span></div>${cs.map(c=>{const ps=POT.filter(x=>x.cat===c),cf=CONF.filter(x=>x.cat===c).length;
    return `<a class="drow" href="deviations.html#tab=${lay==='执行'?'exe':'sci'}&cat=${c}"><span class="dn">${K.esc((TX[c]||[])[1]||c)}</span><div class="bar-in" style="flex:1;display:flex">${G.map(([g,col])=>{const k=ps.filter(x=>x.grade===g).length;return k?`<i style="width:${k/mx*100}%;background:${col}"></i>`:''}).join('')}</div><b>${ps.length}</b><span class="dq">${cf?K.p(cf,'grn sq'):''}</span></a>`}).join('')||'<div class="xs faint" style="padding:4px">无</div>'}</div>`};
- document.getElementById('pdo').innerHTML=`<div class="dgrid">${blkP('执行')}${blkP('科学')}</div><div class="flex wrap mt xs muted" style="gap:10px"><span>已记录 PD <b style="color:var(--ink)">${CONF.length}</b></span><span>潜在未见记录 <b style="color:var(--brand-d)">${(PD||{}).hasListing===false?'—':pdMiss}</b>${(PD||{}).hasListing===false?'（未提供方案偏离记录表，无法比对）':''}</span><span>重要 <b style="color:var(--risk)">${pdImp}</b></span><span>涉及受试者 <b style="color:var(--ink)">${new Set(POT.map(x=>x.sid)).size}</b></span><span class="sp"></span><a href="deviations.html#tab=rules">查看核查清单 ›</a></div>`}
+ document.getElementById('pdo').innerHTML=`<div class="dgrid">${blkP('执行')}${blkP('科学')}</div><div class="flex wrap mt xs muted" style="gap:10px"><span>已记录 PD <b style="color:var(--ink)">${CONF.length}</b></span><span>潜在未见记录 <b style="color:var(--brand-d)">${(PD||{}).hasListing===false?'—':pdMiss}</b>${(PD||{}).hasListing===false?'（未提供方案偏离记录表，无法比对）':''}</span><span>潜在重要 <b style="color:var(--risk)">${pdImp}</b></span><span>潜在偏离涉及受试者 <b style="color:var(--ink)">${new Set(POT.map(x=>x.sid)).size}</b></span><span class="sp"></span><a href="deviations.html#tab=rules">查看核查清单 ›</a></div>`}
 /* V6（用户审阅 RUX 第 2 条、裁定 4）：总览中心风险热力图——综合＋各维度；分值＝显著格数加权（q<0.05 计 2、q<0.10 计 1；AE 偏少计 1；数据 >30 天未更新计 1） */
 {const CR=K.centerRisk(),FR=Object.fromEntries(fresh),G=[...new Set(CR.cats.map(c=>c[1]))];
  const cellOf=(site,g)=>{const hits=[];let sc=0;CR.cats.filter(c=>c[1]===g).forEach(([k,,l,,desc])=>{const x=(CR.cell[k]||{})[site];if(!x)return;
@@ -114,9 +116,14 @@ if(PD){const TX=K.pdTax(),G=[['重要','#8B0000'],['待判定','#E8C300'],['一�
   xAxis:{type:'value',...K.axis},yAxis:{type:'category',data:order,...K.axis,axisLabel:{color:'#404040',fontSize:11}},
   series:[{type:'bar',stack:'a',name:'1级',data:order.map(k=>cats[k].n-cats[k].g2),itemStyle:{color:'#FFCC80'},barWidth:12},{type:'bar',stack:'a',name:'≥2级',data:order.map(k=>({value:cats[k].g2,itemStyle:{color:'#E67E00'}})),label:{show:true,position:'right',formatter:p=>{const c=cats[p.name];const t=(D.ibtag[p.name]||[])[0];return c.n+(t?'  '+t:'')},color:'#64676B',fontSize:10.5}}]}).on('click',p=>location.href='safety.html#tab=ae&c='+encodeURIComponent(p.name))}
 /* ---------- 三、风险排名 ---------- */
-{let role=K.role(),site='';const rs=document.getElementById('rsite');
+{let site='';const rs=document.getElementById('rsite');
  rs.innerHTML='<option value="">全部中心</option>'+D.centers.filter(c=>c.n).map(c=>`<option value="${K.esc(c.site)}">${K.esc(c.site)} ${K.esc(c.name.length>12?c.name.slice(0,12)+'…':c.name)}</option>`).join('');
- const draw=()=>{const L=K.riskFor(role,site);document.getElementById('rankn').innerHTML=`共 <b>${L.length}</b> 项 · 高 <b>${L.filter(a=>a.score>=80).length}</b> · 中 <b>${L.filter(a=>a.score>=40&&a.score<80).length}</b> · 低 <b>${L.filter(a=>a.score<40).length}</b>`;
-   K.riskTable(document.getElementById('rkt'),L)};
- K.seg(document.getElementById('role'),K.ROLES,role,v=>{role=v;K.setRole(v);draw()});rs.onchange=()=>{site=rs.value;draw()};draw()}
+ const RC=K.ROLES.filter(r=>r[0]!=='all');
+ const card=([rk,rl])=>{const L=K.riskFor(rk,site),hi=L.filter(a=>a.score>=80).length,mid=L.filter(a=>a.score>=40&&a.score<80).length;
+   return `<div class="card"><div class="hd"><h2>${K.esc(rl)}</h2><span class="sub">高 ${hi} · 中 ${mid} · 共 ${L.length} 项</span><span class="sp"></span>${L.length>10?`<a class="small" href="javascript:void 0" data-all="${rk}">全部 ›</a>`:''}</div>
+   <div class="rk-list">${L.slice(0,10).map((a,i)=>`<div class="rk-it click" data-r="${rk}" data-i="${i}" style="display:flex;gap:8px;padding:6px 2px;border-top:1px solid var(--line,#eee)">${K.rlv(a.score)}<div style="flex:1;min-width:0"><b class="small" style="color:var(--ink)">${K.esc(a.title)}</b><div class="xs muted" style="line-height:1.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${K.esc(String(a.why||''))}">${K.esc(String(a.why||''))}</div></div>${a.sid?`<span class="xs nowrap">${K.sid(a.sid)}</span>`:''}</div>`).join('')||'<div class="empty">无</div>'}</div></div>`};
+ const draw=()=>{const el=document.getElementById('rkcards');el.innerHTML=RC.map(card).join('');
+   el.querySelectorAll('.rk-it').forEach(x=>x.onclick=e=>{if(e.target.closest('a'))return;K.riskFor(x.dataset.r,site)[+x.dataset.i].open()});
+   el.querySelectorAll('[data-all]').forEach(x=>x.onclick=()=>{const rl=(RC.find(r=>r[0]===x.dataset.all)||[])[1]||'';const b=K.drawer(`风险排名 · ${K.esc(rl)}`,'<div id="rkall"></div>');K.riskTable(b.querySelector('#rkall'),K.riskFor(x.dataset.all,site),{h:'calc(100vh - 140px)'})})};
+ rs.onchange=()=>{site=rs.value;draw()};draw()}
 });

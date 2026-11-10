@@ -58,13 +58,14 @@ K.journey=(el,d,{lr=[],ot=[],qs=[]}={})=>{if(!el||!window.echarts)return;
   const all=[...bars.flatMap(b=>[b.s,b.e]),...pts.map(p=>p.d)].filter(Boolean).sort();
   if(!all.length){el.style.display='none';return}
   const pad=86400000*7,x0=ts(all[0])-pad,x1=ts(all[all.length-1])+pad;
+  const a0=isD(d.icf)?ts(clip(d.icf))-86400000*30:isD(d.fd)?ts(clip(d.fd))-86400000*60:x0,z0=Math.max(x0,Math.min(a0,x1-86400000*30));
   const laneY=(api,lane,sub,nsub)=>{const top=api.coord([x0,lane])[1],h=api.size([0,1])[1];return {y:top-h/2+4+(sub||0)*Math.max(4,(h-8)/(nsub||1)),h:Math.max(3,(h-8)/(nsub||1)-2)}};
   const nsub={2:Math.min(4,Math.max(1,(d.ae||[]).length)),3:Math.min(3,Math.max(1,(d.cm||[]).length))};
   K.chart(el,{grid:{left:70,right:16,top:6,bottom:28},
     tooltip:{trigger:'item',confine:true,formatter:p=>p.data&&p.data.t?p.data.t:''},
     xAxis:{type:'time',min:x0,max:x1,...K.axis,splitLine:{show:false}},
     yAxis:{type:'category',data:LANES,inverse:true,...K.axis,axisLabel:{color:'#64676B',fontSize:11},splitLine:{show:true,lineStyle:{color:'#F0F1F4'}}},
-    dataZoom:[{type:'inside',xAxisIndex:0,filterMode:'weakFilter'}],
+    dataZoom:[{type:'inside',xAxisIndex:0,filterMode:'weakFilter',startValue:z0,endValue:x1}],   /* 默认从知情同意前 30 天看起；更早的既往用药/病史滚轮缩小可见 */
     series:[{type:'custom',renderItem:(params,api)=>{const b=bars[params.dataIndex];const a=api.coord([ts(b.s),b.lane]),z=api.coord([ts(b.e)+86400000,b.lane]);const L=laneY(api,b.lane,(b.sub||0)%(nsub[b.lane]||1),nsub[b.lane]);
         return {type:'rect',shape:{x:a[0],y:L.y,width:Math.max(3,z[0]-a[0]),height:L.h,r:2},style:{fill:b.c,stroke:b.bd||null,lineWidth:b.bd?1.5:0,opacity:b.open?.75:1}}},
       encode:{x:[0,1],y:2},data:bars.map(b=>({value:[ts(b.s),ts(b.e),b.lane],t:b.t})),z:2},
