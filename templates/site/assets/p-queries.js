@@ -8,7 +8,7 @@ const byDom=cnt(Q,dom),bySite=cnt(Q,q=>q.site),byCro=cnt(Q,q=>q.cro),bySh=cnt(Q,
 app.innerHTML=`
 <div class="kpis">
  <div class="kpi"><div class="l">申办方医学质疑</div><div class="v">${Q.length}<small>条</small></div><div class="s" title="按条目计：同一记录行多条合并为一条编号（合并行不计）；与页头、清单、质疑工作簿三处同一数字">${K.p(subjN+' 例','line')}${K.p(ctrN+' 中心','line')}${D.meta.qsMerged?K.p(`另有 ${D.meta.qsMerged} 条同格质疑并入（正文「另：」）`,'yel'):''}<span class="xs faint">按条目计</span></div></div>
- ${K.DOM.map(([d,cats,c])=>byDom[d]?`<div class="kpi ${c==='red'?'risk':c==='blu'?'blu':c==='grn'?'grn':''}"><div class="l">${d}</div><div class="v">${byDom[d]}<small>条</small></div><div class="s">${cats.filter(x=>Q.some(q=>q.cat===x)).length} 个主题</div></div>`:'').join('')}
+ ${K.DOM.map(([d,cats,c])=>byDom[d]?`<div class="kpi ${c==='red'?'risk':c==='blu'?'blu':c==='grn'?'grn':''}"><div class="l">${d}</div><div class="v">${byDom[d]}<small>条</small></div><div class="s">${cats.filter(x=>Q.some(q=>q.cat===x)).length} 个主题</div></div>`:'').join('')}${byDom['其他']&&!K.DOM.some(d=>d[0]==='其他')?`<div class="kpi"><div class="l">其他</div><div class="v">${byDom['其他']}<small>条</small></div><div class="s">${new Set(Q.filter(q=>dom(q)==='其他').map(q=>q.cat)).size} 个主题</div></div>`:''}
 </div>
 ${K.knHint(D.knowledge)}
 <div class="grid g21 mt" style="grid-template-columns:1.5fr 1fr">
@@ -25,7 +25,7 @@ ${K.knHint(D.knowledge)}
 <div id="qt"></div>
 <div class="box blu mt small">交付文件：<b><a href="../${K.esc((K.cfg().query||{}).file||'')}">${K.esc((K.cfg().query||{}).file||'见交付目录（构建时未写回文件名）')}</a></b>（文件名取自构建实际产物；与报告同目录的上一级）—— 每条质疑写在对应记录行的首列，同一行多条以编号分隔。清单见工作簿「query 清单」sheet（含 MMQ 编号与报告 Q 序号对照）。${D.cro.length?`${K.esc((K.cfg().query||{}).extLabel||'外部质疑')} 查重：${Object.entries(byCro).map(([k,v])=>K.p(k+' '+v,CROC[k])).join('')}；「冲突澄清」表示与已发意见口径相反，需统一后回复中心。`:''}</div>`;
 const F={dom:null,cro:null,sh:null,site:null,s:''};
-const domOpts=K.DOM.filter(d=>byDom[d[0]]).map(d=>[d[0],`<i class="dot ${d[2]}"></i> ${d[0]}`,byDom[d[0]]]);
+const domOpts=K.DOM.filter(d=>byDom[d[0]]).map(d=>[d[0],`<i class="dot ${d[2]}"></i> ${d[0]}`,byDom[d[0]]]).concat(byDom['其他']&&!K.DOM.some(d=>d[0]==='其他')?[['其他','<i class="dot"></i> 其他',byDom['其他']]]:[]);   /* 审阅者 2026-11-10：未归类类目（AI 审阅新类目）也计入，卡片合计＝总数 */
 const cD=K.chips(app.querySelector('#fdom'),domOpts,v=>{F.dom=v;draw()});
 const cC=K.chips(app.querySelector('#fcro'),Object.entries(byCro).map(([k,v])=>[k,k,v]),v=>{F.cro=v;draw()});
 K.chips(app.querySelector('#fsh'),Object.entries(bySh).sort((a,b)=>b[1]-a[1]).map(([k,v])=>[k,k,v]),v=>{F.sh=v;draw()});

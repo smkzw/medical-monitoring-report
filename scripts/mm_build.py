@@ -2166,10 +2166,11 @@ def overlap(c, a, b):
 
 _TOPICAL = re.compile(r'外用|外涂|涂抹|涂擦|外搽|外敷|局部|皮肤|软膏|乳膏|霜|凝胶|洗剂|搽剂|酊|贴|滴眼|滴鼻|吸入|喷雾|topical|cream|ointment|gel|lotion', re.I)
 _SYSTEMIC = re.compile(r'系统|全身|口服|静脉|注射|systemic', re.I)
-_NONDERMAL = re.compile(r'吸入|雾化|气雾|喷鼻|鼻喷|滴鼻|鼻用|鼻.{0,2}喷雾|滴眼|眼用|眼膏|滴耳|inhal|nasal|ophthalm', re.I)
+_INHALED_TYPICAL = re.compile(r'布地奈德|氟替卡松|倍氯米松|莫米松|环索奈德|曲安奈德鼻')   # 常见吸入/鼻用剂型的激素（通名，途径未写明时不断言系统性）
+_NONDERMAL = re.compile(r'吸入|雾化|气雾|粉雾|鼻雾|鼻腔|喷鼻|鼻喷|滴鼻|鼻用|鼻.{0,2}喷雾|滴眼|眼用|眼膏|滴耳|inhal|nasal|ophthalm', re.I)   # 审阅者 2026-11-10：补粉雾/鼻雾/鼻腔（RUX 糠酸莫米松鼻雾剂被判系统性）
 # F2：外用（皮肤局部）排除口径——比 _NONDERMAL 多含注射/静脉/口服（非皮肤给药都不算外用；
 # 注意不得改 _NONDERMAL 本身：系统性条目靠它放行吸入/鼻用局部药，注射是全身给药）。
-_NONSKIN = re.compile(r'吸入|雾化|粉吸入|气雾|喷鼻|鼻喷|滴鼻|鼻用|鼻.{0,2}喷雾|滴眼|眼用|眼膏|滴耳|注射|静脉|肌注|皮下注射|口服|inhal|nasal|ophthalm|inject', re.I)
+_NONSKIN = re.compile(r'吸入|雾化|粉吸入|粉雾|鼻雾|鼻腔|气雾|喷鼻|鼻喷|滴鼻|鼻用|鼻.{0,2}喷雾|滴眼|眼用|眼膏|滴耳|注射|静脉|肌注|皮下注射|口服|inhal|nasal|ophthalm|inject', re.I)
 
 # F1（通用药理词典条目，非项目特判）：二代非镇静抗组胺（通用名级）。条款写「镇静抗组胺药」且同条允许/可使用
 # 非镇静类时（RUX 实证：依巴斯汀等被「镇静抗组胺药」条款整体扫入，方案原文明确允许非镇静类），该子类不算
@@ -2362,6 +2363,15 @@ def cm_checks(C):
                     # 「系统治疗」类禁用药不匹配外用/局部给药；按方案作为补救治疗使用的由补救规则（CM-02/03）核查，不按禁用药报
                     if systemic_only and (_TOPICAL.search(c.get('rt') or '') or _TOPICAL.search(c['t']) or _NONDERMAL.search(f"{c.get('rt') or ''} {c['t']}")):
                         continue                 # 眼用/吸入/鼻用等局部给药不是系统性用药
+                    if systemic_only and _INHALED_TYPICAL.search(c['t']) and not _SYSTEMIC.search(f"{c.get('rt') or ''} {c['t']}") \
+                            and not re.search(r'片|胶囊|口服液|注射', c['t']):
+                        # 常用吸入/鼻用的激素、途径未写明（RUX Q051 布地奈德途径「未知」）：不断言系统性，请核实途径
+                        add_other(C, sid, '用药途径核对', 3,
+                                  f"合并用药「{c['t']}」（{c['s'] or '?'}~{'持续' if c['ong'] else c['e'] or '?'}）给药途径未写明（{c.get('rt') or '未填'}），"
+                                  f"若为系统性给药则属方案禁用的{_cls_txt(P, c)}",
+                                  None, c['s'], c['sh'], c['row'], c['t'], bkey=f"{c['t']}|{c['s']}|route", wb=c.get('wb') or '',
+                                  rule={'ask': '请核实给药途径（吸入/鼻用/口服/注射），并据此确认是否符合方案。'})
+                        continue
                     unk_end = not c['ong'] and not is_full_date(c['e']) and is_full_date(c['s']) and c['s'] < (s.get('icf') or s['fd']) \
                         and _latest_date(c['e']) >= a          # 部分停药日期的最晚可能日仍早于禁用期 → 不追
                     if local_only and not _NONDERMAL.search(f"{c.get('rt') or ''} {c['t']}"):
@@ -2420,6 +2430,8 @@ def cm_checks(C):
                                                    and not _SYSTEMIC.search(W.get('name') or ''))
         exc_re = re.compile(W['exceptRe'], re.I) if W.get('exceptRe') else None
         nonsed_ok = _nonsedating_exempt(W)                  # F1：洗脱条款同样认「允许非镇静」
+        wdz = re.compile('|'.join([W['forDisease']] + [re.escape(str(t)) for t in (C.A.get('diseaseTerms') or []) if t] + ['研究疾病', '原发病']),
+                         re.I) if W.get('forDisease') else None   # 「治疗AD的口服中药」：用药原因写明其他疾病的不算（RUX Q098）
         for sid in sorted(C.pop):
             s = C.subj[sid]
             ref = s.get({'rand': 'rand_d'}.get(W.get('ref', 'fd'), W.get('ref', 'fd')))
@@ -2435,6 +2447,8 @@ def cm_checks(C):
                     continue                 # F1：允许非镇静的镇静抗组胺洗脱条款不命中二代非镇静子类
                 if exc_re and exc_re.search(c['t']):
                     continue                 # F1：洗脱条目点名除外（编译层从条款原文生成，与禁用药同口径）
+                if wdz and (c.get('why') or '').strip() and not wdz.search(c['why']):
+                    continue
                 if pre.search(c['t']) and not c['ong'] and not is_full_date(c['e']) and is_full_date(c['s']) and c['s'] <= ref \
                         and _latest_date(c['e']) > a:
                     # 部分日期「2025-07-uk」：可能的最晚停药日已在洗脱窗口之前＝洗脱已满足，不追（审阅者 2026-11-09，SAR 95 条 AI 追问）
