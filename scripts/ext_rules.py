@@ -246,7 +246,7 @@ PROTECTIVE_AB = re.compile(r'表面抗体|HBsAb|抗-?HBs(?!Ag)|anti-?HBs(?!Ag)',
 def m13_mhx_t(C):
     """首剂前 NCS/未评价且偏离 ≥T_dev（或 ≥2 级/定性 ≥+）且病史未记录 → MHX-T 候选（pr2，不发 query）。
     排除：CS（归 M23）、研究疾病表现（indicationBackground）、已触发 M09 入排核查的同一数值、检验页已关联病史。
-    支持证据（ctx）：首剂前 ≥2 次满足或首剂后同向持续 → 持续异常；cmIndicationMap 对应用药 → 有对应用药。"""
+    支持证据（ctx）：首剂前 ≥2 次满足或首剂后同向持续 → 持续异常；用药原因为该指标对应病史（mhMatch）→ 有对应用药。"""
     if not C.mhMatch:
         return
     doms = set(C.A.get('labDomains', ['lab', 'vs', 'ecg']))
@@ -281,8 +281,10 @@ def m13_mhx_t(C):
         w_above = whi is not None and wv is not None and wv > whi
         if any(r.get('dev') and r['post'] and ((ref_hi(r) is not None and r['value'] > ref_hi(r)) == w_above) for r in rows):
             ctx.append('首剂后同向异常持续')
+        # 「有对应用药」：用药原因写的正是该指标对应的病史/疾病（mhMatch 指标→病史术语）。旧版把 cmIndicationMap 的
+        # 疾病列拿去匹配药名（该表是 用药原因Re→疾病术语Re，与 M17 同向），几乎从不命中且与本指标无关（审阅 2026-11-10）
         cm_hit = [c for c in C.cm_by[sid]
-                  if any(ire.search(c.get('why') or '') and tre.search(c.get('t') or '') for ire, tre in C.cmInd)]
+                  if c.get('why') and any(mre.search(mid) and tre.search(c['why']) for mre, tre in C.mhMatch)]
         if cm_hit:
             ctx.append(f"有对应用药：{cm_hit[0]['t']}（{dshow(cm_hit[0].get('s'))} 起，用药原因「{cm_hit[0]['why']}」）")
         b = rows[0]['base']
@@ -787,7 +789,10 @@ def disease_kw(C):
         nm = re.sub(r'^(外周血|血清|血)|(增多|升高|降低|减少|异常)$', '', nm)
         if len(nm) >= 2:
             kws.add(nm)
-    return re.compile('|'.join(sorted(map(re.escape, kws), key=len, reverse=True))) if kws else None
+    def _alt(k):   # 英文缩写按词边界（「SAR」不命中「SARS-CoV-2」）
+        e = re.escape(k)
+        return rf'(?<![A-Za-z]){e}(?![A-Za-z])' if re.fullmatch(r'[A-Za-z0-9\-]+', k) else e
+    return re.compile('|'.join(_alt(k) for k in sorted(kws, key=len, reverse=True))) if kws else None
 
 
 def disease_name_re(C):

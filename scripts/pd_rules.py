@@ -740,7 +740,8 @@ class _PD:
         for sid in sorted(C.dosed):
             s = C.subj[sid]
             for c in C.cm_by[sid]:
-                if not (rx.search(c['t']) or rx.search(c.get('why') or '')) or not is_full_date(c['s']) or not is_full_date(s.get('fd')):
+                if not (rx.search(c['t']) or rx.search(c.get('why') or '') or re.search(r'补救|挽救|rescue', c.get('why') or '', re.I)) \
+                        or not is_full_date(c['s']) or not is_full_date(s.get('fd')):
                     continue
                 sd = (days(c['s'], s['fd']) or 0) + 1
                 if R.get('earliestDay') and 0 < sd < int(R['earliestDay']):

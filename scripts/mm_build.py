@@ -423,7 +423,9 @@ def no_usable(recs):
     return n > 0 and dup / n <= 0.2
 
 
-_AESI_QUAL = re.compile(r'显著|明显|严重|重度|显著性|marked|severe', re.I)
+# AESI 定义的程度/条件限定：术语命中只算「可能符合」（审阅 2026-11-10：「伴有临床症状的…」曾一命中即判符合定义）
+_AESI_QUAL = re.compile(r'显著|明显|严重|重度|显著性|伴有?(临床)?症状|有症状|症状性|需(要)?(治疗|干预|处理|住院)|导致(停药|住院|中断)|marked|severe|symptomatic', re.I)
+RESCUE_WHY = r'补救|挽救|rescue'          # 用药原因写明按方案补救/挽救治疗（部分方案正文用「挽救治疗」）
 
 
 def build_events(C):
@@ -454,7 +456,7 @@ def build_events(C):
                     and gi >= d.get('minGrade', 0)]
         # 定义带程度限定（「ALT显著增高」）而编译没给分级/检验界值：术语命中只是「可能符合」，不据此断言「符合定义未勾选」
         # （审阅者 2026-11-09，SAR：方案界值 ALT>5×ULN，ALT 1–2×ULN 的 AE 曾 9 条全部判符合）
-        maybe_ = [d for d in aesi_all if _AESI_QUAL.search(str(d.get('name') or '')) and not d.get('minGrade') and not d.get('labCond')]
+        maybe_ = [d for d in aesi_all if (_AESI_QUAL.search(str(d.get('name') or '')) or d.get('qual')) and not d.get('minGrade') and not d.get('labCond')]
         aesi_hit = [d.get('name') or d.get('id') for d in aesi_all if d not in maybe_]
         rel = a.get('rel') or ''
         related = bool(relre and relre.search(rel)) and not (unrel and unrel.search(rel))
@@ -2245,7 +2247,7 @@ def restricted_checks(C):
     """限用药（analysis.restricted：须筛选前稳定剂量使用 ≥N 天、研究期间不得新加/停用）。V6（MY008 医学审阅：疗效期新起泼尼松、
     铁剂、艾多沙班，停用雄激素/抗凝药全未提示）：首剂后新开始、或在治疗期内停用 → 提示核实（是否符合方案、是否需记偏离）；
     首剂前开始但距首剂不足 N 天 → 稳定期不足。"""
-    rescue_re_r = re.compile(r'补救|rescue', re.I)
+    rescue_re_r = re.compile(RESCUE_WHY, re.I)
     rst_seen = set()                                 # 同一条用药只归一条限用规则
     for R in C.A.get('restricted') or []:
         rx_ = re.compile(R['re'], re.I)
@@ -2320,6 +2322,12 @@ _TCM_SPEC = [('ZH', r'皮炎|湿疹|银屑|白癜风|荨麻疹|痤疮|特应性|
              ('ZD', r'妇|月经|乳腺|宫|卵巢'), ('ZG', r'骨|关节|伤|筋'), ('ZC', r'癌|瘤')]
 
 
+def _dz_alt(t) -> str:
+    """研究疾病名/缩写 → 正则片段；英文缩写按词边界（「SAR」不命中「SARS-CoV-2」，「AD」不命中「ADR」）。"""
+    e = re.escape(str(t))
+    return rf'(?<![A-Za-z]){e}(?![A-Za-z])' if re.fullmatch(r'[A-Za-z0-9\-]+', str(t)) else e
+
+
 def _tcm_off_target(P, c, C) -> bool:
     """「治疗X的中药」只靠中成药类别命中、而该药类别全是与 X 无关的专科（耳鼻喉/眼/妇/骨伤/肿瘤…）→ 不算（RUX：鼻炎片被判 AD 中药洗脱）。"""
     fd = P.get('forDisease')
@@ -2340,7 +2348,7 @@ def _tcm_off_target(P, c, C) -> bool:
         # 只有用药原因写的就是该病才算（RUX 百癣夏塔热片原因「本研究疾病」照算）
         why = str(c.get('why') or '')
         dz_terms = [str(t) for t in fd_terms + list(C.A.get('diseaseTerms') or []) if t]
-        return not (why and any(t in why or why in t for t in dz_terms + ['研究疾病', '原发病']))
+        return not (why and (re.search('|'.join(_dz_alt(t) for t in dz_terms + ['研究疾病', '原发病']), why) or any(why in t for t in dz_terms)))
     return tops <= {k for k, _ in _TCM_SPEC}       # 疾病专科不明：只排除全落在其他专科的，内科/民族药照算（宁可多问）
 
 
@@ -2427,7 +2435,7 @@ def transfusion_checks(C):
 
 def cm_checks(C):
     rescue = (C.A.get('pd') or {}).get('rescue') or {}
-    rescue_re = re.compile(r'补救|rescue', re.I)
+    rescue_re = re.compile(RESCUE_WHY, re.I)
     cm_seen = set()
     for P in C.A.get('prohibited', []):  # {"name","re","window":[daysBeforeFd, 'ld'|daysAfterFd], "pr"}
         pre = re.compile(P['re'], re.I)
@@ -2438,7 +2446,7 @@ def cm_checks(C):
         exc_mh = re.compile(P['exceptMH'], re.I) if P.get('exceptMH') else None
         nonsed_ok = _nonsedating_exempt(P)                  # F1：「镇静抗组胺（允许非镇静）」条款不扫二代非镇静
         # 适应症限定：方案疾病名（forDisease）＋研究疾病同义词（diseaseTerms，如 特应性皮炎/AD）＋「研究疾病」
-        for_dz = re.compile('|'.join([P['forDisease']] + [re.escape(str(t)) for t in (C.A.get('diseaseTerms') or []) if t] + ['研究疾病', '原发病']),
+        for_dz = re.compile('|'.join([P['forDisease']] + [_dz_alt(t) for t in (C.A.get('diseaseTerms') or []) if t] + ['研究疾病', '原发病']),
                             re.I) if P.get('forDisease') else None
         for sid in sorted(C.pop):
             s = C.subj[sid]
@@ -2516,9 +2524,24 @@ def cm_checks(C):
         for pr_ in [x for x in getattr(C, 'proc', []) if x.get('sid') in C.pop]:    # 禁用的治疗/操作（造血干细胞移植等）也核对操作记录
             s = C.subj[pr_['sid']]
             d0 = str(pr_.get('date') or pr_.get('start') or '')
-            if s['fd'] and pre.search(str(pr_.get('term') or '')) and (not is_full_date(d0) or d0 >= s['fd']):
+            if not (s['fd'] and pre.search(str(pr_.get('term') or ''))):
+                continue
+            pd0 = partial_date(d0) if d0 else ''
+            if is_full_date(d0):
+                in_study = d0 >= s['fd']
+            elif pd0:
+                in_study = pd0 >= str(s['fd'])[:len(pd0)]          # 「2025-03」「2025」按可能日期：月/年不早于首剂才算
+            else:
+                in_study = None                                      # 无日期：既往手术史常不写日期，不能断言在研究期间
+            if in_study is None:
+                if not re.search(r'史|既往', f"{pr_.get('kind') or ''}{pr_.get('sheet') or ''}"):
+                    add_other(C, pr_['sid'], P.get('cat', '禁限用药核对'), 2,
+                              f"治疗/操作「{pr_.get('term')}」属于方案禁止的{P['name']}，但记录无日期，无法判断是否在禁用期内", None, '',
+                              pr_.get('sheet'), pr_.get('row'), pr_.get('term') or '', bkey=f"{pr_.get('term')}|nodate", wb=pr_.get('wb') or '')
+                continue
+            if in_study:
                 add_other(C, pr_['sid'], P.get('cat', '禁限用药核对'), P.get('pr', 4),
-                          f"治疗/操作「{pr_.get('term')}」（{d0 or '?'}）属于方案禁止的{P['name']}", None, d0, pr_.get('sheet'), pr_.get('row'),
+                          f"治疗/操作「{pr_.get('term')}」（{d0}）属于方案禁止的{P['name']}", None, d0, pr_.get('sheet'), pr_.get('row'),
                           pr_.get('term') or '', bkey=f"{pr_.get('term')}|{d0}", wb=pr_.get('wb') or '')
     restricted_checks(C)
     for W in C.A.get('washout', []):  # {"name","re","days","ref":"icf"|"fd"}
@@ -2531,7 +2554,7 @@ def cm_checks(C):
                                                    and not _SYSTEMIC.search(W.get('name') or ''))
         exc_re = re.compile(W['exceptRe'], re.I) if W.get('exceptRe') else None
         nonsed_ok = _nonsedating_exempt(W)                  # F1：洗脱条款同样认「允许非镇静」
-        wdz = re.compile('|'.join([W['forDisease']] + [re.escape(str(t)) for t in (C.A.get('diseaseTerms') or []) if t] + ['研究疾病', '原发病']),
+        wdz = re.compile('|'.join([W['forDisease']] + [_dz_alt(t) for t in (C.A.get('diseaseTerms') or []) if t] + ['研究疾病', '原发病']),
                          re.I) if W.get('forDisease') else None   # 「治疗AD的口服中药」：用药原因写明其他疾病的不算（RUX Q098）
         for sid in sorted(C.pop):
             s = C.subj[sid]

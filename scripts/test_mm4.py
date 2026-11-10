@@ -530,8 +530,8 @@ class MissingDateRenderingK95(unittest.TestCase):
         C = self._ns(A={'mhMatch': [['血红蛋白', '贫血']], 'labDomains': ['lab']},
                      cfg={'thresholds': {'dev': 0.3, 'base': 0.3, 'per_metric': {}}}, mthr=[], others=[],
                      F={('S1', 'lab:ALT'): [row]}, pop={'S1'}, subj={'S1': {'site': '01'}},
-                     mhMatch=[('血红蛋白', '贫血')], indBg=[], cmInd=self._rex(('保肝', '联苯双酯')),
-                     mh_by={'S1': []}, cm_by={'S1': [{'t': '联苯双酯', 's': None, 'why': '保肝治疗', 'sh': 'CM', 'row': 2, 'wb': '', 'n': 1}]},
+                     mhMatch=self._rex(('血红蛋白', '贫血'), ('ALT', '肝功能异常|肝损')), indBg=[], cmInd=self._rex(('保肝', '肝功能异常')),
+                     mh_by={'S1': []}, cm_by={'S1': [{'t': '联苯双酯', 's': None, 'why': '肝功能异常', 'sh': 'CM', 'row': 2, 'wb': '', 'n': 1}]},
                      metric={'lab:ALT': {'label': '丙氨酸氨基转移酶'}}, src={'sheets': {}}, labrows=[])
         m13_mhx_t(C)
         ctx = ' '.join(C.labrows[0]['ctx'])
@@ -4003,6 +4003,38 @@ class Eng2Tests(unittest.TestCase):
         self.assertEqual(len(hit), 1, hit)
         self.assertIn('甲泼尼龙', hit[0])
         self.assertTrue(any(o['cat'] == '用药日期核对' for o in C.others))
+
+    def test_undated_procedure_and_rescue_and_dz_boundary(self):
+        """审阅 2026-11-10：无日期手术史不报禁用操作；月份日期按可能日判；「挽救」同「补救」；研究疾病缩写按词边界。"""
+        from types import SimpleNamespace
+        from collections import defaultdict
+        import re as _re
+        import mm_build
+        C = SimpleNamespace(A={'prohibited': [{'name': '造血干细胞移植', 're': '移植'}], 'diseaseTerms': ['SAR']},
+                            pop={'S1'}, subj={'S1': {'fd': '2024-06-01', 'ld': '2024-12-01', 'lo': '', 'icf': '2024-05-20', 'site': '01'}},
+                            cm_by=defaultdict(list), others=[], tl=defaultdict(dict),
+                            proc=[{'sid': 'S1', 'term': '肾移植', 'date': '', 'kind': '手术史', 'sheet': '既往手术史', 'row': 1},
+                                  {'sid': 'S1', 'term': '骨髓移植', 'date': '2023-04', 'sheet': '操作', 'row': 2},
+                                  {'sid': 'S1', 'term': '干细胞移植', 'date': '2024-08', 'sheet': '操作', 'row': 3},
+                                  {'sid': 'S1', 'term': '异体移植', 'date': '', 'sheet': '操作', 'row': 4}])
+        orig = mm_build.oth_qkey
+        mm_build.oth_qkey = lambda *a, **k: ''
+        try:
+            mm_build.cm_checks(C)
+        finally:
+            mm_build.oth_qkey = orig
+        hit = [(o['pr'], o['sum']) for o in C.others if o['cat'] == '禁限用药核对']
+        self.assertEqual([x for x in hit if x[0] >= 3 and '干细胞移植' in x[1]].__len__(), 1, hit)   # 2024-08 在首剂后 → 报
+        self.assertFalse(any('肾移植' in x[1] or '骨髓移植' in x[1] for x in hit), hit)           # 手术史无日期、2023 年 → 不报
+        self.assertTrue(any(x[0] == 2 and '异体移植' in x[1] for x in hit), hit)                 # 操作表无日期 → 只提示
+        self.assertTrue(_re.search(mm_build.RESCUE_WHY, '挽救治疗'))
+        rx = _re.compile(mm_build._dz_alt('SAR'))
+        self.assertIsNone(rx.search('SARS-CoV-2感染'))
+        self.assertTrue(rx.search('SAR加重'))
+        self.assertTrue(mm_build._AESI_QUAL.search('伴有临床症状的低血糖'))
+        from ext_rules import disease_kw
+        C2 = SimpleNamespace(A={'diseaseWorseTerms': ['SAR']}, S={})
+        self.assertIsNone(disease_kw(C2).search('SARS-CoV-2感染'))
 
     def test_labeled_links_dose_and_plausible(self):
         from common import parse_typed_links

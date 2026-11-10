@@ -127,7 +127,7 @@
 
 - **M13 MHX-T**：首剂前判 NCS/未评价且偏离 ≥T_dev（或 ≥2 级/定性 ≥+）且病史未记录（`mhMatch` 未命中、检验页未关联病史）
   → labrows 候选 pr2（不发 query）。排除 CS（M23）、研究疾病表现（`indicationBackground`）、已触发入排核查（M09）的同一数值；
-  首剂前 ≥2 次或首剂后同向持续 → ctx「持续异常」；`cmIndicationMap` 对应用药 → ctx「有对应用药」。qkey `lab|sid|MHX-T|wb:sheet|mid|主访视`。
+  首剂前 ≥2 次或首剂后同向持续 → ctx「持续异常」；用药原因为该指标对应病史（`mhMatch`）→ ctx「有对应用药」。qkey `lab|sid|MHX-T|wb:sheet|mid|主访视`。
 - **M15 血压**：与其他数值项一致（T_dev/T_base 默认 30%，D18）；listing 未给范围时默认上限 收缩压 139 / 舒张压 89 mmHg（仅用于偏离计算）。
 - **M16 定性**：±/弱阳性/微量 → pr1 提示（判 CS 走 M01）；基线阴性 → 给药后 ≥+ → 定性新发：研究者未评价临床意义 → pr3 发 query；已评价为正常/NCS → pr1 仅提示（研究者判定优先，2026-10-27 用户确认）；判 CS 者由 M01/M23 分层。
 - **M17 CM-IND**：合并用药原因指向疾病、病史与 AE 均无对应记录（`cmIndicationMap`）→ pr3 发 query；首剂前开始问病史、首剂后问 AE；
