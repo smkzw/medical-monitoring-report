@@ -182,6 +182,7 @@ def load(study_p, norm_p):
             f['group'] = C.A['formNames'][f['sheet']]
     align_visit_codes(C)
     vis = C.cfg.setdefault('visits', {})
+    _fix_d1(C, vis)
     C.VIS = complete_visit_order(C, vis.get('order') or [])
     vis['order'] = C.VIS
     # 访视名未规范成 USV/ET 时（「计划外访视1」「非计划访视」「提前终止」）按名称也归入计划外/提前退出——否则会进中心/全试验汇总；
@@ -197,6 +198,23 @@ def load(study_p, norm_p):
 
 _UNS_ANY = re.compile(r'计划外|非计划|unsched|^USV|^UNS|^UV\d*$', re.I)
 _ET_ANY = re.compile(r'提前(退出|终止|结束)|早期退出|^ET$|early\s*term', re.I)
+
+
+def _fix_d1(C, vis):
+    """首剂访视代码在访视/检查记录里不存在（D002：方案 V4，日记表沿用 V4，访视/检验/给药表写 D1）→ 改用给药记录中各参与者
+    首剂所在访视的众数。否则访视序号把筛选到 W18 全当给药前（定性指标「给药后升高」1 人 vs 实际 38 人，审阅 2026-11-11）。"""
+    d1 = vis.get('d1')
+    main = {r.get('visit') for dom in ('visits', 'findings') for r in getattr(C, dom, []) if r.get('visit')}
+    if not main or (d1 and d1 in main):
+        return
+    first = {}
+    for r in getattr(C, 'exposure', []) or []:
+        d = r.get('start') or r.get('date')
+        if r.get('visit') and is_full_date(d) and (r['sid'] not in first or d < first[r['sid']][0]):
+            first[r['sid']] = (d, r['visit'])
+    top = Counter(v for _, v in first.values()).most_common(1)
+    if top and top[0][0] in main and top[0][1] >= 0.5 * len(first):
+        vis['d1'] = top[0][0]
 
 
 def _vkey(code):

@@ -301,6 +301,20 @@ class DemoBuild(unittest.TestCase):
             self.assertFalse(mm_build._UNS_ANY.search(v), v)
         self.assertTrue(mm_build._ET_ANY.search('提前终止访视'))
 
+    def test_d1_falls_back_to_first_dose_visit(self):
+        # D002/SAR：方案首剂访视代码（V4/V2）只在日记表出现，访视/检验/给药表写 D1 → 取给药记录首剂访视
+        import mm_build
+        from types import SimpleNamespace as NS
+        C = NS(visits=[{'sid': 'a', 'visit': 'SCR'}, {'sid': 'a', 'visit': 'D1'}], findings=[{'sid': 'a', 'visit': 'W2'}],
+               exposure=[{'sid': 'a', 'visit': 'W2', 'start': '2026-02-01'}, {'sid': 'a', 'visit': 'D1', 'start': '2026-01-01'},
+                         {'sid': 'b', 'visit': 'D1', 'start': '2026-01-03'}])
+        v = {'d1': 'V4'}
+        mm_build._fix_d1(C, v)
+        self.assertEqual(v['d1'], 'D1')
+        v = {'d1': 'SCR'}                                  # 配置代码在主表里存在 → 不动
+        mm_build._fix_d1(C, v)
+        self.assertEqual(v['d1'], 'SCR')
+
     def test_confirmed_matching(self):
         conf = {c['sid']: c for c in self.KZ['pd']['confirmed']}
         self.assertEqual(conf['02007']['grade'], '重要')
