@@ -4,10 +4,10 @@
 *{box-sizing:border-box}html,body{margin:0}body{font:13px/1.5 var(--font);color:var(--body);background:var(--bg)}
 a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}
 h1,h2,h3,h4{color:var(--ink);margin:0;font-weight:700}h2{font-size:15px}h3{font-size:13.5px}
-.top{position:sticky;top:0;z-index:50;background:#fff;border-bottom:1px solid var(--line)}
-.top .bar{max-width:1480px;margin:0 auto;display:flex;align-items:center;gap:18px;padding:0 18px;height:52px}
-.top .logo{height:30px;width:auto;display:block}
-.top nav{display:flex;gap:2px;margin-left:8px;flex:1;overflow-x:auto}.top nav a{padding:15px 8px 13px;color:var(--body);font-size:13px;white-space:nowrap;border-bottom:3px solid transparent}
+.top{position:sticky;top:0;z-index:50;background:rgba(255,255,255,.88);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border-bottom:1px solid rgba(190,178,161,.35)}
+.top .bar{max-width:1480px;margin:0 auto;display:flex;align-items:center;gap:18px;padding:0 20px;height:56px}
+.top .logo{height:30px;width:auto;display:block}.top .logo.sub{height:32px}.top .logo.subi{display:none;height:28px}@media (max-width:900px){.top .logo.sub{display:none}.top .logo.subi{display:block}}
+.top nav{display:flex;gap:2px;margin-left:8px;flex:1;overflow-x:auto}.top nav a{padding:17px 8px 15px;color:var(--body);font-size:13px;white-space:nowrap;border-bottom:3px solid transparent}
 .top nav a:hover{text-decoration:none;color:var(--ink);background:#FAFAFB}.top nav a.on{color:var(--ink);font-weight:700;border-bottom-color:var(--brand)}
 .top .meta{display:flex;gap:6px;font-size:11px;color:var(--muted);white-space:nowrap}
 .ribbon{height:3px;background:linear-gradient(90deg,var(--brand),var(--brand2))}
@@ -192,7 +192,7 @@ table.t th.s:hover{background:#EEF1F4}
 .tflt{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 6px}.tflt input.s{width:180px;height:26px}.tflt select.s{height:26px;max-width:200px}
 /* 顶栏品牌（裁定 6）：平台与子系统标识等高并列，中间细分隔；项目代号固定在右侧 */
 .top .brand{display:flex;align-items:center;gap:10px;flex:0 0 auto}.top .brand:hover{text-decoration:none}
-.top .bsep{width:1px;height:26px;background:var(--line)}
+.top .bsep{width:1px;height:28px;background:rgba(190,178,161,.6);margin:0 4px}
 .top .proj{font:700 13px Arial,var(--font);color:var(--ink);padding:2px 9px;border:1px solid #D6DBE0;border-radius:6px;background:#fff;letter-spacing:.2px}
 .top .meta{align-items:center}
 .t td>b+.rk-why{white-space:normal}   /* 风险排名说明可换行（V6 运营审阅：表宽 1709px 撑出容器） */

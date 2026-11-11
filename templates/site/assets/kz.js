@@ -148,14 +148,16 @@ K.PAGES=[['index.html','总览'],['monitor.html','临床监查','monitor'],['pro
 K.spaceOf=p=>Object.keys(K.SPACES).find(s=>K.SPACES[s].some(([u])=>u===p))||'';
 /* V6（用户审阅 RUX 第 14 条、裁定 6）：顶栏＝智研 METRIC 平台标识＋当前子系统标识（等高）；临床监查空间页显示「数字化临床监查」，
  * 其余页显示「数字化医学监查」；右侧固定显示项目代号（不写完整项目名、不写「医学监查报告」）；工作台有待确认的 CS 解释时页眉红标。 */
-K.SUBSYS={cm:['assets/brand/sub-cm.svg','数字化临床监查'],mm:['assets/brand/sub-mm.svg','数字化医学监查']};
+/* 智研 METRIC 统一页头（kangzhe-design design_specs/16，用户 2026-11-11：主标｜子系统横版，不放康哲标志）：[横版, 中文名, 方形图标] */
+K.SUBSYS={cm:['assets/brand/metric/sub-C-lockup-header.svg','数字化临床监查','assets/brand/metric/sub-C.svg'],mm:['assets/brand/metric/sub-M-lockup-header.svg','数字化医学监查','assets/brand/metric/sub-M.svg']};
 K.header=()=>{
   const cur=location.pathname.split('/').pop()||'index.html';const m=D().meta,c=C0(),st=c.study||{},br=c.brand||{};
   const code=st.short||st.code||'',sub=K.SUBSYS[K.spaceOf(cur)==='monitor'?'cm':'mm'];
-  document.title=[(document.title.split(' · ')[0]||''),code,'智研 METRIC'].filter(Boolean).join(' · ');
+  document.title=[(document.title.split(' · ')[0]||''),code,sub[1],'智研 METRIC'].filter(Boolean).join(' · ');
+  {let ic=document.querySelector('link[rel="icon"]');if(!ic){ic=document.createElement('link');ic.rel='icon';ic.type='image/svg+xml';document.head.append(ic)}ic.href=sub[2]}
   const pend=+((((window.KZS||{}).csb)||{}).pending||0);
   const h=document.createElement('header');h.className='top';
-  h.innerHTML=`<div class="bar"><a class="brand" href="index.html" title="康哲智研 METRIC · ${sub[1]}"><img class="logo" src="${K.esc(br.platform||'assets/brand/metric.svg')}" alt="智研 METRIC"><span class="bsep"></span><img class="logo" src="${sub[0]}" alt="${sub[1]}"></a>
+  h.innerHTML=`<div class="bar"><a class="brand" href="index.html" title="智研 METRIC · ${sub[1]}"><img class="logo" src="${K.esc(br.platform||'assets/brand/metric/lockup-3x1-header.svg')}" alt="智研 METRIC"><span class="bsep"></span><img class="logo sub" src="${sub[0]}" alt="${sub[1]}"><img class="logo subi" src="${sub[2]}" alt="${sub[1]}"></a>
   <nav>${K.PAGES.map(([u,t,sp])=>`<a href="${u}" class="${u===cur||(sp&&sp===K.spaceOf(cur))?'on':''}">${t}</a>`).join('')}</nav>
   <div class="meta">${code?`<span class="proj" title="项目代号">${K.esc(code)}</span>`:''}${/* F12④：CS 待确认移到研究依据页系统提示（kz-sys 写入 #todo），页头不再挂红标 */ ''}${(c.headerTags||[['截止 '+(m.cutoff||''),'line','数据截止日期']]).map(t=>K.p(t[0],t[1]||'line',t[2])).join('')}${c.dataStage?K.p({daily:'日常监查',prelock:'锁库前',cfdi:'锁库后'}[c.dataStage]||'','line',{daily:'日常监查·数据录入中',prelock:'锁库前·全量数据',cfdi:'锁库后·核查前'}[c.dataStage]||''):''}${c.blind&&c.blind.on?K.p(c.blind.tag||'盲态','blu'):''}</div></div><div class="ribbon"></div>${(()=>{const sp=K.spaceOf(cur);return sp?`<div class="subnav"><div class="in">${K.SPACES[sp].map(([u,t])=>`<a href="${u}" class="${u===cur?'on':''}">${t}</a>`).join('')}</div></div>`:''})()}`;
   document.body.prepend(h);
