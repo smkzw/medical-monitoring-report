@@ -4036,6 +4036,23 @@ class Eng2Tests(unittest.TestCase):
         C2 = SimpleNamespace(A={'diseaseWorseTerms': ['SAR']}, S={})
         self.assertIsNone(disease_kw(C2).search('SARS-CoV-2感染'))
 
+    def test_pd_def_table_grades(self):
+        """申办方方案偏离界定表优先（用户 2026-11-11）：子分类对上规则 → 按表定分级并注明依据；分两档的个案升级引用影响较大档。"""
+        import pd_rules as P
+        rows = [{'cat': 'F. 访视计划', 'no': '1', 'text': '访视超出可允许的时间窗', 'sev': '根据实际情况判定'},
+                {'cat': 'F. 访视计划', 'no': '2', 'text': '访视缺失，且对参与者的安全性及主要疗效评估产生显著影响', 'sev': '严重'},
+                {'cat': 'F. 访视计划', 'no': '3', 'text': '访视缺失，但对参与者的安全性及主要疗效评估无显著影响', 'sev': '轻微'},
+                {'cat': 'C. 试验用药物', 'no': '10', 'text': '用药依从性＜80%或＞120%', 'sev': '严重'},
+                {'cat': 'J. 伦理', 'no': '1', 'text': '未按照试验方案的伦理规范要求执行', 'sev': '严重'}]
+        g, basis, hi, unused = P.def_grades({'rows': rows})
+        self.assertEqual(g['VIS-01'], '待判定')
+        self.assertEqual(g['VIS-02'], '一般')
+        self.assertEqual(hi['VIS-02'][0], '重要')
+        self.assertEqual(g['IP-03'], '重要')
+        self.assertIn('F.1', basis['VIS-01'])
+        self.assertNotIn('ICF-01', g)
+        self.assertEqual([r['cat'] for r in unused], ['J. 伦理'])
+
     def test_link_verdict_for_other_record_ignored(self):
         """宿主预判针对的是另一条记录（编号口径不同）时不用；同一记录照用。"""
         from types import SimpleNamespace

@@ -216,10 +216,77 @@ def _num(v):
         return None
 
 
+# 申办方「方案偏离界定表」→ 引擎规则（用户 2026-11-11：接入，界定表优先）。每条规则按措辞模式找界定表子分类，
+# 先匹配的优先；(模式, 是否「影响较大」档)——访视缺失/量表缺失这类分两档的，默认取影响较小档，个案升级为重要时引用影响较大档。
+DEF_MAP = {
+    'ICF-01': [r'(之前|前).{0,10}(未|尚未)(获取|获得|签署)知情', r'未获得知情同意'],
+    'ICF-02': [r'更新后未签署|未签署更新版|错误版本的知情|再次知情'],
+    'RAND-01': [r'未能按照.{0,12}随机|随机.{0,6}(错误|不符)|未.{0,4}随机'],
+    'RAND-02': [r'未能按照.{0,12}随机|未.{0,4}随机'],
+    'ELIG-01': [r'不符合入选标准或符合排除标准|不符合入(选|排)标准.{0,10}入组'],
+    'ELIG-02': [r'洗脱', r'不符合入选标准或符合排除标准|不符合入(选|排)标准.{0,10}入组'],
+    'VIS-01': [r'访视超出.{0,8}(时间)?窗|访视超窗'],
+    'VIS-02': [(r'访视缺失.{0,20}(无显著影响|未.{0,4}影响)', False), (r'访视缺失.{0,20}(显著影响|严重影响)', True)],
+    'ASMT-01': [(r'缺失.{0,30}量表.{0,20}未影响', False), (r'缺失.{0,20}(安全性评估|检查).{0,12}未严重影响', False),
+                (r'缺失.{0,30}量表.{0,20}影响了', True), (r'缺失.{0,20}安全性评估.{0,12}(?<!未)严重影响', True)],
+    'ASMT-02': [(r'缺失.{0,30}量表.{0,20}未影响', False), (r'缺失.{0,20}(安全性评估|检查).{0,12}未严重影响', False),
+                (r'缺失.{0,30}量表.{0,20}影响了', True), (r'缺失.{0,20}安全性评估.{0,12}(?<!未)严重影响', True)],
+    'IP-01': [r'使用未按照方案要求执行|频率剂量|给药.{0,6}(剂量|途径|频次)'],
+    'IP-02': [r'使用未按照方案要求执行|频率剂量'],
+    'IP-03': [r'依从性\s*[＜<]\s*80|依从性.{0,6}(超出|不在)'],
+    'IP-04': [r'空腹'],
+    'SAMP-01': [r'生物样本的采集|样本.{0,6}采集'],
+    'SAMP-02': [r'生物样本的采集|样本.{0,6}采集'],
+    'CM-01': [r'(使用了|使用)方案禁止(使用)?的(合并)?药物|禁用(药|的合并)'],
+    'CM-02': [r'补救治疗|方案允许的合并治疗.{0,20}未按'],
+    'CM-03': [r'补救治疗|方案允许的合并治疗.{0,20}未按'],
+    'SAFE-02': [r'(晚报|漏报|报告超时)'],
+    'WD-01': [r'达到退出标准但未退出|达到.{0,6}停药标准.{0,8}未'],
+}
+
+
+def _def_sev(s):
+    s = str(s or '')
+    return '重要' if re.search(r'严重|重大|重要', s) else '一般' if re.search(r'轻微|一般|次要', s) else '待判定'
+
+
+def def_grades(table):
+    """界定表 rows → ({规则: 分级}, {规则: 依据}, {规则: 影响较大档 (分级, 依据)}, 未对上的子分类)。"""
+    rows = (table or {}).get('rows') if isinstance(table, dict) else table
+    rows = rows or []
+    g, basis, hi, used = {}, {}, {}, set()
+    for rule, pats in DEF_MAP.items():
+        for pat in pats:
+            rx, big = (pat if isinstance(pat, tuple) else (pat, False))
+            row = next((i for i, r in enumerate(rows) if re.search(rx, str(r.get('text') or ''))), None)
+            if row is None:
+                continue
+            r = rows[row]
+            used.add(row)
+            ref = f"申办方界定表 {str(r.get('cat') or '').split('.')[0]}.{r.get('no') or ''} {str(r.get('text') or '')[:40]}（{r.get('sev')}）"
+            if big:
+                hi.setdefault(rule, (_def_sev(r.get('sev')), ref))
+            elif rule not in g:
+                g[rule], basis[rule] = _def_sev(r.get('sev')), ref
+        if rule not in g and rule in hi:                 # 只有一档
+            g[rule], basis[rule] = hi[rule]
+    unused = [r for i, r in enumerate(rows) if i not in used]
+    return g, basis, hi, unused
+
+
 class _PD:
     def __init__(self, C):
         self.C = C
-        self.P = (C.A.get('pd') or {})
+        self.P = dict(C.A.get('pd') or {})
+        dt = self.P.get('defTable')
+        if dt:
+            g, basis, hi, unused = def_grades(dt)
+            # 界定表优先于方案正文抽取的分级（analysis.pd.grades）；个案判定（关键访视升级等）仍可覆盖，并引用界定表的影响较大档
+            self.P['grades'] = {**(self.P.get('grades') or {}), **g}
+            self.P['gradeBasis'] = {**(self.P.get('gradeBasis') or {}), **basis}
+            self.def_hi, self.def_unused, self.def_src = hi, unused, set(g)
+        else:
+            self.def_hi, self.def_unused, self.def_src = {}, [], set()
         self.items = []
         self.ran = {}             # rule id → 'ran' | 'unconfigured' | 'no-data'
         self.cutoff = C.S.get('cutoff') or (C.cfg.get('cutoff')) or max(
@@ -236,8 +303,13 @@ class _PD:
         pg = (self.P.get('grades') or {}).get(rule)
         g = grade or pg or g0
         if not grade and pg:
-            basis = '本研究 PD 界定表：' + ((self.P.get('gradeBasis') or {}).get(rule) or pg)
+            b0 = (self.P.get('gradeBasis') or {}).get(rule) or pg
+            basis = b0 if b0.startswith('申办方界定表') else '本研究 PD 界定表：' + b0
             why = f'{why}；{basis}' if why and not why.startswith('规则默认') else basis
+        elif grade == '重要' and rule in self.def_hi:          # 个案升级（关键访视/关键评估）→ 引用界定表的影响较大档
+            why = f"{why}；{self.def_hi[rule][1]}" if why else self.def_hi[rule][1]
+        elif not grade and self.P.get('defTable') and rule not in self.def_src:
+            why = (why + '；' if why and not why.startswith('规则默认') else '') + f'申办方界定表未列明此类，按系统规则：{g0}'
         s = self.C.subj.get(sid) or {}
         it = {'id': '', 'sid': sid, 'site': s.get('site', ''), 'cat': cat, 'layer': TAX[cat][2], 'rule': rule, 'title': title,
               'dv': RULE_DV.get(rule, ''),
@@ -822,11 +894,13 @@ def run(C):
     by_site = defaultdict(Counter)
     for it in E.items:
         by_site[it['site']][it['cat']] += 1
-    rules = [{'id': rid, 'cat': r[0], 'title': r[1], 'grade': (E.P.get('grades') or {}).get(rid) or r[2], 'action': r[3], 'dv': RULE_DV.get(rid, ''),
+    rules = [{'id': rid, 'cat': r[0], 'title': r[1], 'grade': (E.P.get('grades') or {}).get(rid) or r[2], 'gradeBasis': (E.P.get('gradeBasis') or {}).get(rid, ''), 'action': r[3], 'dv': RULE_DV.get(rid, ''),
               'logic': re.sub(r'（analysis\.[^）]*）', '', r[4]), 'cfg': '；'.join(re.findall(r'analysis\.[\w.\[\]]+', r[4])), 'data': r[5], 'state': E.ran.get(rid, 'unconfigured'), 'reason': (REASON.get(rid) or {}).get(E.ran.get(rid, 'unconfigured'), ''),
               'n': sum(1 for x in E.items if x['rule'] == rid)} for rid, r in RULES.items()]
     C.pdd = {'taxonomy': [list(t) for t in TAXONOMY], 'potential': E.items, 'confirmed': conf, 'rules': rules,
              'notDetectable': [list(x) for x in NOT_DETECTABLE], 'cutoff': E.cutoff, 'hasListing': bool(C.pd),
              'sites': {k: dict(v) for k, v in by_site.items()},
-             'critical': {'visits': sorted(E.crit_visits), 'items': E.P.get('criticalItems') or ''}}
+             'critical': {'visits': sorted(E.crit_visits), 'items': E.P.get('criticalItems') or ''},
+             **({'defTable': {'file': (E.P.get('defTable') or {}).get('file') if isinstance(E.P.get('defTable'), dict) else '',
+                              'matched': sorted(E.def_src), 'unused': E.def_unused}} if E.P.get('defTable') else {})}
     return C.pdd
