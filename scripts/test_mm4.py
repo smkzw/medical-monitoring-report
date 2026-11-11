@@ -289,6 +289,18 @@ class DemoBuild(unittest.TestCase):
         for rule in ('ICF-01', 'ICF-02', 'IP-02', 'IP-03', 'IP-04', 'SAMP-01', 'SAMP-02', 'VIS-02', 'ASMT-01', 'ASMT-03', 'CM-02', 'WD-01'):
             self.assertEqual(sum(1 for p in pot if p['rule'] == rule), 1, rule)
 
+    def test_unscheduled_visits_flagged_for_aggregate_views(self):
+        # 用户 2026-11-11：中心/全试验汇总不展示计划外访视——配置写回识别结果，前端 K.isAgg 同口径；未规范的写法按名称识别
+        vis = self.KZ['cfg']['visits']
+        self.assertIn('USV', vis['unsched'])
+        self.assertIn('ET', vis['early'])
+        import mm_build
+        for v in ('计划外访视1', '非计划访视', 'UNS2', 'USV'):
+            self.assertTrue(mm_build._UNS_ANY.search(v), v)
+        for v in ('V3', 'W12', 'SCR', '计划访视'):
+            self.assertFalse(mm_build._UNS_ANY.search(v), v)
+        self.assertTrue(mm_build._ET_ANY.search('提前终止访视'))
+
     def test_confirmed_matching(self):
         conf = {c['sid']: c for c in self.KZ['pd']['confirmed']}
         self.assertEqual(conf['02007']['grade'], '重要')

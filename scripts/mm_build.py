@@ -184,11 +184,19 @@ def load(study_p, norm_p):
     vis = C.cfg.setdefault('visits', {})
     C.VIS = complete_visit_order(C, vis.get('order') or [])
     vis['order'] = C.VIS
-    C.UNS = set(vis.get('unsched', ['USV']))
-    C.ET = set(vis.get('early', ['ET']))
+    # 访视名未规范成 USV/ET 时（「计划外访视1」「非计划访视」「提前终止」）按名称也归入计划外/提前退出——否则会进中心/全试验汇总；
+    # 写回配置，前端 K.isAgg 同口径（用户 2026-11-11：汇总层不展示个例计划外访视）
+    dv = {r.get('visit') for dom in ('visits', 'findings', 'efficacy') for r in getattr(C, dom) if r.get('visit')}
+    C.UNS = set(vis.get('unsched') or ['USV']) | {v for v in dv if _UNS_ANY.search(str(v))}
+    C.ET = (set(vis.get('early') or ['ET']) | {v for v in dv if _ET_ANY.search(str(v))}) - C.UNS
+    vis['unsched'], vis['early'] = sorted(C.UNS), sorted(C.ET)
     C.isAgg = lambda v: v not in C.UNS and v not in C.ET
     C.vi = lambda v: C.VIS.index(v) if v in C.VIS else len(C.VIS)
     return C
+
+
+_UNS_ANY = re.compile(r'计划外|非计划|unsched|^USV|^UNS|^UV\d*$', re.I)
+_ET_ANY = re.compile(r'提前(退出|终止|结束)|早期退出|^ET$|early\s*term', re.I)
 
 
 def _vkey(code):
@@ -3575,7 +3583,7 @@ def build_trend(C):
             base[mid] = b
         else:
             qtests.append(m['label'])
-            qobs[m['label']] = [[idx[r['sid']], r.get('date'), C.vi(r.get('visit')), r.get('raw')] for r in rows if r.get('raw')]
+            qobs[m['label']] = [[idx[r['sid']], r.get('date'), C.vi(r.get('visit')), r.get('raw'), 1 if r.get('post') else 0] for r in rows if r.get('raw')]
     C.KZT = {'meta': {'visits': C.VIS}, 'subjects': subjects, 'centers': [[c['site'], c['name']] for c in C.centers], 'metrics': metrics,
              'obs': obs, 'base': base, 'pending': [], 'qual': {'tests': qtests, 'obs': qobs}}
     C.sidx = idx
@@ -3753,7 +3761,14 @@ def build_subject_files(C, out):
         for g, rows in extg.items():
             rows.sort(key=lambda r: (r.get('date') or '', r['test']))
             tests = list(dict.fromkeys(r['test'] for r in rows))
-            vis = list(dict.fromkeys(r.get('visit') for r in rows))
+            # 横轴按日期先后；同一项检查在同一访视名下有多个日期（两次计划外、重复检查）时带日期分点，不并成一点（用户 2026-11-11）；
+            # 筛选期不同检查分几天做不拆
+            nd = defaultdict(set)
+            for r in rows:
+                nd[(r.get('visit'), r['test'])].add(str(r.get('date') or '')[:10])
+            multi = {v for (v, _t), ds in nd.items() if len(ds) > 1}
+            xk = lambda r: f"{r.get('visit')} {str(r.get('date') or '')[5:10]}" if r.get('visit') in multi else r.get('visit')
+            vis = list(dict.fromkeys(xk(r) for r in rows))
             def pc(r):
                 if r['pct'] is None:
                     return ['基线', ''] if r['isb'] else ''
@@ -3761,7 +3776,7 @@ def build_subject_files(C, out):
                 return [f"{r['pct']:+.1f}%", c]
             d['ext'].append({'title': g, 'note': '较基线变化 = 相对规定基线', 'cols': ['项目', '访视', '日期', '结果', '较基线'], 'numFrom': 3,
                              'rows': [[r['test'], [r.get('visit'), 'blu'], r.get('date'), f"{r.get('raw') or ''} {r.get('unit') or ''}".strip(), pc(r)] for r in rows],
-                             'chart': {'x': vis, 'series': [{'name': t, 'data': [next((r.get('value') for r in rows if r['test'] == t and r.get('visit') == v), None) for v in vis]} for t in tests[:4]]}
+                             'chart': {'x': vis, 'series': [{'name': t, 'data': [next((r.get('value') for r in rows if r['test'] == t and xk(r) == v), None) for v in vis]} for t in tests[:4]]}
                              if any(r.get('value') is not None for r in rows) else None})
         mic = [r for r in getattr(C, 'micro', []) if r['sid'] == sid]     # 第三轮：微生物培养/药敏分域呈现（判读型，不进异常核查）
         if mic:

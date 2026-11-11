@@ -79,8 +79,12 @@ K.labHeat=(el,labs,{onPick}={})=>{if(!el||!window.echarts)return 0;
   const tests=Object.entries(labs).map(([t,rows])=>{const devs=rows.map(K.labDev).filter(x=>x!=null),cs=rows.some(r=>r[7]===2);return [t,rows,Math.max(0,...devs.map(Math.abs)),cs]})
     .filter(x=>x[2]>0||x[3]).sort((a,b)=>(b[3]-a[3])||(b[2]-a[2])).slice(0,30);
   if(!tests.length){el.style.display='none';return 0}
-  const vis=[...new Map(tests.flatMap(x=>x[1]).filter(r=>r[1]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))).map(r=>[r[1],1])).keys()];
-  const data=[];tests.forEach(([t,rows],yi)=>vis.forEach((v,xi)=>{const rs=rows.filter(r=>r[1]===v);if(!rs.length)return;
+  /* 列按日期先后；同一指标在同一访视名下有多个日期（两次计划外、复查）时按日期分列，不并成一列（用户 2026-11-11） */
+  const AR=tests.flatMap(x=>x[1]).filter(r=>r[1]),MV=new Set();
+  tests.forEach(([t,rows])=>{const nd={};rows.forEach(r=>{if(r[1])(nd[r[1]]=nd[r[1]]||new Set()).add(String(r[0]||'').slice(0,10))});Object.keys(nd).forEach(v=>{if(nd[v].size>1)MV.add(v)})});
+  const ck=r=>MV.has(r[1])?`${r[1]} ${String(r[0]||'').slice(5,10)}`:r[1];
+  const vis=[...new Map(AR.slice().sort((a,b)=>String(a[0]).localeCompare(String(b[0]))).map(r=>[ck(r),1])).keys()];
+  const data=[];tests.forEach(([t,rows],yi)=>vis.forEach((v,xi)=>{const rs=rows.filter(r=>r[1]&&ck(r)===v);if(!rs.length)return;
     const r=rs.reduce((a,b)=>Math.abs(K.labDev(b)||0)>Math.abs(K.labDev(a)||0)?b:a);const dv=K.labDev(r);
     data.push({value:[xi,yi,dv==null?0:dv],r,t,cs:rs.some(x=>x[7]===2),label:{color:Math.abs(dv||0)>0.45?'#fff':'#3A3D41'}})}));
   el.style.height=Math.max(160,40+tests.length*20)+'px';
