@@ -4036,6 +4036,23 @@ class Eng2Tests(unittest.TestCase):
         C2 = SimpleNamespace(A={'diseaseWorseTerms': ['SAR']}, S={})
         self.assertIsNone(disease_kw(C2).search('SARS-CoV-2感染'))
 
+    def test_history_attribution_and_procedure(self):
+        """用户 2026-11-11：CS 说明归因既往手术——手术史（proc）有记录 → 视为已解释；没有记录 → 「疑似病史漏记·说明已归因」，不按漏报 AE。"""
+        from types import SimpleNamespace
+        import ext_rules as X
+        r = {'sid': 'S1', 'desc': '腹部可见一长约10cm瘢痕，CS，与剖宫产手术史相关', 'date': '2025-09-01', 'value': None}
+        C = SimpleNamespace(proc=[{'sid': 'S1', 'term': '剖腹产术', 'no': '1'}], mh_by={'S1': []})
+        hit = X.desc_mh_match(C, 'S1', r)
+        self.assertTrue(hit and hit[0]['kind'] == 'PR', hit)
+        self.assertEqual(X.proc_match(SimpleNamespace(proc=[{'sid': 'S1', 'term': '阑尾切除术'}]), 'S1', r), [])
+        self.assertIn('剖宫产手术史', X.hx_attr(r))
+        self.assertEqual(X.hx_attr({'desc': '无手术史，新发皮疹'}), '')
+        self.assertIn('陈旧', X.hx_attr({'desc': '左膝陈旧性瘢痕'}))
+        self.assertEqual(X.hx_attr({'desc': '既往皮损全部消退，存在部分炎症后色素沉着（NCS），左背部红斑水疱结痂（CS，带状疱疹相关）'}), '')
+        self.assertEqual(X.hx_attr({'desc': '两上肺肺气肿改变，请结合临床病史（CS）'}), '')
+        self.assertIn('阑尾切除术后', X.hx_attr({'desc': '右下腹瘢痕（CS，阑尾切除术后）'}))
+        self.assertEqual(X.hx_attr({'desc': '按方案要求加做HBV-DNA，与AE及病史均无关'}), '')
+
     def test_pd_def_table_grades(self):
         """申办方方案偏离界定表优先（用户 2026-11-11）：子分类对上规则 → 按表定分级并注明依据；分两档的个案升级引用影响较大档。"""
         import pd_rules as P

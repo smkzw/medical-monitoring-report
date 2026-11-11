@@ -180,6 +180,63 @@ def desc_ae_match(C, sid, r):
 _MH_QUAL = re.compile(r'^(不完全性|完全性|轻度|中度|重度|慢性|急性|陈旧性|间歇性|持续性|阵发性)')
 
 
+# 既往手术/操作史（proc 域，EDC 多记在「手术史 / 既往治疗」表，不在病史表）同样可解释 CS 异常（用户 2026-11-11：
+# 「腹部瘢痕，与剖宫产手术史相关」大量判「未关联 AE 或病史」）。常见手术同义写法先归一再比较。
+_HX_SYN = [(r'剖宫产|剖腹产|剖宫术|剖腹术|子宫下段剖宫', '剖宫产'), (r'阑尾(切除|炎手术|手术)', '阑尾切除'),
+           (r'胆囊(切除|摘除)', '胆囊切除'), (r'甲状腺.{0,4}(切除|手术)', '甲状腺切除'), (r'子宫(全|次全)?切除', '子宫切除'),
+           (r'骨折.{0,6}(内固定|复位|手术)', '骨折手术'), (r'(疝|疝气)(修补|手术)', '疝修补'), (r'(乳腺|乳房).{0,4}(切除|手术)', '乳腺手术')]
+_HX_TAIL = re.compile(r'(手术史|手术|术后|治疗史|治疗|病史|史|术)$')
+
+
+def _hx_norm(s):
+    s = re.sub(r'\s', '', str(s or ''))
+    for rx, c in _HX_SYN:
+        s = re.sub(rx, c, s)
+    return s
+
+
+def proc_match(C, sid, r):
+    """说明文字点名的既往手术/操作，在该参与者手术史（proc 域）中有记录 → [{no, term, start, kind:'PR'}]。"""
+    d = _hx_norm(' '.join(str(r.get(k) or '') for k in ('desc', 'reason_text', 'reason_raw')) or (r.get('raw') if r.get('value') is None else ''))
+    if len(d) < 2:
+        return []
+    out = []
+    for i, p in enumerate(x for x in (getattr(C, 'proc', None) or []) if x.get('sid') == sid):
+        core = _HX_TAIL.sub('', _hx_norm(re.sub(r'[（(].*$', '', str(p.get('term') or ''))))
+        pd_ = str(p.get('date') or p.get('start') or '')
+        if len(core) >= 2 and core in d and (not is_full_date(pd_) or not is_full_date(r.get('date')) or pd_ <= r['date']):
+            out.append({'no': f"PR{p.get('no') or i + 1}", 'term': p.get('term'), 'start': pd_, 'end': '', 'ongoing': True, 'match': True, 'kind': 'PR'})
+    return out
+
+
+# 说明已把异常归因于既往情况/生理状态（「与剖宫产手术史相关」「阑尾切除术后」「陈旧性瘢痕」「先天性」）：
+# 风险在病史漏记，不在 AE 漏报——病史/手术史都没有记录时改问「请补充病史」，不按「可能漏报 AE」处理
+_HX_NEG = re.compile(r'(无|否认|非|排除|不考虑)[^，。；]{0,4}$')
+
+
+_HX_PATS = [
+    re.compile(r'(?:与|系|为|因|考虑)[^，。；（）()、]{1,16}?(?:手术史|病史|既往史|术后)(?:相关|所致|引起|改变)?'),
+    re.compile(r'[^，。；（）()、]{1,14}?(?:手术史|病史|既往史)(?:相关|所致|引起)'),
+    re.compile(r'[^，。；（）()、]{1,12}?(?:术后|手术后|切除后)(?:改变|瘢痕|疤痕|状态|所致)?'),
+    re.compile(r'(?:陈旧性|先天性|生理性)[^，。；（）()、]{0,10}'),
+    re.compile(r'(?:手术|外伤|烧伤|剖宫产)(?:后)?(?:瘢痕|疤痕)'),
+]
+_HX_BOILER = re.compile(r'结合临床(病史)?|询问病史|请结合|建议.{0,6}随诊')
+
+
+def hx_attr(r) -> str:
+    """CS 说明中把异常明确归因于既往情况的分句（未命中 → ''）。只看判为 CS 的部分：「既往皮损消退（NCS），红斑水疱（CS，带状疱疹相关）」
+    里 NCS 部分的「既往」不算；影像报告套话「请结合临床病史」不算（D001B 候选审读，2026-11-11）。"""
+    t = ' '.join(str(r.get(k) or '') for k in ('desc', 'reason_text')).strip()
+    t = re.sub(r'[^，。；;（(]*[（(]\s*NCS[^）)]*[）)]', '', t)       # 去掉标注为 NCS 的分句
+    t = _HX_BOILER.sub('', t)
+    for rx in _HX_PATS:
+        m = rx.search(t)
+        if m and not _HX_NEG.search(t[max(0, m.start() - 6):m.start()]) and not re.match(r'[^，。；]{0,4}(无关|不相关|无明显相关)', t[m.end():]):
+            return m.group(0).strip('”“" ')[:30]
+    return ''
+
+
 def desc_mh_match(C, sid, r):
     """研究者描述/结果文本与病史术语互相包含（去掉「不完全性/轻度/慢性」等限定词后比较）且病史时段覆盖检查日期 →
     病史可解释候选。V6 第二轮医学审阅（RUX Q114：心电图「右束支传导阻滞」判 CS，病史第 3 条即「不完全性右束支传导阻滞」，
@@ -195,13 +252,13 @@ def desc_mh_match(C, sid, r):
                 (m.get('ong') == '是' or not m.get('e') or not is_full_date(r.get('date')) or m['e'] >= r['date'])
         if len(core) >= 3 and cover and (core in d or (len(d) <= 16 and _MH_QUAL.sub('', d) in t_)):
             out.append({'no': m['n'], 'term': m['t'], 'start': m['s'], 'end': m.get('e'), 'ongoing': m.get('ong') == '是', 'match': True})
-    return out
+    return out or proc_match(C, sid, r)
 
 
 def mh_explains(C, sid, mid, pts):
     """未关联的 CS 点：参与者已有覆盖这些日期的同类病史（指标族词表 mhMatch／AE 族兜底，或研究者描述与病史术语互含）→ 返回该病史。
     与 CSB 步骤 3 同口径（V6 第二轮医学审阅 RUX S03045：DBIL 判 CS 未关联，病史「血胆红素升高」持续中、数值在给药前波动内）。"""
-    if not (getattr(C, 'mh_by', None) or {}).get(sid):
+    if not (getattr(C, 'mh_by', None) or {}).get(sid) and not any(x.get('sid') == sid for x in (getattr(C, 'proc', None) or [])):
         return None
     mhm = getattr(C, 'mhMatch', None)
     if mhm is None:                                      # 检验层（build_labrows）早于 ext_rules.run 的 _load_lists：直接编译配置
@@ -215,6 +272,8 @@ def mh_explains(C, sid, mid, pts):
                 return m
         hit = desc_mh_match(C, sid, r)
         if hit:
+            if hit[0].get('kind') == 'PR':                 # 手术史记录：返回同形的记录（t/n/s）
+                return {'t': hit[0]['term'], 'n': hit[0]['no'], 's': hit[0]['start'], 'e': '', 'ong': '是', 'kind': 'PR'}
             return next((m for m in C.mh_by[sid] if str(m['n']) == str(hit[0]['no'])), None)
     return None
 
@@ -1220,6 +1279,9 @@ def m23_csb(C):
                     if not mmhs:
                         mmhs = desc_mh_match(C, sid, r)
                     binding['matched_mh'] = mmhs[:4]
+                    hx = '' if mmhs else hx_attr(r)
+                    if hx and (not r['post'] or not (known and worse)):
+                        emit = ('HXU', None, hx)          # 说明已归因既往情况、病史/手术史未记录 → 请补充病史（不按漏报 AE）
                     if mmhs:
                         if not r['post'] or (known and not worse):
                             continue                     # 病史可解释 → 通过
@@ -1277,10 +1339,11 @@ QT_CSB_ASK = {                                   # 写给 CRC：一句话建议
     'MH': '请评估是否为给药后加重、需记录AE。',
     'CSW': '请评估是否需记录AE；如已记录，请完成关联。',
     'CSX': '请核实是否需记录AE，或补充病史并关联。',
+    'HXU': '请补充病史（含手术史）记录，并在检查页关联。',
 }
-CSB_PR = {'CSW': 4, 'CSX': 4, 'CSX_AE': 4, 'MH': 3, 'LINK': 3}
+CSB_PR = {'CSW': 4, 'CSX': 4, 'CSX_AE': 4, 'MH': 3, 'LINK': 3, 'HXU': 3}
 CSB_CAT = {'LINK': '关联的AE/病史不对应', 'CSX_AE': 'CS未关联·同期疑似AE', 'MH': 'CS仅关联病史·加重核对',
-           'CSW': 'CS较基线加重·请确认AE', 'CSX': 'CS未关联AE/MH'}
+           'CSW': 'CS较基线加重·请确认AE', 'CSX': 'CS未关联AE/MH', 'HXU': '疑似病史漏记·说明已归因'}
 
 
 def _obs(C, r):
@@ -1304,6 +1367,16 @@ def _base_txt(r):
 
 
 def _csb_query(C, r, kind, rec, extra, flags):
+    if kind == 'HXU':           # 同一参与者、同一归因只发一条（S01011：「血脂异常既往史」TC/HDL/TG 曾拆 4 条），其余指标并入
+        key = re.sub(r'[\s,，CS]', '', str(extra or ''))
+        prev = next((o for o in C.others if o.get('sid') == r['sid'] and o.get('risk') == 'HXU' and o.get('_hxk') == key), None)
+        if prev is not None:
+            lab = C.metric[r['mid']]['label']
+            prev['_hxm'] = prev.get('_hxm', []) + [lab]
+            ex = '、'.join(dict.fromkeys(prev['_hxm']))
+            prev.setdefault('_hxbase', prev['sum'])
+            prev['sum'] = prev['_hxbase'] + f"（另有 {ex} 同此说明）"
+            return
     head = f"{r.get('visit')}访视{_obs(C, r)}"
     if r.get('value') is not None and (r.get('base') or {}).get('value') is not None:
         bv, v = r['base']['value'], r['value']
@@ -1315,15 +1388,19 @@ def _csb_query(C, r, kind, rec, extra, flags):
         fact = f"{head}判为有临床意义，同期已记录AE“{(rec or {}).get('term', '')}”（{(rec or {}).get('start', '')}），但未关联，"
     elif kind == 'MH':
         fact = f"{_base_txt(r)}{head}判为有临床意义，仅关联病史“{(rec or {}).get('t', '')}”，较基线加重且未见对应AE，"
+    elif kind == 'HXU':
+        fact = f"{head}判为有临床意义，说明写明“{extra or ''}”，但病史/手术史中未见对应记录，"
     elif kind == 'CSW':
         why = extra or ('（' + '、'.join(f for f in flags if not f.startswith('给药前'))[:40] + '）' if flags else '')
         fact = f"{_base_txt(r)}{head}判为有临床意义{why}，"
     else:
         fact = f"{_base_txt(r)}{head}判为有临床意义，但未关联AE或病史，"
-    add_ext(C, r['sid'], CSB_CAT[kind], kind, CSB_PR[kind], fact.rstrip('，'),
-            r.get('visit'), r.get('date'), r['sheet'], r['row'], C.metric[r['mid']]['label'],
-            ctx=flags, rule={'ask': QT_CSB_ASK[kind]},
-            bkey=f"{r['mid']}|{r.get('visit')}|{r.get('date')}", wb=r.get('wb') or '')
+    o_ = add_ext(C, r['sid'], CSB_CAT[kind], kind, CSB_PR[kind], fact.rstrip('，'),
+                 r.get('visit'), r.get('date'), r['sheet'], r['row'], C.metric[r['mid']]['label'],
+                 ctx=flags, rule={'ask': QT_CSB_ASK[kind]},
+                 bkey=f"{r['mid']}|{r.get('visit')}|{r.get('date')}", wb=r.get('wb') or '')
+    if kind == 'HXU' and isinstance(o_, dict):
+        o_['_hxk'] = re.sub(r'[\s,，CS]', '', str(extra or ''))
 
 
 def _candidate(C, r, binding, known, worse, flags, dh):

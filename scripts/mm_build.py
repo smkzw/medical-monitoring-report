@@ -1221,6 +1221,7 @@ def build_labrows(C):
         if sid not in C.pop or mid.split(':')[0] not in doms or C.metric[mid]['nq'] > C.metric[mid]['n']:
             continue
         b = rows[0]['base'] if rows else None
+        g_hx = ''
         pre_v = ext_rules.pre_values(rows)                # 给药前数值：所有「较基线加重」判定按给药前波动容差（ext_rules.within_pre）
         bg = (b or {}).get('grade') or 0
         bc = (b or {}).get('clin') or 0
@@ -1317,6 +1318,21 @@ def build_labrows(C):
                         ctx.append(f"未关联，但病史「{mh_['t']}」覆盖该期间，较基线未明显加重（病史延续，可请研究者补关联）")
                     else:
                         ctx.append(f"病史有「{mh_['t']}」" + (f"，但给药后较基线加重（{wf_}）" if wf_ else "，基线缺失无法判断是否加重") + "，检验页未关联")
+                else:
+                    # 用户 2026-11-11：说明已归因既往情况（「与剖宫产手术史相关」「陈旧性瘢痕」），病史/手术史都没有记录 →
+                    # 风险是病史漏记而非漏报 AE：给药前即有、或给药后较基线未加重 → 改问「请补充病史」；给药后新出现/加重仍按漏报 AE
+                    hx_ = next((h for h in map(ext_rules.hx_attr, cs_pts) if h), '')
+                    if hx_:
+                        t_b = float(C.cfg['thresholds'].get('base', 0.3))
+                        wf_h = next((w for w in (worse_vs_base(r, (r['base'] if 'base' in r else b), t_b, pre=pre_v) or ext_rules.qual_worse(r, (r['base'] if 'base' in r else b))
+                                                 for r in cs_pts if r['post']) if w), None) if b else None
+                        new_post = any(r['post'] for r in cs_pts) and (b is None or b.get('clin') == 0) and not any(not r['post'] for r in cs_pts)
+                        if not wf_h and not new_post:
+                            risk = 'HXU'
+                            g_hx = hx_
+                            ctx.append(f"说明归因既往情况「{hx_}」，病史/手术史中未见对应记录（请补充病史，不按漏报 AE 处理）")
+                        else:
+                            ctx.append(f"说明写明「{hx_}」，但给药后新出现或较基线加重，病史/手术史亦无记录")
             ibg = next((bb for a, bb in (C.A.get('indicationBackground') or []) if re.search(a, mid)
                         and ext_rules.bg_applies(bb, mid, P[0].get('sheet', '') if P else '')), None) if risk == 'CSX' else None
             if ibg:
@@ -1424,7 +1440,8 @@ def build_labrows(C):
         C.labrows.append({
             'marg': marg_,
             'sid': sid, 'site': C.subj[sid]['site'], 'cat': cat, 'test': C.metric[mid]['label'], 'mid': mid, 'grp': f0.get('group') or '',
-            'pr': {'CSX': 4, 'MH': 3, 'NCS2': 3, 'NA2': 3, 'G2NF': 3, 'DISW': 3, 'NA': 3, 'MHU': 2}.get(risk, 1),
+            'pr': {'CSX': 4, 'MH': 3, 'NCS2': 3, 'NA2': 3, 'G2NF': 3, 'DISW': 3, 'NA': 3, 'MHU': 2, 'HXU': 3}.get(risk, 1),
+            **({'hx': g_hx} if risk == 'HXU' and g_hx else {}),
             'base': [b.get('visit'), b.get('raw'), b.get('unit') or '', b.get('clin')] if b else None,
             'pts': [[r.get('visit'), r.get('date'), r.get('raw'), r.get('unit') or '', r.get('grade'), r.get('clin'),
                      None if r.get('pct') is None else round(r['pct'], 1), r['sheet'], r['row'], r.get('desc') or '',
@@ -3014,6 +3031,8 @@ def disease_not_ae(C) -> bool:
 
 # ----------------------------------------------------------------------------- queries
 QT = {  # 默认 query 措辞：写给 CRC，一句话＝异常点＋冲突点＋建议（不写日期：query 已定位到 listing 行）。可用 analysis.queryTemplates 覆盖
+    'HXU': ('疑似病史漏记·说明已归因', '{visit}访视{test}{raw}{unit}判为有临床意义，说明写明“{hx}”，但病史/手术史中未见对应记录，',
+            '请补充病史（含手术史）记录，并在检查页关联。'),
     'CSX': ('CS未关联AE/MH', '{btxt}{visit}访视{test}{move}{raw}{unit}（参考范围 {rng}{gtxt}），判为有临床意义，但未关联AE或病史，',
             '请核实是否需记录AE，或补充病史并关联。'),
     'CSX_MARG': ('CS判定核对·轻微超限', '{btxt}{visit}访视{test}{move}{raw}{unit}（参考范围 {rng}，仅轻微超出），判为有临床意义，但未关联AE或病史，',
@@ -3094,7 +3113,7 @@ def build_queries(C):
         T['DISW'] = (QT['DISW'][0], QT['DISW'][1].replace('但未记录研究疾病加重AE，', '较基线加重，'),
                      '方案规定研究疾病相关异常除非较预期病情更严重否则不作为AE：请评估该异常是否较预期病情更严重；如是，请记录为AE并关联。')
     T.update({k: tuple(v) for k, v in C.A.get('queryTemplates', {}).items()})
-    risks = list(C.A.get('queryRisks', ['CSX', 'MH', 'NCS2', 'NA2', 'DISW', 'NA'])) + ['G2NF']
+    risks = list(C.A.get('queryRisks', ['CSX', 'MH', 'NCS2', 'NA2', 'DISW', 'NA'])) + ['G2NF', 'HXU']
     Q = []
     common = defaultdict(list)
 
@@ -3189,7 +3208,7 @@ def build_queries(C):
             wf = f"较基线{'升高' if p[6] > 0 else '降低'} {abs(p[6]):.0f}%"
         fact = fill(ft, visit=p[0], date=p[1], test=g['test'], raw=p[2], unit=p[3], lo=fmt(f.get('lo')) if f.get('lo') is not None else '—',
                     hi=fmt(f.get('hi')) if f.get('hi') is not None else '—', gtxt=f"，{C.GL} {p[4]}级" if p[4] else '', grade=p[4], gterm=f.get('gterm', ''), rng=rng, gl=C.GL,
-                    mh=mh, bvis=b_[0] if b_ else None, braw=b_[1] if b_ else '—', btxt=btxt, move=move, wf=wf)
+                    mh=mh, bvis=b_[0] if b_ else None, braw=b_[1] if b_ else '—', btxt=btxt, move=move, wf=wf, hx=g.get('hx', ''))
         if len(P) > 1:                                   # 同类异常其余访视：放在建议前，句子仍以「，」接建议
             fact = fact.rstrip('，') + f"（另有 {len(P) - 1} 次同类异常：{'、'.join(str(x[0]) for x in P[1:4])}{'等' if len(P) > 4 else ''}），"
         row_wb = (p[11] if len(p) > 11 else '') or g.get('wb') or ''
@@ -3199,10 +3218,12 @@ def build_queries(C):
             parts = qk.split('|')
             parts[3] = f"{row_wb}:{p[7]}"            # qkey 的 wb:sheet 段与被选行一致
             qk = '|'.join(parts)
-        card = {'问题': {'CSX': '判为有临床意义但未关联AE或病史', 'MH': '判为有临床意义且只关联病史，较基线加重，未见对应AE', 'NCS2': '数值达CTCAE≥2级但研究者判为无临床意义',
+        card = {'问题': {'HXU': '判为有临床意义，说明已归因既往情况，但病史/手术史中未见记录', 'CSX': '判为有临床意义但未关联AE或病史', 'MH': '判为有临床意义且只关联病史，较基线加重，未见对应AE', 'NCS2': '数值达CTCAE≥2级但研究者判为无临床意义',
                        'NA': '超出参考范围但未评价临床意义', 'NA2': '数值达CTCAE≥2级但未评价临床意义', 'G2NF': '数值达CTCAE≥2级，该表单没有临床意义评价',
                        'DISW': '研究者归因研究疾病，但较基线明显加重且未记录研究疾病加重AE'}.get(g['risk'], cat),
                 '指标': g['test'], '访视': p[0], '数值': f"{p[2]}{p[3] or ''}", '参考范围': rng}
+        if g['risk'] == 'HXU' and g.get('hx'):
+            card['研究者说明'] = g['hx']
         if cand:
             # 「判为有临床意义」只对 CS 类成立；NCS≥2级/未评价≥2级有同期 AE 时问的是判定/评价本身（第二轮医学审阅措辞排查）
             card['问题'] = {'NCS2': '数值达CTCAE≥2级但判为无临床意义，同期已记录可能对应的AE',
