@@ -43,8 +43,8 @@ mm4 新增：`calibers:[[主题, 采用口径, 状态, 规则id, 说明]]`（关
 - `population`（`dosed`）：`dosed` | `randomized` | `all`。
 - `postTptRe`（`后`）：首剂当日时间点匹配则视为给药后。
 - `visitWindows`：`{访视: [目标研究日, 前窗, 后窗]}`（锚点首剂，研究日 = 访视日 − 首剂日 + 1）或 `{访视: {target, minus, plus, anchor:"fd"|"rand"|"icf"|"<前一访视代码>"}}`（非首剂锚点时 target = 距锚点天数）。访视代码与 listing 写法不同（如方案「V6/W4/D29」、EDC「W4/D29V6」）时，构建按访视标记集合（字母＋数字）自动对齐到 listing 写法（同组唯一、其次唯一超集）；visits.order/d1/unsched/early、soa、pd 关键访视同样对齐。
-- `aePeriod`：`{ref:"ld"|"fd"|"eos_d", days}` AE 收集期终点（如末次给药后 28 天）；之后的检验异常不再生成漏报 AE 风险。`eos_d` 锚点而受试者仍在研 → 收集期开放（不回退到末次给药）。
-- `teae`：`{ref, days}` TEAE 定义（首剂后起至 ref+days）；AE 汇总与受试者计数按 TEAE 口径。
+- `aePeriod`：`{ref:"ld"|"fd"|"eos_d", days}` AE 收集期终点（如末次给药后 28 天）；之后的检验异常不再生成漏报 AE 风险。`eos_d` 锚点而参与者仍在研 → 收集期开放（不回退到末次给药）。
+- `teae`：`{ref, days}` TEAE 定义（首剂后起至 ref+days）；AE 汇总与参与者计数按 TEAE 口径。
 - `soa`：`[{name, sheet, visits:[...], cond}]` 自定义 SoA 完成度；缺省从 findings/visits 推断。
 
 **AE**
@@ -71,7 +71,7 @@ mm4 新增：`calibers:[[主题, 采用口径, 状态, 规则id, 说明]]`（关
   `classes`（`[[类名, 成员正则], …]`，质疑文案只列该药实际命中的类）；条款原文写「镇静抗组胺…（允许/可使用非镇静抗组胺药）」时
   必须把例外写进 `note`——引擎据此不把二代非镇静抗组胺（西替利嗪/氯雷他定/依巴斯汀等通用名）计入该条款（F1/F3，一代镇静照常）；
   「外用疗法」类条目写 `route:"topical"`——吸入/雾化/鼻用/眼用/注射复方不按外用核查（F2）。
-- `eligibility`：`[{id, metric, visits, on:val|uln|lln, op, v, text, pr, cat, pick:last|first|any, window, kind:inclusion|exclusion}]`（受试者×标准一条，判定值见 analysis-rules §8）；`eligibilitySubject`：`[{field, op, v, label, text}]`。
+- `eligibility`：`[{id, metric, visits, on:val|uln|lln, op, v, text, pr, cat, pick:last|first|any, window, kind:inclusion|exclusion}]`（参与者×标准一条，判定值见 analysis-rules §8）；`eligibilitySubject`：`[{field, op, v, label, text}]`。
 - `prohibited[].important`：该禁用类别影响疗效评价或安全（潜在 PD 分级为重要）；`thresholdRules[].stop`：永久停药阈值（WD-01）。
 - `linkVerdicts`：`{"wb:sheet|行号": {v, why}}` CS 关联对应性预判（宿主生成）；`linkStrict`（false）：无预判时词表未命中是否直接 LINK。
 - `pd`：方案偏离参数（criticalVisits/criticalItems/preIcfAllowed/icfVersions/dosing/fasting/compliance/sample/order/rescue/requireRand/catMap/grades/window/enabled），见 protocol-deviation.md §6。
@@ -79,7 +79,7 @@ mm4 新增：`calibers:[[主题, 采用口径, 状态, 规则id, 说明]]`（关
 
 **有效性**
 - `efficacy`：`[{id, label, unit, kind:continuous|ordinal|binary, src:"eff:<metric>"|"lab:<test>"|"exam:<test>", derive:chg|pct, baseVisit, visits, keyVisit, signed, refLines, categories, note, kpi, agg:"max"}]`。
-  mm4 起由工作台确定性生成（`mm3/protocol/efficacy.py`：方案终点 × listing 量表/检验/检查指标），不再手填；`src` 可指向 lab/exam 指标（如 Hb、肌瘤体积）；`agg:"max"` 用于终点写「最大的…」时同访视多条记录取最大。基线取方案基线访视（D1/首次给药前）；该指标没有 D1 访视时取给药前最后一次。lab/exam 来源的测量值做量级检查（同一受试者某次与本人其余访视中位数相差 ≥10 倍 → pr3 query「有效性数据量级异常」，疑似单位/录入错误，同时在有效性页列出；量表不查）。
+  mm4 起由工作台确定性生成（`mm3/protocol/efficacy.py`：方案终点 × listing 量表/检验/检查指标），不再手填；`src` 可指向 lab/exam 指标（如 Hb、肌瘤体积）；`agg:"max"` 用于终点写「最大的…」时同访视多条记录取最大。基线取方案基线访视（D1/首次给药前）；该指标没有 D1 访视时取给药前最后一次。lab/exam 来源的测量值做量级检查（同一参与者某次与本人其余访视中位数相差 ≥10 倍 → pr3 query「有效性数据量级异常」，疑似单位/录入错误，同时在有效性页列出；量表不查）。
 - `diseaseTerms`：研究疾病缩写（如 `["AD"]`，工作台从方案「特应性皮炎（AD）」写法编译），用于识别备注里的研究疾病归因。
 - ~~`clinConsistTol`~~：已废止（2026-10-30 判定一致性改为方向性口径，见 analysis-rules）。
 - `expectedAE`：`[{term, label, re, pt, soc, basis, src: ib|protocol, loc, labs: [[analyte, label, direction]]}]` 产品风险（工作台从 IB 风险表/方案风险章节编译）：AE 按术语/PT 匹配打「IB重要潜在风险·…」标记（同 SOC 的标「同SOC」），检验按风险的检验表现在背景中注明。

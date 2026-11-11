@@ -14,12 +14,12 @@ app.innerHTML=`
  <div class="kpi"><div class="l">潜在 PD · 执行层面</div><div class="v">${exe.length}<small>条</small></div><div class="s">${K.p('重要 '+imp(exe),'solid-red')}${K.p('待判定 '+exe.filter(x=>x.grade==='待判定').length,'yel')}</div></div>
  <div class="kpi"><div class="l">潜在 PD · 科学层面</div><div class="v">${sci.length}<small>条</small></div><div class="s">${K.p('重要 '+imp(sci),'solid-red')}${K.p('待判定 '+sci.filter(x=>x.grade==='待判定').length,'yel')}</div></div>
  <div class="kpi"><div class="l">潜在 PD 未见记录</div><div class="v">${P.hasListing===false?'—':POT.filter(x=>x.status==='未见记录').length}<small>/ ${POT.length}</small></div><div class="s">${K.p('已记录 '+POT.filter(x=>x.status==='已记录').length,'grn')}${P.hasListing?'':K.p('无方案偏离记录表可比对','line')}</div></div>
- <div class="kpi blu"><div class="l" title="潜在偏离与已登记偏离合计（含筛选期的已登记偏离）">涉及受试者 / 中心（潜在＋已登记）</div><div class="v">${subj.size}<small>例 · ${sites.size} 个中心</small></div></div>
+ <div class="kpi blu"><div class="l" title="潜在偏离与已登记偏离合计（含筛选期的已登记偏离）">涉及参与者 / 中心（潜在＋已登记）</div><div class="v">${subj.size}<small>例 · ${sites.size} 个中心</small></div></div>
  <div class="kpi grn"><div class="l">检查覆盖</div><div class="v">${ran}<small>/ ${RULES.length} 项已执行</small></div><div class="s">${K.p('未执行 '+RULES.filter(r=>r.state!=='ran').length,'line')}${K.p('需源文件核查 '+(P.notDetectable||[]).length+' 类','brn')}</div></div>
 </div>
 <div class="grid g12 mt">
  <div class="card"><div class="hd"><h2>类别 × 分级</h2><span class="sub">潜在 PD 按分级堆叠；点击行筛选下方清单</span><span class="sp"></span><span class="legend">${G.map(g=>`<span><i class="dot" style="background:${GC[g]}"></i> ${g}</span>`).join('')}</span></div><div id="mx"></div></div>
- <div class="card"><div class="hd"><h2>中心分布</h2><span class="sub">潜在 PD 每例受试者条数；颜色越深越偏高</span></div><div id="st"></div></div>
+ <div class="card"><div class="hd"><h2>中心分布</h2><span class="sub">潜在 PD 每例参与者条数；颜色越深越偏高</span></div><div id="st"></div></div>
 </div>
 <div class="tabs mt" id="tabs"></div><div id="pane"></div>`;
 /* ---------- 类别 × 分级矩阵 ---------- */
@@ -45,14 +45,14 @@ K.table(app.querySelector('#st'),{rows:st,sort:'rate',h:'300px',noPage:true,onRo
 /* ---------- 清单 ---------- */
 const pane=app.querySelector('#pane');
 function potList(rows,title){
- pane.innerHTML=`<div class="tbar"><div class="chips" id="fg"></div><div class="chips" id="fs"></div><span class="sp"></span><select class="s" id="fc"><option value="">全部类别</option>${cats.filter(c=>rows.some(x=>x.cat===c)).map(c=>`<option value="${c}" ${F.cat===c?'selected':''}>${K.esc((TX[c]||[])[1]||c)}</option>`).join('')}</select><select class="s" id="fsi"><option value="">全部中心</option>${[...sites].sort().map(s=>`<option value="${s}" ${F.site===s?'selected':''}>${s} ${K.esc(K.center(s))}</option>`).join('')}</select><input class="s" id="fq" placeholder="受试者 / 事实关键词" value="${K.esc(F.s)}"></div><div class="tbar" id="chg-pd"></div><div id="tb"></div>
+ pane.innerHTML=`<div class="tbar"><div class="chips" id="fg"></div><div class="chips" id="fs"></div><span class="sp"></span><select class="s" id="fc"><option value="">全部类别</option>${cats.filter(c=>rows.some(x=>x.cat===c)).map(c=>`<option value="${c}" ${F.cat===c?'selected':''}>${K.esc((TX[c]||[])[1]||c)}</option>`).join('')}</select><select class="s" id="fsi"><option value="">全部中心</option>${[...sites].sort().map(s=>`<option value="${s}" ${F.site===s?'selected':''}>${s} ${K.esc(K.center(s))}</option>`).join('')}</select><input class="s" id="fq" placeholder="参与者 / 事实关键词" value="${K.esc(F.s)}"></div><div class="tbar" id="chg-pd"></div><div id="tb"></div>
  <div class="note mt xs muted">${title} · 潜在 PD 由数据推断，待核实：「发 query」= 数据层面可澄清；「CRA 核实」= 需源文件；「录入 PD」= 数据已足以确认。确认属实后录入方案偏离记录，按分级报告伦理与申办方（GCP 2026 第二十三条）。</div>`;
  K.chips(pane.querySelector('#fg'),G.map(g=>[g,g,rows.filter(x=>x.grade===g).length]),v=>{F.g=v;draw()},{multi:true,value:F.g,all:'全部分级'});
  K.chips(pane.querySelector('#fs'),['未见记录','已记录'].map(s=>[s,s,rows.filter(x=>x.status===s).length]).filter(x=>x[2]),v=>{F.st=v;draw()},{all:'全部比对',value:F.st});
  pane.querySelector('#fc').onchange=e=>{F.cat=e.target.value||null;drawMx();draw()};pane.querySelector('#fsi').onchange=e=>{F.site=e.target.value;draw()};pane.querySelector('#fq').oninput=e=>{F.s=e.target.value.trim();draw()};
  const tb=K.table(pane.querySelector('#tb'),{rows:[],pageSize:40,onRow:r=>{K.setHash({tab:F.tab,id:r.id});K.showPD(r.id)},cols:[
   {k:'grade',t:'分级',f:r=>K.pdGrade(r.grade)+K.dpill('pd',r)+(r.ctq?K.p('关键','solid-red',r.ctq):''),s:r=>G.indexOf(r.grade),w:'84px'},{k:'cat',t:'类别',f:r=>K.pdCat(r.cat),w:'118px'},
-  {k:'sid',t:'受试者',f:r=>`${K.sid(r.sid)} <span class="xs faint">${r.site}</span>`,w:'90px'},{k:'date',t:'访视 / 日期',f:r=>`${r.visit?K.p(r.visit,'blu'):''}<div class="xs muted nowrap">${r.date||''}</div>`,w:'96px'},
+  {k:'sid',t:'参与者',f:r=>`${K.sid(r.sid)} <span class="xs faint">${r.site}</span>`,w:'90px'},{k:'date',t:'访视 / 日期',f:r=>`${r.visit?K.p(r.visit,'blu'):''}<div class="xs muted nowrap">${r.date||''}</div>`,w:'96px'},
   {k:'fact',t:'偏离事实（数据推断）',ns:1,f:r=>`<b class="small" style="color:var(--ink)">${K.esc(r.title)}</b><div class="small" style="margin-top:2px;line-height:1.6">${K.hlNum(r.fact)}</div>`},
   {k:'status',t:'比对',f:r=>`${K.pdStatus(r.status)}${r.matched?`<div class="xs mono faint" style="margin-top:2px">${r.matched}</div>`:''}`,w:'84px'},
   {k:'action',t:'处理',f:r=>K.pdAct(r.action),w:'76px'},
@@ -66,18 +66,18 @@ function confList(){
  if(!CONF.length)return;
  K.table(pane.querySelector('#tb'),{rows:CONF.filter(r=>(!F.cat||r.cat===F.cat)&&(!F.site||r.site===F.site)),pageSize:40,onRow:r=>K.showPD(r.id),cols:[
   {k:'id',t:'编号',f:r=>K.p(r.id,'sq mono line'),w:'62px'},{k:'grade',t:'分级',f:r=>`${K.pdGrade(r.grade)}${r.rawGrade?`<div class="xs faint" style="margin-top:2px">${K.esc(r.rawGrade)}</div>`:''}`,s:r=>G.indexOf(r.grade),w:'84px'},
-  {k:'cat',t:'类别',f:r=>`${K.pdCat(r.cat)}<div class="xs faint" style="margin-top:2px">${K.esc(r.rawCat)}</div>`,w:'110px'},{k:'sid',t:'受试者',f:r=>`${K.sid(r.sid)} <span class="xs faint">${r.site}</span>`,w:'90px'},
+  {k:'cat',t:'类别',f:r=>`${K.pdCat(r.cat)}<div class="xs faint" style="margin-top:2px">${K.esc(r.rawCat)}</div>`,w:'110px'},{k:'sid',t:'参与者',f:r=>`${K.sid(r.sid)} <span class="xs faint">${r.site}</span>`,w:'90px'},
   {k:'date',t:'日期',f:r=>`<span class="nowrap xs">${r.date||'—'}</span>`,w:'86px'},{k:'desc',t:'偏离描述（原文）',ns:1,f:r=>`<span class="small">${K.esc(r.desc)}</span>${r.sub?` <span class="xs faint">${K.esc(r.sub)}</span>`:''}`},
   {k:'matched',t:'数据比对',ns:1,f:r=>r.matched.length?r.matched.map(x=>K.p(x,'sq mono grn')).join(''):'<span class="xs faint">数据未覆盖</span>',w:'110px'}]});
 }
-function soaPane(){pane.innerHTML=`<div class="card"><div class="hd"><h2>访视流程表 × 实际完成</h2><span class="sub">已给药受试者 · 点击单元格查看缺失名单（「缺」即评估缺失的潜在 PD 来源）</span><span class="sp"></span><span class="legend"><span>${K.p('✓','grn')} 全部完成</span><span>${K.p('缺','red')} 无记录</span><span>${K.p('否','yel')} 记录“未做”</span><span>${K.p('条件','line')} 条件性项目</span><span>${K.p('+n','')} 计划外</span></span></div><div id="soa"></div></div>`;K.soaView(pane.querySelector('#soa'))}
+function soaPane(){pane.innerHTML=`<div class="card"><div class="hd"><h2>访视流程表 × 实际完成</h2><span class="sub">已给药参与者 · 点击单元格查看缺失名单（「缺」即评估缺失的潜在 PD 来源）</span><span class="sp"></span><span class="legend"><span>${K.p('✓','grn')} 全部完成</span><span>${K.p('缺','red')} 无记录</span><span>${K.p('否','yel')} 记录“未做”</span><span>${K.p('条件','line')} 条件性项目</span><span>${K.p('+n','')} 计划外</span></span></div><div id="soa"></div></div>`;K.soaView(pane.querySelector('#soa'))}
 function rulesPane(){
  const stl={ran:['已执行','grn'],unconfigured:['未执行','line'],'no-data':['缺数据未执行','yel'],'stage-off':['日常监查阶段不判定','line']};
  const nd=P.notDetectable||[];
  pane.innerHTML=`<div id="rt"></div>
  <div class="grid g2 mt"><div class="card"><div class="hd"><h2>只能经源文件核查 / 外部系统确认</h2><span class="sub">数据表不含所需信息，不从数据推断</span></div>${nd.map(([c,t])=>`<div class="flex" style="align-items:flex-start;margin:5px 0">${K.pdCat(c)}<span class="small">${K.esc(t)}</span></div>`).join('')}</div>
  <div class="card"><div class="hd"><h2>分级口径</h2><span class="sub">依据与默认值</span></div>
-  <div class="kv"><dt>${K.pdGrade('重要')}</dt><dd class="small">可能显著影响受试者权益、安全或福祉，或显著影响关键数据（主要/关键次要终点、关键安全评估、随机与盲态）的完整性、准确性、可靠性（ICH E3 Q&A R1；ICH E6(R3) §3.9.3）。</dd>
+  <div class="kv"><dt>${K.pdGrade('重要')}</dt><dd class="small">可能显著影响参与者权益、安全或福祉，或显著影响关键数据（主要/关键次要终点、关键安全评估、随机与盲态）的完整性、准确性、可靠性（ICH E3 Q&A R1；ICH E6(R3) §3.9.3）。</dd>
   <dt>${K.pdGrade('待判定')}</dt><dd class="small">需结合原因、源文件或医学判断：如禁用药是否影响疗效评价、检验异常是否需记录为 AE、评估未做是否属方案允许情形。</dd>
   <dt>${K.pdGrade('一般')}</dt><dd class="small">不满足重要标准，如非关键访视小幅超窗、非关键评估缺失；同一中心同类反复发生时应升级审视（TransCelerate PDAP 阈值）。</dd>
   <dt>升级条件</dt><dd class="small">关键访视：${(P.critical.visits||[]).join('、')||'方案未指定'}；关键评估：${K.esc(K.rxl(P.critical.items)||'方案未指定')}；数值达 ≥3 级且可能需记录为 AE 的检验异常；影响主要终点的禁用药类别。</dd>

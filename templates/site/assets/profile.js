@@ -1,5 +1,5 @@
-/* mm5 安全性概况（三级 Profile：全试验 / 中心 / 受试者）——用户 2026-10-31：AE（TEAE/TRAE/SAE/AESI/分级）、MH、合并用药、
- * 检验/客观指标趋势、检验异常（含基线→基线后）、有效性趋势集中联动呈现；中心对照整体，受试者对照所在中心与整体。
+/* mm5 安全性概况（三级 Profile：全试验 / 中心 / 参与者）——用户 2026-10-31：AE（TEAE/TRAE/SAE/AESI/分级）、MH、合并用药、
+ * 检验/客观指标趋势、检验异常（含基线→基线后）、有效性趋势集中联动呈现；中心对照整体，参与者对照所在中心与整体。
  * 呈现沿用检验检查趋势/有效性趋势的画法（按访视箱线＋中位线），不另起炉灶。K.profile(el, {site, sid}) 供 profile.html 与参与者资料「概况」页签共用。 */
 (function(){
 const K=window.K;
@@ -12,7 +12,7 @@ K.profile=async(el,sc)=>{
   if(!window.KZT)await K.loadJS('data/trend.js');
   const D=KZ,T=window.KZT||{subjects:[],metrics:[],obs:{},meta:{visits:[]}},S=K.subs(),dosed=S.filter(s=>s.fd);
   const sub=sc.sid?K.subBy(sc.sid):null,site=sc.site||(sub&&sub.site)||'';
-  const groups=[];                                   /* [标签, 受试者集合] —— 第一个为本级 */
+  const groups=[];                                   /* [标签, 参与者集合] —— 第一个为本级 */
   if(sub)groups.push(['本例',dosed.filter(s=>s.id===sub.id).length?[sub]:[sub]]);
   else if(site)groups.push(['本中心',dosed.filter(s=>s.site===site)]);
   else groups.push(['全试验',dosed]);
@@ -23,7 +23,7 @@ K.profile=async(el,sc)=>{
     if(arms.length>=2)groups.splice(1,0,...arms.map(a=>[a,lv.filter(s=>s.grp===a)]))}
   const ids=g=>new Set(g[1].map(s=>s.id));
   const title=sub?`${sub.id} · ${K.esc(K.center(sub.site))}`:site?`${site} ${K.esc(K.center(site))}`:'全试验';
-  const refNote=(sub?'对照：所在中心、整体（按给药受试者）':site?'对照：整体（按给药受试者）':'全部给药受试者')+(groups.some(g=>!['本例','本中心','全试验','所在中心','整体'].includes(g[0]))?' · 按分组拆列（非盲数据）':'');
+  const refNote=(sub?'对照：所在中心、整体（按给药参与者）':site?'对照：整体（按给药参与者）':'全部给药参与者')+(groups.some(g=>!['本例','本中心','全试验','所在中心','整体'].includes(g[0]))?' · 按分组拆列（非盲数据）':'');
   /* ---------- AE ---------- */
   const AE=D.aes.filter(a=>a.te!==false&&!a.dup);   /* F-D：完全重复记录（第 2 份起）不计例次；明细表仍列出并标「重复」 */
   /* 用户 2026-11-04 审阅第 13 条：TEAE 与 TRAE 分栏，各含 例数/%/例次；行＝总体、1–4 级、≥3 级、导致中断、导致停药/终止、SAE、AESI。
@@ -45,7 +45,7 @@ K.profile=async(el,sc)=>{
   const topTerms=(rows,col)=>{const I=ids(groups[0]),c={};rows.filter(r=>I.has(r[0])).forEach(r=>{const t=String(r[col]).trim();if(t)(c[t]=c[t]||new Set()).add(r[0])});return Object.entries(c).sort((a,b)=>b[1].size-a[1].size).slice(0,10).map(x=>x[0])};
   const termPct=(rows,col,t,g)=>{const I=ids(g),n=new Set(rows.filter(r=>I.has(r[0])&&String(r[col]).trim()===t).map(r=>r[0])).size;return sub&&g[0]==='本例'?(n?'有':'—'):`${n}（${pct(n,g[1].length)}）`};
   const fdOf=Object.fromEntries(S.map(s=>[s.id,s.fd]));
-  /* 审阅 2026-11-11：既往用药（首剂前已停）不进「最常见」表——SAR 氯雷他定 50% 全是入组前停用的，看着像一半受试者违规用禁用药 */
+  /* 审阅 2026-11-11：既往用药（首剂前已停）不进「最常见」表——SAR 氯雷他定 50% 全是入组前停用的，看着像一半参与者违规用禁用药 */
   const CMS=MC.cm.filter(r=>{const fd=fdOf[r[0]];if(!fd)return false;const e=String(r[3]||'');return r[4]||!e||!/^\d{4}/.test(e)||e.replace(/-?uk/gi,'-99').slice(0,10)>=fd});
   const cmNew=g=>{const I=ids(g),xs=MC.cm.filter(r=>I.has(r[0])&&r[2]&&fdOf[r[0]]&&r[2].slice(0,10)>=fdOf[r[0]]);return sub&&g[0]==='本例'?`${xs.length} 条`:`${new Set(xs.map(r=>r[0])).size} 例（${pct(new Set(xs.map(r=>r[0])).size,g[1].length)}）`};
   /* ---------- 检验异常：风险层（每例）＋基线→基线后最差（参考范围 L/N/H） ---------- */
@@ -68,16 +68,16 @@ K.profile=async(el,sc)=>{
   const miCell=g=>{const I=ids(g),xs=MI.filter(r=>I.has(r[0])),nc=xs.filter(r=>r[6]==='C').length,ns=new Set(xs.map(r=>r[0])).size;return sub&&g[0]==='本例'?`<b>${nc}</b> 份培养 · ${xs.length-nc} 项药敏`:`<b>${ns}</b> 例（${pct(ns,g[1].length)}）· ${nc} 份培养`};
   const miList=rows=>`<table class="t"><tbody>${rows.map(r=>`<tr><td>${r[6]==='C'?'<b>'+K.esc(r[3])+'</b>':K.esc(r[3])}</td><td class="nowrap">${K.p(r[2],'blu')} ${K.esc(r[1])}</td><td>${K.esc(r[4])}</td><td class="small">${K.esc(r[5])}</td></tr>`).join('')||'<tr><td class="empty">无</td></tr>'}</tbody></table>`;
   const microCard=MI.length?`<div class="card mb"><div class="sec-t" style="margin-top:0"><h2>微生物培养与药敏</h2><span class="muted small">判读型结果（培养/涂片/药敏 MIC）单独呈现，不进入检验异常与质疑链</span></div>${tbl([['有培养/药敏记录',groups.map(miCell)]])}${sub?miList(MI.filter(r=>r[0]===sub.id)):''}</div>`:'';
-  el.innerHTML=`<div class="card mb"><div class="hd"><h2>安全性概览 · ${title}</h2><span class="sub">${refNote}</span>${sub?`<span class="sp"></span><a class="small" href="subjects.html#s=${sub.id}">参与者资料 ›</a>　<a class="small" href="timeline.html#s=${sub.id}">时间线 ›</a>`:site?`<span class="sp"></span><a class="small" href="subjects.html#c=${site}">本中心受试者 ›</a>　<a class="small" href="safety.html#tab=ov">中心总览 ›</a>`:''}</div>
+  el.innerHTML=`<div class="card mb"><div class="hd"><h2>安全性概览 · ${title}</h2><span class="sub">${refNote}</span>${sub?`<span class="sp"></span><a class="small" href="subjects.html#s=${sub.id}">参与者资料 ›</a>　<a class="small" href="timeline.html#s=${sub.id}">时间线 ›</a>`:site?`<span class="sp"></span><a class="small" href="subjects.html#c=${site}">本中心参与者 ›</a>　<a class="small" href="safety.html#tab=ov">中心总览 ›</a>`:''}</div>
    <div class="grid ${groups.length>2?'':'g2'}"><div style="min-width:0;overflow-x:auto"><div class="sec-t" style="margin-top:0"><h2>不良事件</h2><span class="muted small">给药后（TEAE）</span></div>${aeTbl()}</div>
-   <div><div class="sec-t" style="margin-top:0"><h2>AE 类别</h2><span class="muted small">${sub?'本例发生的类别 · 所在中心与整体的发生率（受试者%）':'发生率（受试者%）· 前 '+cats.length+' 类'}</span></div><div class="chart" id="pf-aec" style="height:${Math.max(160,cats.length*24+40)}px"></div></div></div>
+   <div><div class="sec-t" style="margin-top:0"><h2>AE 类别</h2><span class="muted small">${sub?'本例发生的类别 · 所在中心与整体的发生率（参与者%）':'发生率（参与者%）· 前 '+cats.length+' 类'}</span></div><div class="chart" id="pf-aec" style="height:${Math.max(160,cats.length*24+40)}px"></div></div></div>
    ${sub?`<div class="sec-t"><h2>本例 AE 明细</h2></div><table class="t"><tbody>${subAE.map(a=>`<tr><td><b>${K.esc(a.t)}</b> ${a.sae?K.p('SAE','solid-red'):''}${a.aesi?K.p('AESI','red'):''}${a.rl?K.p('相关','org'):''}${a.dup?' '+K.p(a.dup_kind==='sub'?`严重程度变化×${a.dup_n||2}`:`重复×${a.dup_n||2}`,a.dup_kind==='sub'?'line':'yel'):''}</td><td class="nowrap">${K.esc(a.s||'')} → ${a.e?K.esc(a.e):'持续'}</td><td>${K.p(a.g,gi(a.g)>=3?'solid-red':gi(a.g)>=2?'red':'yel')}</td><td class="small">${K.esc(a.act||'')}</td><td class="small">${K.esc(a.out||'')}</td></tr>`).join('')||'<tr><td class="empty">无 AE 记录</td></tr>'}</tbody></table>`:''}</div>
   <div class="grid g2 mb">
    <div class="card"><div class="sec-t" style="margin-top:0"><h2>病史（MH）</h2><span class="muted small">${sub?'本例全部':'最常见 10 项 · 例数（%）'}</span></div>${sub?mhList(MC.mh.filter(r=>r[0]===sub.id)):tbl(topTerms(MC.mh,1).map(t=>[K.esc(t),groups.map(g=>termPct(MC.mh,1,t,g))]))}</div>
    <div class="card"><div class="sec-t" style="margin-top:0"><h2>合并用药（CM）</h2><span class="muted small">${sub?'本例全部':'首剂后仍在使用的最常见 10 种 · 例数（%）· 首剂前已停用的既往用药不计'}</span></div>
     ${tbl([['给药后新开始的用药',groups.map(cmNew)]])}${sub?cmList(MC.cm.filter(r=>r[0]===sub.id),fdOf[sub.id]):tbl(topTerms(CMS,1).map(t=>[K.esc(t),groups.map(g=>termPct(CMS,1,t,g))]))}</div></div>
   ${microCard}
-  <div class="card mb"><div class="sec-t" style="margin-top:0"><h2>检验异常</h2><span class="muted small">风险层（受试者×指标，按当前阈值）· 基线→基线后最差（参考范围）</span><span class="sp"></span><a class="small" href="safety.html#tab=lab${site&&!sub?'&c='+site:''}">检验异常明细 ›</a></div>
+  <div class="card mb"><div class="sec-t" style="margin-top:0"><h2>检验异常</h2><span class="muted small">风险层（参与者×指标，按当前阈值）· 基线→基线后最差（参考范围）</span><span class="sp"></span><a class="small" href="safety.html#tab=lab${site&&!sub?'&c='+site:''}">检验异常明细 ›</a></div>
    <div class="grid ${groups.length>2?'':'g2'}"><div style="min-width:0;overflow-x:auto">${tbl(LAY.filter(([k])=>K.lab.some(x=>x.risk===k)).map(([k,l])=>[`<a href="safety.html#tab=lab&risk=${k}">${l}</a>`,groups.map(g=>layCell(g,k))]))}</div>
    <div>${tbl([['基线正常 → 基线后异常（新发）',groups.map(g=>sub&&g[0]==='本例'?`<b>${shiftN(g,'new')}</b> 项指标`:`<b>${shiftN(g,'new')}</b> <span class="xs muted">（每例 ${(shiftN(g,'new')/(g[1].length||1)).toFixed(2)}）</span>`)],
        ['基线已异常 → 同向加重 ≥30%',groups.map(g=>sub&&g[0]==='本例'?`<b>${shiftN(g,'worse')}</b> 项指标`:`<b>${shiftN(g,'worse')}</b> <span class="xs muted">（每例 ${(shiftN(g,'worse')/(g[1].length||1)).toFixed(2)}）</span>`)]])}
@@ -86,10 +86,10 @@ K.profile=async(el,sc)=>{
   <div class="card mb" id="pf-effc"><div class="sec-t" style="margin-top:0"><h2>有效性趋势</h2><span class="muted small">整体中位数${site?' · 中心中位数':''}${sub?' · 本例':''}</span><span class="sp"></span><select class="s" id="pf-e"></select></div><div class="chart" id="pf-ef" style="height:280px"></div></div>`;
   function mhList(rows){return `<table class="t"><tbody>${rows.map(r=>`<tr><td>${K.esc(r[1])}</td><td>${r[2]?K.p('持续','line'):''}</td></tr>`).join('')||'<tr><td class="empty">无</td></tr>'}</tbody></table>`}
   function cmList(rows,fd){return `<table class="t"><tbody>${rows.map(r=>`<tr><td><b>${K.esc(r[1])}</b>${fd&&r[2]&&r[2].slice(0,10)>=fd?' '+K.p('给药后开始','org'):''}</td><td class="nowrap">${K.esc(r[2])} → ${r[3]?K.esc(r[3]):r[4]?'持续':''}</td><td class="small">${K.esc(r[5])}</td></tr>`).join('')||'<tr><td class="empty">无</td></tr>'}</tbody></table>`}
-  /* AE 类别图：本级与对照的发生率（受试者%） */
+  /* AE 类别图：本级与对照的发生率（参与者%） */
   const inc=(g,c)=>{const I=ids(g);const n=new Set(AE.filter(a=>I.has(a.sid)&&a.c===c).map(a=>a.sid)).size;return sub&&g[0]==='本例'?AE.filter(a=>a.sid===sub.id&&a.c===c).length:+(n/(g[1].length||1)*100).toFixed(1)};
   const col=['#FF9900','#407AAA','#9DB7D3','#587B3B','#A85F34','#7A5195','#C9CCD1'];
-  /* 受试者层：本例有的类别 → 所在中心与整体在该类别的发生率（看本例的 AE 在中心/整体中是否常见） */
+  /* 参与者层：本例有的类别 → 所在中心与整体在该类别的发生率（看本例的 AE 在中心/整体中是否常见） */
   if(cats.length)K.chart('#pf-aec',{grid:{left:150,right:30,top:24,bottom:20},legend:{top:0},tooltip:{trigger:'axis',axisPointer:{type:'shadow'},valueFormatter:v=>v+'%'},
     xAxis:{type:'value',...K.axis,axisLabel:{formatter:v=>v+'%'}},yAxis:{type:'category',data:cats.slice().reverse(),...K.axis,axisLabel:{color:'#404040',fontSize:11,width:140,overflow:'truncate'}},
     series:(sub?groups.slice(1):groups).map((g,i)=>({type:'bar',name:g[0],data:cats.slice().reverse().map(c=>inc(g,c)),itemStyle:{color:col[sub?i+1:i]},barMaxWidth:10}))});

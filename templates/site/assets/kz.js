@@ -30,7 +30,7 @@ K.dt=(d,t)=>{d=String(d||'').slice(0,10);return K.hhmm(t)?d+'T'+String(t).trim()
 K.studyDay=(d,fd)=>{const x=K.days(d,fd);return x==null?'':(x>=0?'D'+(x+1):'D'+x)};
 K.clin=c=>c===2?K.p('CS','red'):c===1?K.p('NCS','yel'):c===0?K.p('正常','grn'):'';
 /* 钻取行「判定与关联」列（用户 2026-10-30 裁定：参与者资料页 CS 项点开必须有链接信息）。
- * r＝受试者资料文件检验行（既有 14 位＋尾部扩位 [归因码, 原文说明, 关联摘要]，mm_build.drill_fields）；
+ * r＝参与者资料文件检验行（既有 14 位＋尾部扩位 [归因码, 原文说明, 关联摘要]，mm_build.drill_fields）；
  * 归因码：AE/MH＝已关联回溯到真实记录；disease＝研究疾病；NA＝超范围未评价；''＋CS＝未关联（灰字）。
  * 关联对象按「AE 」/「病史 」前缀跳参与者资料页对应 tab（subjects.html#s=<sid>&t=ae|mh）。 */
 K.judgeCell=(r,sid)=>{const code=r[14]||'',txt=r[15]||'',sum=r[16]||'';
@@ -42,7 +42,7 @@ K.judgeCell=(r,sid)=>{const code=r[14]||'',txt=r[15]||'',sum=r[16]||'';
  return `<div class="flex wrap" style="gap:3px;align-items:center">${pill}${attr}</div>${links?`<div style="margin-top:2px">${links}</div>`:''}${txt?`<div class="xs muted" style="margin-top:2px">${K.esc(txt)}</div>`:''}`};
 K.PRI={4:['优先核实','red'],3:['需核实','org'],2:['结合临床','yel'],1:['筛查提示','']};
 K.pri=n=>K.p(K.PRI[n]?.[0]||'—',K.PRI[n]?.[1]||'');
-K.RISK={CSX:['有临床意义·未关联AE/病史','solid-red','判为有临床意义但未关联AE或病史：漏报AE风险最高'],MH:['有临床意义·仅关联病史·加重','org','判为有临床意义且仅关联既往病史，系统判定给药后较基线加重，未见对应AE：请评估是否需记录AE'],MHU:['有临床意义·仅关联病史·无法判断加重','yel','判为有临床意义并已关联病史，但基线缺失或为描述性结果，系统无法判断是否加重：请结合原始记录判断'],MHL:['已关联MH','grn','判为有临床意义并已关联既往病史，较基线未明显加重（病史延续），或加重已记录为AE：不作为风险'],NCS2:['无临床意义·≥2级','yel','数值落入'+((window.KZ||{}).cfg||{}).ctcaeVersion+'≥2级但判为无临床意义'],NA2:['未评价·≥2级','yel','数值达≥2级，表单有临床意义字段但研究者未评价'],G2NF:['≥2级·表单无临床意义评价','yel','数值达≥2级，该表单没有临床意义字段（如体重）：请评估是否需记录AE'],AE:['已关联AE','grn','已有对应AE记录'],NA:['超范围·未评价','yel','给药后超出参考范围但未见研究者临床意义评价'],DIS:['研究疾病表现','grn','研究者归因研究疾病，或属方案/IB 列出的研究疾病表现，且给药后未较基线进一步加重：不作为风险'],DISW:['研究疾病表现·加重','org','研究者归因研究疾病，但给药后较基线加重：按AE定义评估'],ENT:['疑似录入错误·超出生理范围','yel','数值超出生理可能范围（如平均红细胞容积 26.5 fl）：请中心核对录入，不按 AE 追问'],PART:['复合定义单项达标','line','方案该事件为复合定义（需同时满足其他条件），仅单项达标：只作提示'],DISL:['研究疾病指标波动','line','研究者归因研究疾病，按疾病不利方向较基线变化明显，但未达3级、分级未上升：列清单供医学人员查看，不发质疑'],NCS:['无临床意义','','异常无临床意义'],CSI:['临床意义判定不一致','yel','同一受试者相近结果一次判为无临床意义、一次判为有临床意义：发判定一致性query，不按潜在AE漏记'],REL:['较基线显著变化','yel','给药后超出参考范围且较基线同向明显变化（阈值见下方选择）；只统计未关联AE/病史的，已关联的单独标注'],'MHX-T':['疑似病史漏记·首剂前','org','首次给药前已明显超出参考范围（或达≥2级），研究者判为无临床意义或未评价，且病史未记录（阈值见下方选择）']};
+K.RISK={CSX:['有临床意义·未关联AE/病史','solid-red','判为有临床意义但未关联AE或病史：漏报AE风险最高'],MH:['有临床意义·仅关联病史·加重','org','判为有临床意义且仅关联既往病史，系统判定给药后较基线加重，未见对应AE：请评估是否需记录AE'],MHU:['有临床意义·仅关联病史·无法判断加重','yel','判为有临床意义并已关联病史，但基线缺失或为描述性结果，系统无法判断是否加重：请结合原始记录判断'],MHL:['已关联MH','grn','判为有临床意义并已关联既往病史，较基线未明显加重（病史延续），或加重已记录为AE：不作为风险'],NCS2:['无临床意义·≥2级','yel','数值落入'+((window.KZ||{}).cfg||{}).ctcaeVersion+'≥2级但判为无临床意义'],NA2:['未评价·≥2级','yel','数值达≥2级，表单有临床意义字段但研究者未评价'],G2NF:['≥2级·表单无临床意义评价','yel','数值达≥2级，该表单没有临床意义字段（如体重）：请评估是否需记录AE'],AE:['已关联AE','grn','已有对应AE记录'],NA:['超范围·未评价','yel','给药后超出参考范围但未见研究者临床意义评价'],DIS:['研究疾病表现','grn','研究者归因研究疾病，或属方案/IB 列出的研究疾病表现，且给药后未较基线进一步加重：不作为风险'],DISW:['研究疾病表现·加重','org','研究者归因研究疾病，但给药后较基线加重：按AE定义评估'],ENT:['疑似录入错误·超出生理范围','yel','数值超出生理可能范围（如平均红细胞容积 26.5 fl）：请中心核对录入，不按 AE 追问'],PART:['复合定义单项达标','line','方案该事件为复合定义（需同时满足其他条件），仅单项达标：只作提示'],DISL:['研究疾病指标波动','line','研究者归因研究疾病，按疾病不利方向较基线变化明显，但未达3级、分级未上升：列清单供医学人员查看，不发质疑'],NCS:['无临床意义','','异常无临床意义'],CSI:['临床意义判定不一致','yel','同一参与者相近结果一次判为无临床意义、一次判为有临床意义：发判定一致性query，不按潜在AE漏记'],REL:['较基线显著变化','yel','给药后超出参考范围且较基线同向明显变化（阈值见下方选择）；只统计未关联AE/病史的，已关联的单独标注'],'MHX-T':['疑似病史漏记·首剂前','org','首次给药前已明显超出参考范围（或达≥2级），研究者判为无临床意义或未评价，且病史未记录（阈值见下方选择）']};
 K.risk=r=>K.p(K.RISK[r]?.[0]||r,K.RISK[r]?.[1]||'',K.RISK[r]?.[2]);
 /* ---- 双阈值（T_dev/T_base，PR-4）：状态读取 + REL 即时重分类 + 变更监听 ----
  * 档位来源：用户所选（localStorage，按研究编号）＞ 系统层 KZS.thresholds（工作台项目设置）＞ cfg.thresholds（构建配置，默认 30%/30%）。
@@ -75,10 +75,10 @@ K.deltaCard=()=>{const S=window.KZS||{},DL=S.delta,R=K.RD();if(!DL)return '';
   const aeN=(DL.aeNew||[]).slice(0,6).map(a=>`<div class="small">${K.sid(a.sid)} ${K.esc(a.label)}${a.grade?' '+K.esc(a.grade):''}</div>`).join('');
   return `<div class="card mt"><div class="hd"><h2>较上次</h2><span class="sub">对比上次上传（${K.esc(DL.prevCutoff||'—')}）· 本次为${DL.exportType==='delta'?'差异导出，已合并到上次数据':'全量导出'}</span></div>
   ${DL.warning?`<div class="box red small mb">${K.esc(DL.warning)}</div>`:''}
-  <div class="grid g2"><div><div class="xs muted mb">数据变化 · 涉及 ${nsub} 名受试者 · 新增 ${sum('new')}、修改 ${sum('changed')}、删除 ${sum('deleted')} 条记录</div>
+  <div class="grid g2"><div><div class="xs muted mb">数据变化 · 涉及 ${nsub} 名参与者 · 新增 ${sum('new')}、修改 ${sum('changed')}、删除 ${sum('deleted')} 条记录</div>
    <table class="t"><tbody>${doms.map(d=>`<tr><td style="width:96px">${K.esc(L[d]||d)}</td><td>${c[d].new?K.p('新增 '+c[d].new,'blu'):''}${c[d].changed?K.p('修改 '+c[d].changed,'org'):''}${c[d].deleted?K.p('删除 '+c[d].deleted,'line'):''}</td></tr>`).join('')||'<tr><td class="empty">无记录变化</td></tr>'}</tbody></table>
    ${aeN?`<div class="xs muted mt">新增 AE${(DL.aeNew||[]).length>6?'（前 6 条）':''}</div>${aeN}`:''}${(DL.aeWorse||[]).length?`<div class="xs muted mt">等级升高或转为 SAE 的 AE ${(DL.aeWorse||[]).length} 条</div>`:''}
-   <div class="mt"><a class="small" href="subjects.html">本次有新数据的受试者 ›</a></div></div>
+   <div class="mt"><a class="small" href="subjects.html">本次有新数据的参与者 ›</a></div></div>
    <div><div class="xs muted mb">风险变化（各页可勾选「只看本次新增/加重」）</div>${rc||'<div class="small muted">本次与上次之间没有可比的风险数据</div>'}</div></div></div>`};
 K.shName=sh=>{const s=String(sh||'').replace(/^[^:]*:/,''),n=((C0().sheetNames)||{})[s];return n?`${n}（${s}）`:s};
 K.loc=(sh,row)=>`${K.shName(sh)}${row!=null&&row!==''?' 第'+row+'行':''}`;
@@ -168,7 +168,7 @@ K.close=()=>{document.querySelector('.dr')?.classList.remove('on');document.quer
 /* subject loader */
 K._cache={};K._wait={};
 window.KZ_SUB=d=>{K._cache[d.id]=d;(K._wait[d.id]||[]).forEach(f=>f(d));delete K._wait[d.id]};
-/* ---- V6 原始数据层（data/rawidx.js 表单目录＋data/r/<sid>.js 按受试者原始行；raw_export.py 生成）
+/* ---- V6 原始数据层（data/rawidx.js 表单目录＋data/r/<sid>.js 按参与者原始行；raw_export.py 生成）
  * 用户 2026-11-02：风险/质疑/异常旁边直接看原始数据，不再另开 Excel。证据 [sh,row] 的 sh 与表单 id 同口径（工作簿别名:表单名）。 */
 K._rc={};K._rw={};
 window.KZ_RAW=(id,d)=>{K._rc[id]=d;(K._rw[id]||[]).forEach(f=>f(d));delete K._rw[id]};
@@ -183,30 +183,30 @@ K.rawSheet=async k=>{if(K._rsc&&K._rsc.k===k)return K._rsc.d;const I=await K.raw
 /* 证据表单键归一：完整 id 直接用；只给表单名（旧证据）时按名称唯一匹配 */
 K.rawKey=(I,sh)=>{if(!I||!sh)return null;if(I.sheets[sh])return sh;const nm=String(sh).replace(/^[^:]*:/,'');const ks=Object.keys(I.sheets).filter(k=>(I.sheets[k].sheet||I.sheets[k].name)===nm);return ks.length?ks[0]:null};
 /* 原始行表格：meta＝表单目录项，rows＝[[行号,…值]]，hit＝命中行号集合（加粗＋命中列高亮） */
-/* 列顺序：判定相关列（hl）在前，其余内容列居中，EDC 系统元数据列（研究中心/受试者状态/页面…）放最后 */
+/* 列顺序：判定相关列（hl）在前，其余内容列居中，EDC 系统元数据列（研究中心/参与者状态/页面…）放最后 */
 K.RAW_META=/^(MM comment|Flag|研究中心|中心编号|中心名称|试验中心.*|受试者状态|页面.*|数据节|Instance.*|数据块|Block.*|数据页|最后修改时间|项目编号|项目名称|表单编号|表单集.*|行号|记录号|GROUPID|是否失活|数据库版本|访视OID|表单OID)$/i;
 K.rawOrder=meta=>{const hl=new Set(meta.hl||[]),ix=meta.cols.map((c,j)=>j);const rk=j=>hl.has(meta.cols[j])?0:K.RAW_META.test(meta.cols[j])?2:1;return ix.sort((a,b)=>rk(a)-rk(b)||a-b)};
 K.rawTable=(meta,rows,hit=new Set(),{max=400}={})=>{const hl=new Set(meta.hl||[]);const ord=K.rawOrder(meta),cols=ord.map(j=>meta.cols[j]);
   const cst=Object.entries(meta.const||{});
   return `${cst.length?`<div class="xs faint mb">本表单固定值：${cst.slice(0,6).map(([k,v])=>`${K.esc(k)}＝${K.esc(v)}`).join('；')}${cst.length>6?'…':''}</div>`:''}<div class="listing tw"><table><thead><tr><th>行</th>${cols.map(c=>`<th${hl.has(c)?' class="hlc"':''}>${K.esc(c)}</th>`).join('')}</tr></thead><tbody>${rows.slice(0,max).map(r=>{const h=hit.has(r[0]);
     return `<tr class="${h?'hit':''}"><td class="faint">${r[0]}</td>${ord.map(j=>{const c=meta.cols[j];return `<td class="${h&&hl.has(c)?'on':''}" title="${K.esc(r[j+1])}">${K.esc(r[j+1])}</td>`}).join('')}</tr>`}).join('')}</tbody></table></div>${rows.length>max?`<div class="xs muted">仅显示前 ${max} 行（共 ${rows.length} 行）</div>`:''}`};
-/* 证据原始行区：ev＝[[sh,row]…]。每张表单默认显示命中行及其前后各 ctx 行（同受试者），可展开本受试者该表单全部行 */
+/* 证据原始行区：ev＝[[sh,row]…]。每张表单默认显示命中行及其前后各 ctx 行（同参与者），可展开本参与者该表单全部行 */
 K.rawBox=async(el,sid,ev,{ctx=2,title='原始数据'}={})=>{if(!el)return;el.innerHTML='<div class="empty small">载入原始数据…</div>';
   const I=await K.rawIdx(),R=I&&await K.raw(sid);
-  if(!I||!R){el.innerHTML=I?'<div class="note small">该受试者无原始数据文件。</div>':'';return}
+  if(!I||!R){el.innerHTML=I?'<div class="note small">该参与者无原始数据文件。</div>':'';return}
   const by={};(ev||[]).forEach(e=>{const k=K.rawKey(I,e[0]);if(k&&R[k])(by[k]=by[k]||new Set()).add(+e[1])});
   const ks=Object.keys(by);if(!ks.length){el.innerHTML='';return}
   el.innerHTML=`<div class="sec-t"><h2>${K.esc(title)}</h2><span class="muted small">listing 原行 · 橙底为本条涉及的行与列 · 已剔除姓名/缩写等隐私列</span></div>`+ks.map((k,i)=>{const m=I.sheets[k],rows=R[k],hit=by[k];
     const idx=rows.map((r,j)=>hit.has(r[0])?j:-1).filter(j=>j>=0);const keep=new Set();idx.forEach(j=>{for(let d=-ctx;d<=ctx;d++)if(rows[j+d])keep.add(j+d)});
     const part=rows.filter((r,j)=>keep.has(j));
-    return `<div class="raw-sh" data-i="${i}"><div class="cap">${K.p(m.name,'sq')} 第 ${[...hit].join('、')} 行 <span class="faint">· 本受试者该表单 ${rows.length} 行</span>${rows.length>part.length?` <a class="small raw-all" data-k="${K.esc(k)}">显示全部</a>`:''}</div><div class="raw-tb">${K.rawTable(m,part,hit)}</div></div>`}).join('');
+    return `<div class="raw-sh" data-i="${i}"><div class="cap">${K.p(m.name,'sq')} 第 ${[...hit].join('、')} 行 <span class="faint">· 本参与者该表单 ${rows.length} 行</span>${rows.length>part.length?` <a class="small raw-all" data-k="${K.esc(k)}">显示全部</a>`:''}</div><div class="raw-tb">${K.rawTable(m,part,hit)}</div></div>`}).join('');
   el.querySelectorAll('.raw-all').forEach(a=>a.onclick=()=>{const k=a.dataset.k;a.closest('.raw-sh').querySelector('.raw-tb').innerHTML=K.rawTable(I.sheets[k],R[k],by[k]);a.remove()})};
 K.sub=id=>new Promise(res=>{if(K._cache[id])return res(K._cache[id]);(K._wait[id]=K._wait[id]||[]).push(res);if(K._wait[id].length>1)return;const s=document.createElement('script');s.src='data/s/'+id+'.js';s.onerror=()=>res(null);document.head.append(s)});
-/* table（V6 用户审阅 RUX 第 3/6 条：所有表格可筛选、可排序；受试者号/分级/访视/日期类列不折行）
+/* table（V6 用户审阅 RUX 第 3/6 条：所有表格可筛选、可排序；参与者号/分级/访视/日期类列不折行）
  * 排序：每列都可点（有 s/k 用其值，否则按单元格文字；两侧都是数字按数值）。
  * 筛选：>8 行时表上方出现搜索框＋最多 4 个分类列下拉（取值 2–25 种）；页面自己的筛选（tb.set）照常叠加。
- * 不折行：列标题含受试者/访视/日期/分级/等级/中心/编号/排名/优先级等，或 c.nw=true；c.nw=false 可关闭。 */
-K.NWT=/受试者|访视|日期|时间|分级|等级|级别|中心|编号|排名|优先级|^风险$|状态|方案窗|目标日|实际/;
+ * 不折行：列标题含参与者/访视/日期/分级/等级/中心/编号/排名/优先级等，或 c.nw=true；c.nw=false 可关闭。 */
+K.NWT=/受试者|参与者|访视|日期|时间|分级|等级|级别|中心|编号|排名|优先级|^风险$|状态|方案窗|目标日|实际/;
 K.cellTxt=h=>String(h==null?'':h).replace(/<[^>]+>/g,' ').replace(/&nbsp;|&amp;|&lt;|&gt;|&quot;/g,m=>({'&nbsp;':' ','&amp;':'&','&lt;':'<','&gt;':'>','&quot;':'"'}[m])).replace(/\s+/g,' ').trim();
 /* 日期/日期时间（2025-01-03、2025-01-03 10:20）按字符串比（parseFloat 只读到年份）；其余以数字开头的按数值，否则按文字 */
 K._DTRX=/^\s*\d{4}-\d{1,2}(-\d{1,2})?/;
@@ -322,13 +322,13 @@ K.listing=(rows,{cols=null,cap=true}={})=>{
   return Object.entries(bySheet).map(([sh,rs])=>{
     let keys=cols||[...new Set(rs.flatMap(r=>Object.keys(r.f)))];
     const hk=new Set(rs.flatMap(r=>r.hl));
-    if(!cols&&keys.length>14){const keep=new Set(['受试者编号','表单集名称',...hk]);const imp=keys.filter(k=>keep.has(k)||/日期|结果|名称|项目|评价|严重|关系|AESI|SAE|单位|下限|上限|值|体积|压|QTc|心率|持续|剂量/.test(k));keys=[...new Set([...keys.filter(k=>keep.has(k)),...imp])].slice(0,18)}
+    if(!cols&&keys.length>14){const keep=new Set(['参与者编号','表单集名称',...hk]);const imp=keys.filter(k=>keep.has(k)||/日期|结果|名称|项目|评价|严重|关系|AESI|SAE|单位|下限|上限|值|体积|压|QTc|心率|持续|剂量/.test(k));keys=[...new Set([...keys.filter(k=>keep.has(k)),...imp])].slice(0,18)}
     return `${cap?`<div class="cap">${K.p(K.shName(sh),'sq')} 第 ${rs.map(r=>r.row).join(', ')} 行</div>`:''}<div class="listing tw"><table><thead><tr><th>行</th>${keys.map(k=>`<th>${K.esc(k)}</th>`).join('')}</tr></thead><tbody>${rs.map(r=>`<tr><td class="faint">${r.row}</td>${keys.map(k=>`<td class="${r.hl.includes(k)?'on':''}" title="${K.esc(r.f[k]||'')}">${K.esc(r.f[k]??'')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`}).join('');
 };
 K.hlNum=t=>K.esc(t).replace(/(\d+(?:\.\d+)?(?:\s?(?:g\/L|mmol\/L|U\/L|ms|mmHg|g\/cm²|kg|%|×10\^9\/L|umol\/L|IU\/L)))/g,'<span class="num-hl">$1</span>').replace(/(20\d\d-\d\d-\d\d)/g,'<span class="num-hl">$1</span>');
 K.qById=id=>D().queries.find(q=>q.id===id);
 K.qPill=id=>`<span class="p org sq click mono" data-q="${id}">${id}</span>`;
-/* ---- mm5 全程数据面板（用户 2026-10-31：风险、质疑等条目点开要看该受试者该指标前后全部数据，并显示 CS/NCS、CS 原因等）
+/* ---- mm5 全程数据面板（用户 2026-10-31：风险、质疑等条目点开要看该参与者该指标前后全部数据，并显示 CS/NCS、CS 原因等）
  * o={sid, tests:[指标显示名…], hl:[[sheet,row]…] 本条证据点（加粗），ae:true 是否附本例 AE/MH/合并用药}。
  * 数据来自个例文件 s/<sid>.js 的 labs/vs/ecg 行：[0日期,1访视,2值,3原值,4单位,5下限,6上限,7判定,8说明,9sheet,10行,11时间点,12时间,13基线,14归因码,15原因说明,16关联摘要,17分级,18较基线%,19疑似录入错误]。 */
 /* V6（用户审阅 RUX 第 16 条）：CS 异常的关联对象卡——把检验行关联/归因的 AE、病史、研究疾病的完整信息放进抽屉（此前只有一个「CS」标记）。
@@ -384,7 +384,7 @@ K.qlt=(v,a)=>v!=null&&v<a;   /* q 值可为 null（不适用）：null<0.1 在 J
 K.qStyle=(qu,ql)=>qu!=null&&qu<.05?'background:rgba(230,126,0,.62)':qu!=null&&qu<.10?'background:rgba(230,126,0,.30)':ql!=null&&ql<.10?'background:rgba(64,122,170,.18)':'';
 K.qTip=x=>x?`观察 ${x.o} / 期望 ${x.e.toFixed(1)}${x.qu!=null?` · 校正后 q=${x.qu<.001?'<0.001':x.qu.toFixed(3)}`:''}${x.ql!=null&&x.ql<.10?` · 偏低 q=${x.ql.toFixed(3)}`:''}`:'';
 /* V5 修复波：小中心偏高格的「个案驱动」标注（K.centerRisk().small）——只改呈现不改判定 */
-K.caseNote=(x,small)=>x&&small&&K.qlt(x.qu,.10)?' · 个案驱动（分母极小，偏高可能由个别受试者驱动）':'';
+K.caseNote=(x,small)=>x&&small&&K.qlt(x.qu,.10)?' · 个案驱动（分母极小，偏高可能由个别参与者驱动）':'';
 /* 一列（各中心）比率：rows=[[分子,分母]…]，期望＝整体率×分母，逐行泊松上尾、按列 BH → [{o,e,qu,style}|null] */
 K.colFlags=(rows,all)=>{const r=rows.map(([n,d])=>d?K.oe(n,d,all):null),q=K.bh(r.map(x=>x?x.pu:null));return r.map((x,i)=>x?{...x,qu:q[i],style:K.qStyle(q[i])}:null)};
 /* 中心风险类别（风险页「中心总览」热力图、总览「需关注中心」、中心画像、风险排名共用）。
@@ -396,7 +396,7 @@ K.centerRisk=()=>{if(K._cr)return K._cr;const D=window.KZ,lab=K.lab,oth=D.others
   /* 风险类别：[键, 组, 列名, 取条目(按中心), 说明] —— 条目数组用于点击下钻 */
   const L=k=>lab.filter(g=>Array.isArray(k)?k.includes(g.risk):g.risk===k);
   const C=[
-    ['csx','检验','有临床意义未关联',()=>L('CSX'),'判 CS 但未关联 AE/病史（受试者×指标）'],
+    ['csx','检验','有临床意义未关联',()=>L('CSX'),'判 CS 但未关联 AE/病史（参与者×指标）'],
     ['wor','检验','较基线加重',()=>L(['MH','DISW']),'判 CS 仅关联病史或归因研究疾病，但较基线加重'],
     ['g2','检验','≥2级未判为有临床意义',()=>L(['NCS2','NA2','G2NF','NA']),'达 ≥2 级判为无临床意义/未评价、超范围未评价'],
     ['rel','检验','显著变化·未关联',()=>lab.filter(g=>g.risk==='REL'&&K.relRisk(g)),'较基线显著变化且未关联 AE/病史（按当前阈值）'],
@@ -462,9 +462,9 @@ el.onclick=e=>{const td=e.target.closest('[data-c]');if(!td)return;const [ri,v]=
  <div class="note mt">名单来自「${K.esc(K.shName(r.sheet))}」的“是否进行”记录与访视记录比对；${COND.has(r.name)?'条件性项目的“否”可能为允许豁免，结合原因字段判断，不直接发质疑。':'计划项无记录时先核对访视是否实际发生、是否已录入，再决定是否质疑。'}</div>`,K.p(K.shName(r.sheet),'sq'))};};
 /* ---- 方案偏离（mm4）：分级/类别标签、详情抽屉（总览、方案偏离、AE/MH 风险共用）---- */
 K.PDG={'重要':'solid-red','待判定':'yel','一般':'line'};
-K.pdGrade=g=>K.p(g||'—',K.PDG[g]||'line',g==='重要'?'可能显著影响受试者权益/安全/福祉，或关键数据完整性/准确性/可靠性（ICH E3 Q&A R1；E6(R3)）':g==='待判定'?'需结合原因、源文件或医学判断确定分级':'不满足重要偏离标准');
+K.pdGrade=g=>K.p(g||'—',K.PDG[g]||'line',g==='重要'?'可能显著影响参与者权益/安全/福祉，或关键数据完整性/准确性/可靠性（ICH E3 Q&A R1；E6(R3)）':g==='待判定'?'需结合原因、源文件或医学判断确定分级':'不满足重要偏离标准');
 K.PDS={'已记录':'grn','未见记录':'org','无 PD 记录可比对':'line'};
-K.pdStatus=s=>s?K.p(s,K.PDS[s]||'line',s==='未见记录'?'方案偏离记录表中未见同受试者、同类别、时间相近的记录':s==='已记录'?'方案偏离记录表已有对应记录':'未提供方案偏离记录表'):'';
+K.pdStatus=s=>s?K.p(s,K.PDS[s]||'line',s==='未见记录'?'方案偏离记录表中未见同参与者、同类别、时间相近的记录':s==='已记录'?'方案偏离记录表已有对应记录':'未提供方案偏离记录表'):'';
 K.PDA={'发 query':'blu','CRA 核实':'brn','录入 PD':'red'};
 K.pdAct=a=>a?K.p(a,K.PDA[a]||'line'):'';
 K.pdTax=()=>Object.fromEntries((((window.KZ||{}).pd||{}).taxonomy||[]).map(t=>[t[0],t]));
@@ -482,11 +482,11 @@ K.showPD=id=>{const it=K.pdBy(id);if(!it)return;const P=KZ.pd,X=window.KZX||{},c
   <div class="flex wrap mb">${K.sid(it.sid)}${it.ctq?K.p('关键数据','solid-red',it.ctq):''}${K.p(K.center(it.site),'line')}${it.visit?K.p(it.visit,'blu'):''}${it.date?K.p(it.date,'line'):''}${K.pdGrade(it.grade)}${conf?(it.rawGrade?K.p('原文：'+it.rawGrade,'line'):''):K.pdStatus(it.status)}${conf?'':K.pdAct(it.action)}</div>
   <div class="box ${it.grade==='重要'?'red':'org'}" style="font-size:13px;line-height:1.7">${K.hlNum(conf?it.desc:it.fact)}</div>
   ${conf?'':`<div class="sec-t"><h2>分级与依据</h2></div><div class="flex small" style="align-items:flex-start;line-height:1.7">${K.pdGrade(it.grade)}<span>${K.esc(it.why)}</span></div>
-  <div class="xs muted mt" style="line-height:1.7">重要偏离：可能显著影响受试者权益、安全或福祉，或显著影响关键数据的完整性、准确性、可靠性（ICH E3 Q&A R1；ICH E6(R3)）。潜在 PD 由数据推断，核实属实前不计入 PD 率。</div>`}
+  <div class="xs muted mt" style="line-height:1.7">重要偏离：可能显著影响参与者权益、安全或福祉，或显著影响关键数据的完整性、准确性、可靠性（ICH E3 Q&A R1；ICH E6(R3)）。潜在 PD 由数据推断，核实属实前不计入 PD 率。</div>`}
   <div class="pd-raw"></div><div class="pd-src"><div class="sec-t"><h2>源数据</h2><span class="muted small">${ev?ev.length+' 行':'未取得原始行'}</span></div>${ev?K.listing(ev):(it.src||[]).length?`<table class="t"><tbody>${it.src.map(s=>`<tr><td>${K.p(K.shName(s[0]),'sq')}</td><td>行 ${s[1]??'—'}</td><td>${K.esc(s[2]||'')}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">按方案访视计划推断，无对应原始记录</div>'}</div>
   ${conf?`<div class="sec-t"><h2>归类</h2></div><div class="kv"><dt>统一分类</dt><dd>${K.pdCat(it.cat)} ${K.p(it.layer||'—','line')}</dd><dt>原文类别</dt><dd>${K.esc(it.rawCat||'—')} ${K.esc(it.sub||'')}</dd><dt>数据比对</dt><dd>${related.length?related.map(r=>`<span class="p sq mono click line" data-pd="${r.id}">${r.id}</span> ${K.esc(r.title)}`).join('<br>'):'<span class="muted">需现场/源文件核查（数据核查不覆盖）</span>'}</dd></div>`
   :`<div class="sec-t"><h2>判定依据</h2>${refs.map(r=>K.rp(r)).join('')}</div><div class="kv"><dt>检查</dt><dd>${K.esc(rule.title||'')}</dd><dt>逻辑</dt><dd>${K.esc(rule.logic||'')}</dd><dt>所需数据</dt><dd>${K.esc(rule.data||'')}</dd></div>
-  <div class="sec-t"><h2>与已记录 PD 比对</h2></div>${m?`<div class="box grn small"><b>${m.id}</b> ${K.esc(m.date)} · ${K.esc(m.rawCat)}：${K.esc(m.desc)}${m.rawGrade?' （'+K.esc(m.rawGrade)+'）':''}</div>`:`<div class="box small">${it.status==='无 PD 记录可比对'?'未提供方案偏离记录表，无法比对。':'方案偏离记录表中未见同受试者、同类别、时间相近的记录。'}</div>`}
+  <div class="sec-t"><h2>与已记录 PD 比对</h2></div>${m?`<div class="box grn small"><b>${m.id}</b> ${K.esc(m.date)} · ${K.esc(m.rawCat)}：${K.esc(m.desc)}${m.rawGrade?' （'+K.esc(m.rawGrade)+'）':''}</div>`:`<div class="box small">${it.status==='无 PD 记录可比对'?'未提供方案偏离记录表，无法比对。':'方案偏离记录表中未见同参与者、同类别、时间相近的记录。'}</div>`}
   ${sig?`<div class="sec-t"><h2>关联信号与质疑</h2></div><div class="flex wrap">${it.sig[0]==='lab'?`<a href="safety.html#tab=lab&risk=${sig.risk}">${K.risk(sig.risk)}</a>`:`<a href="safety.html#tab=oth&cat=${encodeURIComponent(sig.cat)}">${K.p(sig.cat,'line')}</a>`}${(sig.q||[]).map(K.qPill).join('')}${K.ctxTags(sig.ctx)}</div>`:''}
   <div class="sec-t"><h2>处理建议</h2>${K.pdAct(it.action)}</div><div class="small" style="line-height:1.7">${K.esc(K.PDACT[it.action]||'')}</div>${it.tip?`<div class="note small mt" style="line-height:1.7">${K.esc(it.tip)}</div>`:''}`}
   <div class="pd-series"></div>
@@ -538,7 +538,7 @@ K.funnelChart=(el,F,o={})=>{const fm=o.fmt||(v=>K.fmt(v)),hc=o.hc||'',maxN=Math.
   const L=(name,data,c,t)=>({type:'line',name,data,symbol:'none',silent:true,lineStyle:{color:c,width:1,type:t},z:1});
   const c=K.chart(el,{grid:{left:o.left||48,right:16,top:18,bottom:34},
    tooltip:{trigger:'item',formatter:p=>{const r=p.data&&p.data.r;if(!r)return '';return `<b>中心 ${r.site}</b>${o.names&&o.names[r.site]?' '+K.esc(o.names[r.site]):''}<br>n=${r.n}${r.x!=null?'（'+r.x+' 例）':''} · ${o.kind==='p'?'比例':'均值'} ${fm(r.m)}<br>整体 ${fm(F.mu)} · z=${r.z.toFixed(1)}<br>${K.FL[r.flag][0]}${r.n<2?'（n<2 不判）':''}`}},
-   xAxis:{type:'value',name:o.xName||'中心受试者数 n',nameLocation:'middle',nameGap:20,nameTextStyle:{color:'#64676B',fontSize:10},min:0,max:Math.ceil(maxN),minInterval:1,...K.axis},
+   xAxis:{type:'value',name:o.xName||'中心参与者数 n',nameLocation:'middle',nameGap:20,nameTextStyle:{color:'#64676B',fontSize:10},min:0,max:Math.ceil(maxN),minInterval:1,...K.axis},
    yAxis:{type:'value',scale:true,...K.axis,axisLabel:{color:'#64676B',formatter:v=>o.kind==='p'?Math.round(v*100)+'%':K.fmt(v)},min:o.ymin!=null?o.ymin:yr[0],max:o.ymax!=null?o.ymax:yr[1]},
    series:[L('整体',[[0,F.mu],[maxN,F.mu]],'#64676B','solid'),L('+2SE',lim(2,1),'#F2B567','dashed'),L('−2SE',lim(2,-1),'#F2B567','dashed'),L('+3SE',lim(3,1),'#B88A8A','dotted'),L('−3SE',lim(3,-1),'#B88A8A','dotted'),
     {type:'scatter',z:5,data:F.rows.map(r=>{const s=r.site===hc;return {value:[r.n,o.ymax!=null?Math.min(r.m,o.ymax):r.m],r,symbolSize:s?13:8,

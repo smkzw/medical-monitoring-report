@@ -13,7 +13,7 @@ app.innerHTML=`
 </div>
 ${K.knHint(D.knowledge)}
 <div class="grid g21 mt" style="grid-template-columns:1.5fr 1fr">
- <div class="card"><div class="hd"><h2>筛选</h2><span class="sp"></span><select class="s" id="fctr"><option value="">全部中心</option>${Object.entries(bySite).sort((a,b)=>a[0].localeCompare(b[0])).map(([k,v])=>`<option value="${k}">${k} ${K.esc(K.center(k))}（${v}）</option>`).join('')}</select><input class="s" id="qs" placeholder="搜索 编号/受试者/指标/文字"></div>
+ <div class="card"><div class="hd"><h2>筛选</h2><span class="sp"></span><select class="s" id="fctr"><option value="">全部中心</option>${Object.entries(bySite).sort((a,b)=>a[0].localeCompare(b[0])).map(([k,v])=>`<option value="${k}">${k} ${K.esc(K.center(k))}（${v}）</option>`).join('')}</select><input class="s" id="qs" placeholder="搜索 编号/参与者/指标/文字"></div>
   <div class="col">
    <div class="flex wrap"><span class="muted small nowrap" style="width:56px">风险域</span><div class="chips" id="fdom"></div></div>
    <div class="flex wrap"><span class="muted small nowrap" style="width:56px">与${K.esc((K.cfg().query||{}).extShort||'外部')}对照</span><div class="chips" id="fcro"></div></div>
@@ -41,7 +41,7 @@ const comOf=q=>(D.qcommon||{})[q.cat]||[];
 const uniq=q=>q.parts.filter(p=>!p[1]||!comOf(q).length).map(p=>K.hlNum(p[0])).join(' ');
 const tbl=K.table(app.querySelector('#qt'),{rows:[],noPage:true,h:'calc(100vh - 160px)',onRow:r=>K.showQ(r.id),
  group:r=>r.cat,groupHead:(g,r)=>{const n=cur.filter(q=>q.cat===g).length;const com=(D.qcommon[g]||[]);return `<div class="flex wrap"><i class="dot ${domCol(dom(r))}"></i><b>${K.catN(g)}</b>${K.p(n+' 条','line')}${K.p(dom(r),domCol(dom(r)))}<span class="sp"></span>${K.ibTags(g)}</div>${com.length?`<div class="qtpl">通用要求：${com.map(K.esc).join(' ')}</div>`:''}`},
- cols:[{k:'id',t:'编号',f:r=>K.qPill(r.id)+(r.flags||[]).map(fl=>fl==='L3不同意·须人审'?K.p('复核存疑','red','另一模型复核不同意该质疑，请重点判断'):'').join(''),w:'64px'},{k:'sid',t:'受试者',f:r=>K.sid(r.sid)+`<div class="xs faint">${K.esc(K.center(r.site))}</div>`,w:'110px'},
+ cols:[{k:'id',t:'编号',f:r=>K.qPill(r.id)+(r.flags||[]).map(fl=>fl==='L3不同意·须人审'?K.p('复核存疑','red','另一模型复核不同意该质疑，请重点判断'):'').join(''),w:'64px'},{k:'sid',t:'参与者',f:r=>K.sid(r.sid)+`<div class="xs faint">${K.esc(K.center(r.site))}</div>`,w:'110px'},
   {k:'sh',t:'数据位置',f:r=>`${K.p(K.shName(r.sh),'sq')}<div class="xs muted" title="导出表第 ${r.row} 行">${K.esc([r.v,r.d].filter(Boolean).join(' · '))||'第 '+r.row+' 行'}${r.ev.length>1?' · 涉及 '+r.ev.length+' 条记录':''}</div>`,w:'120px'},
   {k:'v',t:'访视',f:r=>`${r.v?K.p(r.v,'blu'):''}<div class="xs faint">${K.esc(r.d||'')}</div>`,w:'86px',s:r=>K.vi(r.v)},
   {k:'test',t:'对象',f:r=>`<span class="small">${K.esc(r.test||'—')}</span>`,w:'150px'},

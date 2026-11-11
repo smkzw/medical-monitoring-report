@@ -41,9 +41,9 @@ K._roleLS='kz.role:'+study();K.role=()=>LS.get(K._roleLS,'mm');K.setRole=r=>LS.s
 /* ---------- 数据可信度：中心层面的提示（只说「建议核对」） ---------- */
 K.credFlags=(site,v)=>{const f=[];if(!v)return f;
   if(v.dig&&v.dig[3]!=null&&v.dig[3]<.05)f.push({k:'dig',l:'血压/心率末位数字偏好',why:`末位为 0 或 5 的占 ${(v.dig[1]/v.dig[0]*100).toFixed(0)}%（${v.dig[1]}/${v.dig[0]}，随机约 20%）`});
-  if(v.flat&&v.flat[3]!=null&&v.flat[3]<.10&&v.flat[1]>=2)f.push({k:'flat',l:'多次访视数值完全相同',why:`${v.flat[1]}/${v.flat[0]} 组（受试者×指标，≥4 次）结果完全相同`});
+  if(v.flat&&v.flat[3]!=null&&v.flat[3]<.10&&v.flat[1]>=2)f.push({k:'flat',l:'多次访视数值完全相同',why:`${v.flat[1]}/${v.flat[0]} 组（参与者×指标，≥4 次）结果完全相同`});
   if(v.shift&&v.shift[1]>=2)f.push({k:'shift',l:'基线生命体征均值偏离',why:v.shift[2].slice(0,3).map(x=>`${x[0]} 中心 ${x[3]} / 整体 ${x[4]}（z=${x[1]}）`).join('；')});
-  if(v.dup&&v.dup[0])f.push({k:'dup',l:'同日多名受试者生命体征完全相同',why:`${v.dup[0]} 组`});return f};
+  if(v.dup&&v.dup[0])f.push({k:'dup',l:'同日多名参与者生命体征完全相同',why:`${v.dup[0]} 组`});return f};
 
 /* ---------- 通用抽屉 ---------- */
 K.showLabG=g=>{const b=K.drawer(`${g.sid} · ${K.esc(g.test)}`,`<div class="flex wrap mb">${K.risk(g.risk)}${K.grade(g.mg)}${g.ctq?K.p('关键数据','solid-red',g.ctq):''}${g.grp?K.p(g.grp,'line'):''}${g.cat?K.p(K.catN(g.cat),'line'):''}${K.ctxTags(g.ctx)}${(g.q||[]).map(K.qPill).join('')}</div>${(g.ctx||[]).length?`<div class="small muted mb" style="line-height:1.7">${g.ctx.map(c=>'· '+K.esc(c)).join('<br>')}</div>`:''}<div id="sp"></div>`);
@@ -54,12 +54,12 @@ K.showEnt=r=>{const b=K.drawer(`${r.sid} · ${K.esc(r.test)}`,`<div class="box o
   K.seriesPanel(b.querySelector('#sp'),{sid:r.sid,tests:[r.test],hl:[[r.sh,r.row]],ae:false})};
 K.showVis=v=>{const b=K.drawer(`${v.sid} · ${K.esc(v.v)} 访视`,`<div class="box small">方案窗 ${K.esc(v.lo)} ~ ${K.esc(v.hi)}，截至数据截止未见该访视记录${(D().ops||{}).stage==='daily'?'（日常监查阶段：可能只是尚未录入，请先与中心确认）':''}。</div>
   <div class="vis-raw"></div><div class="mt"><a class="small" href="subjects.html#s=${v.sid}&t=raw">原始数据 ›</a>　<a class="small" href="subjects.html#s=${v.sid}">参与者资料 ›</a>　<a class="small" href="timeline.html#s=${v.sid}">时间线 ›</a></div>`);
-  /* V6：该受试者的访视记录原行（核对是否其实做了、只是访视名写法不同） */
+  /* V6：该参与者的访视记录原行（核对是否其实做了、只是访视名写法不同） */
   K.rawIdx().then(I=>{if(!I)return;const vs=Object.keys(I.sheets).filter(k=>I.sheets[k].domain==='visits');K.raw(v.sid).then(R=>{if(!R)return;const ev=[];vs.forEach(k=>(R[k]||[]).forEach(r=>ev.push([k,r[0]])));
-    if(ev.length)K.rawBox(b.querySelector('.vis-raw'),v.sid,ev,{ctx:0,title:'本受试者访视记录（原始）'})})})};
-/* V6（用户审阅 RUX 第 18 条）：时间线任一事件的下钻——事件摘要＋原始数据表对应行（含前后行，可展开本受试者该表单全部行） */
+    if(ev.length)K.rawBox(b.querySelector('.vis-raw'),v.sid,ev,{ctx:0,title:'本参与者访视记录（原始）'})})})};
+/* V6（用户审阅 RUX 第 18 条）：时间线任一事件的下钻——事件摘要＋原始数据表对应行（含前后行，可展开本参与者该表单全部行） */
 K.evKey=(wb,sh)=>wb&&sh&&!String(sh).includes(':')?wb+':'+sh:sh;
-K.evDrawer=(title,sid,ev,html='')=>{const b=K.drawer(title,`${html}<div class="evraw"></div><div class="mt"><a class="small" href="subjects.html#s=${encodeURIComponent(sid)}&t=raw">本受试者原始数据 ›</a>　<a class="small" href="timeline.html#s=${encodeURIComponent(sid)}">时间线 ›</a></div>`);
+K.evDrawer=(title,sid,ev,html='')=>{const b=K.drawer(title,`${html}<div class="evraw"></div><div class="mt"><a class="small" href="subjects.html#s=${encodeURIComponent(sid)}&t=raw">本参与者原始数据 ›</a>　<a class="small" href="timeline.html#s=${encodeURIComponent(sid)}">时间线 ›</a></div>`);
   const e=(ev||[]).filter(x=>x&&x[0]&&x[1]!=null);if(e.length)K.rawBox(b.querySelector('.evraw'),sid,e,{ctx:2,title:'原始数据（含前后行）'});else b.querySelector('.evraw').innerHTML='<div class="note small">该事件没有可定位的原始行。</div>';return b};
 K.aeBox=a=>`<div class="box small mb"><b>${K.esc(a.t)}</b> ${a.g?K.p(a.g,String(a.g)>='3'?'red':'yel'):''}${a.sae?K.p('SAE','solid-red'):''}${a.aesi?K.p('AESI','red'):''}<div class="mt" style="margin-top:4px">${K.esc(a.s||'')} → ${a.e?K.esc(a.e):'持续'}${[['相关性',a.rel],['措施',a.act],['转归',a.out]].filter(x=>x[1]&&x[1]!=='—').map(x=>` · ${x[0]}：${K.esc(x[1])}`).join('')}</div></div>`;
 K.showSite=(kind,x,title,html)=>K.drawer(title,`${html}<div class="mt"><a class="small" href="center.html#c=${x.site||''}">中心画像 ›</a></div>`);
@@ -106,7 +106,7 @@ K.risks=()=>{if(K._risk)return K._risk;const Dd=D(),O=Dd.ops||{},out=[];
   Object.entries(O.fresh||{}).forEach(([site,f])=>{if(!(f[2]&&f[1]!=null&&f[1]>30))return;const t={site};
     add({kind:'fresh',x:t,base:f[1]>60?42:30,roles:['cra','pm'],sid:'',site,title:`中心 ${site} ${f[1]} 天无新数据`,why:`最近一条记录 ${f[0]}，仍有 ${f[2]} 例在研`,tag:['新鲜度','yel'],
       open:()=>K.showSite('fresh',t,`${site} ${K.esc(K.center(site))} · 数据新鲜度`,`<div class="box small">最近一条记录 ${K.esc(f[0])}，距数据截止 ${f[1]} 天，仍有 ${f[2]} 例在研：请确认是否有数据未录入。</div>`)})});
-  /* V6：同受试者×同日期×同类别×同表单的信号合并为一条（中心页 59 项待办里 MCH/MCHC/MCV/HCT 逐项拆行），展开见明细与原始行 */
+  /* V6：同参与者×同日期×同类别×同表单的信号合并为一条（中心页 59 项待办里 MCH/MCHC/MCV/HCT 逐项拆行），展开见明细与原始行 */
   return K._risk=(K.groupSig?K.groupSig(out):out).sort((a,b)=>b.score-a.score)};
 /* 角色视图：过滤（roles）＋加权；site 可选。返回新数组，score 为加权后分值（原值留 base0） */
 K.riskFor=(role,site)=>{const W=K.ROLEW[role]||{};return K.risks().filter(a=>(role==='all'||a.roles.includes(role))&&(!site||a.site===site))
@@ -116,7 +116,7 @@ K.riskTable=(el,list,o={})=>K.table(el,{rows:list.map((a,i)=>({...a,rk:i+1})),so
   {k:'rk',t:'排名',cls:'num',w:'46px'},{k:'score',t:'风险',f:a=>K.rlv(a.score),w:'52px'},
   {k:'tag',t:'类别',f:a=>K.p(a.tag[0],a.tag[1])+a.tags.map(t=>K.p(t[0],t[1],t[2])).join(''),s:a=>a.tag[0],w:'150px'},
   {k:'title',t:'风险项',f:a=>`<b style="color:var(--ink)">${K.esc(a.title)}</b><div class="xs muted rk-why" style="margin-top:2px;line-height:1.5">${K.esc(String(a.why||'').slice(0,160))}</div>`},
-  {k:'sid',t:'受试者',f:a=>a.sid?K.sid(a.sid):'',cls:'nowrap',w:'92px'},
+  {k:'sid',t:'参与者',f:a=>a.sid?K.sid(a.sid):'',cls:'nowrap',w:'92px'},
   {k:'site',t:'中心',f:a=>a.site?`<a class="xs" href="center.html#c=${a.site}">${K.esc(a.site)}</a>`:'',cls:'nowrap',w:'60px'}]});
 K.rlv=sc=>{const l=K.RLV.find(x=>sc>=x[0]);return K.p(l[1],l[2],'风险分 '+sc)};
 

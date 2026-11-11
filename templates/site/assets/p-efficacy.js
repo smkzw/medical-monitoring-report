@@ -25,7 +25,7 @@ ${(EF.notes||[]).length&&M.length?`<div class="small muted mb">${(EF.notes||[]).
  <div class="dev" id="dv"></div>
  <div class="grid g12"><div><div class="xs muted" id="t1"></div><div class="chart" id="c1" style="height:310px"></div></div><div><div class="xs muted" id="t2"></div><div class="chart" id="c2" style="height:310px"></div></div></div>
  <div id="w3"><div class="xs muted mt" id="t3"></div><div class="chart" id="c3" style="height:260px"></div></div></div>
-<div class="card"><div class="sec-t" style="margin-top:0"><h2>受试者层面异常</h2><span class="muted small">${K.esc(EF.rulesText||'识别方法见「研究依据」页')}</span></div><div class="tbar"><div class="chips" id="ac"></div></div><div id="at"></div></div>`;
+<div class="card"><div class="sec-t" style="margin-top:0"><h2>参与者层面异常</h2><span class="muted small">${K.esc(EF.rulesText||'识别方法见「研究依据」页')}</span></div><div class="tbar"><div class="chips" id="ac"></div></div><div id="at"></div></div>`;
 let cur=M.find(m=>m[0]===H.m)||M[0],hc=H.c||'';
 if(!M.length){const eps=((D.study||{}).endpoints||[]).filter(e=>!/安全|探索/.test(e[0]));const nt=EF.notes||[];
  document.getElementById('kp').innerHTML=`<div class="card"><div class="sec-t" style="margin-top:0"><h2>未生成有效性趋势</h2></div>${nt.length?nt.map(n=>`<div class="small" style="margin:4px 0">${K.esc(n)}</div>`).join(''):'<div class="small muted">方案终点未能与 EDC 中的量表/检查对应，未生成有效性趋势</div>'}${eps.length?`<div class="xs muted mt" style="margin-top:8px">方案终点</div>${eps.map(e=>`<div class="small">${K.p(e[0],/主要/.test(e[0])?'org':'line')} ${K.esc(e[1])}</div>`).join('')}`:''}</div>`;return}
@@ -58,7 +58,7 @@ function draw(){
     K.chart('#c1',{grid:{left:40,right:16,top:hc?26:16,bottom:40},legend:hc?{top:0,right:0,itemWidth:10,itemHeight:8,textStyle:{fontSize:10}}:undefined,tooltip:{trigger:'axis',valueFormatter:v=>v.toFixed(1)+'%'},
       xAxis:{type:'category',data:lab,...K.axis,axisLabel:{fontSize:9,interval:0,color:'#64676B',formatter:v=>v.replace(' ','\n')}},yAxis:{type:'value',...K.axis,axisLabel:{color:'#64676B',formatter:'{value}%'}},series:ser});
   }else{
-    document.getElementById('t1').innerHTML=`<b style="color:var(--ink)">${cur[1]}</b> · 按访视：线 = 中位数，色带 = 四分位间距，点 = 受试者 · ${cur[5]}${hc?` · <b style="color:#E67E00">橙 = ${hc} 中心</b>，灰 = 整体；横轴 n = 中心/整体`:''}`;
+    document.getElementById('t1').innerHTML=`<b style="color:var(--ink)">${cur[1]}</b> · 按访视：线 = 中位数，色带 = 四分位间距，点 = 参与者 · ${cur[5]}${hc?` · <b style="color:#E67E00">橙 = ${hc} 中心</b>，灰 = 整体；横轴 n = 中心/整体`:''}`;
     if(BR&&BR.on)document.getElementById('t1').innerHTML+=` · <span style="color:var(--risk)">远端异常值以断轴 / 边缘三角显示（悬停看原值，点击断轴可展开）</span>`;
     K.distLine('#c1',{V,all,sel,clip:null,yr:BR,ml,selName:hc?hc+' 中心':'',allName:'整体',fmt:v=>fmtM(cur,v),onClick:go});
   }
@@ -66,7 +66,7 @@ function draw(){
   K.funnelChart('#c2',F,{hc,fmt:v=>fmtM(cur,v),names:CN,onPick:pick});
   const w3=document.getElementById('w3');w3.style.display=ORD?'none':'';
   if(ORD)return;
-  document.getElementById('t3').innerHTML=`<b style="color:var(--ink)">个体轨迹</b> · ${hc?`橙色加粗 = ${hc} 中心，其余淡化`:'选择中心后加粗显示该中心'} · 深红 = 异常列表受试者 · 点击线进入参与者资料`;
+  document.getElementById('t3').innerHTML=`<b style="color:var(--ink)">个体轨迹</b> · ${hc?`橙色加粗 = ${hc} 中心，其余淡化`:'选择中心后加粗显示该中心'} · 深红 = 异常列表参与者 · 点击线进入参与者资料`;
   const anS=new Set(AN.filter(a=>a.c==='red'||a.c==='org').map(a=>a.sid));
   /* 非盲构建有分组：叠加各组中位数（随机对照试验看组间差异；盲态构建 grp 已在构建端清空，不出现） */
   const ARMC=['#407AAA','#587B3B','#7A5195','#A85F34'],armOf=sid=>(K.subBy(sid)||{}).grp,arms=[...new Set(E.map(e=>armOf(e.sid)).filter(Boolean))].sort();
@@ -80,6 +80,6 @@ function draw(){
 draw();
 const kinds=[...new Set(AN.map(a=>a.k))];
 const rec=a=>{const out=(a.rec||[]).map(r=>K.p(r[0],r[1]||'line'));D.queries.filter(q=>q.sid===a.sid&&(a.qcat?a.qcat.includes(q.cat):false)).forEach(q=>out.push(K.qPill(q.id)));return out.join(' ')||(a.norec?K.p(a.norec,a.norecC||''):'')};
-const tb=K.table(document.getElementById('at'),{rows:AN,noPage:true,cols:[{k:'k',t:'类型',f:a=>K.p(a.k,a.c)},{k:'sid',t:'受试者',f:a=>K.sid(a.sid,'&t=eff')},{k:'site',t:'中心',f:a=>`<span class="faint">${a.site||''}</span>`},{k:'v',t:'访视',f:a=>K.p(a.v,'blu')},{k:'t',t:'数据',f:a=>K.hlNum(a.t)},{k:'rec',t:'已有 AE / 质疑 / CRO',ns:1,f:rec},{k:'st',t:'处理',f:a=>`<span class="small muted">${K.esc(a.st)}</span>`}]});
+const tb=K.table(document.getElementById('at'),{rows:AN,noPage:true,cols:[{k:'k',t:'类型',f:a=>K.p(a.k,a.c)},{k:'sid',t:'参与者',f:a=>K.sid(a.sid,'&t=eff')},{k:'site',t:'中心',f:a=>`<span class="faint">${a.site||''}</span>`},{k:'v',t:'访视',f:a=>K.p(a.v,'blu')},{k:'t',t:'数据',f:a=>K.hlNum(a.t)},{k:'rec',t:'已有 AE / 质疑 / CRO',ns:1,f:rec},{k:'st',t:'处理',f:a=>`<span class="small muted">${K.esc(a.st)}</span>`}]});
 K.chips(document.getElementById('ac'),kinds.map(k=>[k,k,AN.filter(a=>a.k===k).length]),v=>tb.set(v?AN.filter(a=>a.k===v):AN));
 });

@@ -34,7 +34,7 @@
 
 ```
 已完成文件盘点与方案抽取，构建前需确认以下 N 点：
-1. 分析人群：全部受试者 / 已随机 / 已给药（建议：已给药，筛选失败仅列表展示）？
+1. 分析人群：全部参与者 / 已随机 / 已给药（建议：已给药，筛选失败仅列表展示）？
 2. 计划外访视（USV）：是否纳入汇总？（建议：不纳入汇总，仅个例展示）
 3. 基线：方案 §x 规定「……」，拟按 <实验室 …／生命体征 …／ECG …（如三次均值）> 执行，缺失时用首剂前最近有效值——是否同意？（方案未规定时给出建议口径）
    分级：方案 §x 规定按 <CTCAE vX.X／自定义分级>（方案未写 → 阻断项，必须确认）；AESI：方案 §x 列出 <…>；AE 收集期/TEAE：<…>。
@@ -51,7 +51,7 @@
 python3 scripts/normalize_listing.py work/S/mapping.json --out work/S/norm
 python3 scripts/build_site.py --study work/S/study.json --norm work/S/norm --out out/S
 ```
-- stdout 摘要：受试者数 · 人群 · AE · 检验风险行 · 其他信号 · query 数 · 指标数。数量异常（0 或远超预期）先排查映射。
+- stdout 摘要：参与者数 · 人群 · AE · 检验风险行 · 其他信号 · query 数 · 指标数。数量异常（0 或远超预期）先排查映射。
 - `--no-xlsx` 跳过 query 工作簿；工作簿默认标注证据行最多的 workbook（`export_queries.py --wb` 可指定）。
 
 ## 阶段 5 · 医学审阅
@@ -67,6 +67,6 @@ python3 scripts/build_site.py --study work/S/study.json --norm work/S/norm --out
 见 `validation-checklist.md`。交付压缩包：`HTML/`、`<listing>_申办方MM_query_首列版.xlsx`、`analysis/`（可选 `shots/`）。
 交付说明模板：
 ```
-已完成 <S> 医学监察报告：<n> 例受试者（分析人群 <m>），检验风险 <a> 行、其他信号 <b> 条，申办方 query <q> 条（LB x / AE y …），
+已完成 <S> 医学监察报告：<n> 例参与者（分析人群 <m>），检验风险 <a> 行、其他信号 <b> 条，申办方 query <q> 条（LB x / AE y …），
 其中 <k> 条与 CRO 已发质疑同主题已标注。口径：<人群/基线/USV/盲态>。未决：<…>。
 ```

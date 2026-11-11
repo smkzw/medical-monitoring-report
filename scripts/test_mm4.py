@@ -746,7 +746,7 @@ class EligPremiseAndCompound(unittest.TestCase):
         eligibility_checks(C)
         o = [x for x in C.others if x['cat'] == '入排标准核对'][0]
         self.assertEqual(o['_elig'], 'undetermined')
-        self.assertIn('请提供该受试者的相关治疗情况', o['sum'])
+        self.assertIn('请提供该参与者的相关治疗情况', o['sum'])
         C.others = []
         C.cm_by = defaultdict(list, {list(C.pop)[0]: [{'t': '氨氯地平', 'why': '高血压'}]})   # 有对应治疗用药仍超标 → 违反
         eligibility_checks(C)

@@ -168,7 +168,7 @@ def load(study_p, norm_p):
     if C.visits_missed:
         C.visits = [v for v in C.visits if v not in C.visits_missed]
     # V6 医学审阅（RUX P0010：开放期 IGA=0 按方案停药，01-20 的「研究药物发放」被当成给药报「终止治疗后仍有给药」）：
-    # 受试者有实际给药/医嘱记录时，发放/回收（药物清点）类表单不参与首末次给药与给药连续性判定，移入 dispense 域
+    # 参与者有实际给药/医嘱记录时，发放/回收（药物清点）类表单不参与首末次给药与给药连续性判定，移入 dispense 域
     _disp = re.compile(r'发放|回收|分发|返还|退还|清点|dispens|return|accountab', re.I)
     adm = {e['sid'] for e in C.exposure if not _disp.search(str(e.get('sheet') or ''))}
     moved = [e for e in C.exposure if _disp.search(str(e.get('sheet') or '')) and e['sid'] in adm]
@@ -201,7 +201,7 @@ _VCLASS = [re.compile(r'筛选|screen|^SCR$|^[WD]\s*-\s*\d', re.I), re.compile(r
 
 def complete_visit_order(C, order):
     """数据里出现、配置访视顺序里没有的访视名补进顺序（MY008：配置 V1–V17、数据 D84…；不在顺序里的访视全部落到同一个
-    「未知」序号，检验趋势/安全性概览/有效性图整片空白）。补入的按典型研究日（相对受试者最早记录日的中位天数）排序；
+    「未知」序号，检验趋势/安全性概览/有效性图整片空白）。补入的按典型研究日（相对参与者最早记录日的中位天数）排序；
     计划外/提前退出类排最后；配置里有但数据中没有的访视保留在原位置之后。数据访视都在配置里时顺序不变。"""
     recs = [r for dom in ('visits', 'findings', 'efficacy') for r in getattr(C, dom) if r.get('visit') and is_full_date(r.get('date'))]
     data_vis = {r['visit'] for dom in ('visits', 'findings', 'efficacy') for r in getattr(C, dom) if r.get('visit')}
@@ -339,7 +339,7 @@ def build_subjects(C):
             st = '筛选失败' if not fd and not s.get('rand') else ('完成试验' if str(s.get('eos_done')) in ('是', 'Y') else
                                                                  '提前退出' if s.get('eos_d') else '治疗结束' if s.get('eot_d') else '已入组')
         g = groups.get(sid, {})
-        # V6 运营审阅（RUX：监查页「提前退出 0」而 KRI 12/192）：EDC 受试者状态对所有出组者都写「完成试验」，
+        # V6 运营审阅（RUX：监查页「提前退出 0」而 KRI 12/192）：EDC 参与者状态对所有出组者都写「完成试验」，
         # 提前退出以治疗/研究结束页的原因为准（与 KRI 同一判定 monitor_v5._early_wd）；EDC 原状态留在 edc_status
         eos_done_ = re.match(r'^\s*(是|Y|Yes|完成)', str(s.get('eos_done') or ''), re.I)
         if st not in ('筛选失败',) and fd and monitor_v5._early_wd(dict(s, status=st)) and st != '提前退出' and not eos_done_:
@@ -361,7 +361,7 @@ def build_subjects(C):
         out = {}
         for sid, s in C.subj.items():
             ref = spec.get('ref', 'ld')
-            # mm4：锚点为研究结束（eos_d）而受试者仍在研 → 收集期尚未结束（开放），不回退到末次给药
+            # mm4：锚点为研究结束（eos_d）而参与者仍在研 → 收集期尚未结束（开放），不回退到末次给药
             r = s.get(ref) if ref == 'eos_d' else (s.get(ref) or s.get('ld') or s.get('fd'))
             out[sid] = (dt.date.fromisoformat(r) + dt.timedelta(days=spec.get('days', 0))).isoformat() if is_full_date(r) else None
         return out
@@ -413,8 +413,8 @@ def _pre_dose(start, fd):
 
 
 def no_usable(recs):
-    """V6：记录编号列可用＝同一受试者内基本不重复（RUX「记录号」多为 0 是重复记录序号，不是 AE 编号；D002「记录号」才是）。
-    重复率 >20% → 不用，回落按受试者内顺序编号。"""
+    """V6：记录编号列可用＝同一参与者内基本不重复（RUX「记录号」多为 0 是重复记录序号，不是 AE 编号；D002「记录号」才是）。
+    重复率 >20% → 不用，回落按参与者内顺序编号。"""
     seen, dup, n = set(), 0, 0
     for r in recs:
         no = r.get('no')
@@ -502,7 +502,7 @@ def build_events(C):
 
 
 def build_events_dup(C):
-    """F08（RUX 深审）：重复 AE 记录指纹（同受试者＋同术语/PT＋同开始日期，EDC 修订版整行重复导出实测成对/三联）。
+    """F08（RUX 深审）：重复 AE 记录指纹（同参与者＋同术语/PT＋同开始日期，EDC 修订版整行重复导出实测成对/三联）。
     全组成员标 dup_n/dup_rows，第 2 份起标 dup（逐记录质疑只按组首发生，AE 谱按去重计数）；C.ae_dup 供标记 query。
     F-D（IMP-03）：抽成独立函数——例次/等级/SAE 等一切计数口径统一按「第 2 份起不计」去重（subs 聚合、KRI、todo）。"""
     C.ae_dup = []
@@ -824,7 +824,7 @@ def build_findings(C):
         C.btype[(sid, mid)] = btype if b else '缺失'
         code = C.cmap.get(mid)
         # V6（MY008 医学审阅：同名指标本地/中心实验室两张表，S03001 LB1 5.70% 拿 LB8 的 8.21% 作基线）：
-        # 同一受试者同一指标来自多张表时，每行优先用本表自己的基线（本表无给药前有效值才用合并基线）
+        # 同一参与者同一指标来自多张表时，每行优先用本表自己的基线（本表无给药前有效值才用合并基线）
         by_sh = defaultdict(list)
         for r in rows:
             by_sh[r.get('sheet')].append(r)
@@ -927,7 +927,7 @@ def pick_baseline(C, sid, mid, rows, rules):
 
 def panel_level_clin(C):
     """V6（复核 D002 阴道分泌物：同一份化验单 5 行全判 CS，含「滴虫 阴性」——是整份判定逐行重复，不是逐项判定）。
-    长表同受试者×同表单×同日期 ≥3 行且全部判 CS 时：判定只留在异常行（超出参考范围/分级 ≥1/定性阳性），其余行置未评价并标 _panel；
+    长表同参与者×同表单×同日期 ≥3 行且全部判 CS 时：判定只留在异常行（超出参考范围/分级 ≥1/定性阳性），其余行置未评价并标 _panel；
     一行都判不出异常时保持原样（交研究者判定，不猜）。宽表共用临床意义列另由 normalize._record_level_clin 处理。"""
     grp = defaultdict(list)
     for (sid, _mid), rows in C.F.items():
@@ -988,7 +988,7 @@ _DT_NEG_BEFORE = re.compile(r'(?:排除|否认|除外|不考虑|并非|非)\s*$'
 
 def desc_term_links(C):
     """说明列兜底关联（V6，用户审阅 RUX 第 10 条：80 条「判 CS 未关联」里 79 条说明列已写关联）：
-    CS 行没有回溯得到的关联、也不是研究疾病归因时，用**该受试者本人**的 AE/病史术语去匹配说明文本
+    CS 行没有回溯得到的关联、也不是研究疾病归因时，用**该参与者本人**的 AE/病史术语去匹配说明文本
     （「CS肝酶升高AE」「高脂血症」「贫血相关」）；否定写法不算。命中写入 links（编号取回溯到的记录），来源可追溯。"""
     for (sid, _mid), rows in C.F.items():
         pools = [('AE', C.ae_by.get(sid) or []), ('MH', C.mh_by.get(sid) or [])]
@@ -1088,7 +1088,7 @@ _MICRO_SHEET_RX = re.compile(r'微生物|培养|药敏|药物敏感|细菌学|�
 
 
 def micro_panel_mark(C):
-    """F-C（IMP-02）：微生物培养＋药敏面板识别（同一受试者·同表单·同日期的组合）。
+    """F-C（IMP-02）：微生物培养＋药敏面板识别（同一参与者·同表单·同日期的组合）。
     培养类检查行（检查名 培养/涂片/镜检/染色/鉴定）标 _micro='C'；同面板内满足药敏形态的行标 _micro='S'：
     ① MIC 比较值（<=0.25、>=8、<=0.5/9.5）且无单位，或 ② lo/hi 写 S/R 断点文本（R>=4），或 ③ 描述写敏感/耐药/中介。
     第三轮：表名/组名命中微生物命名形态的专表整表分域（培养类名→C，其余→S）。
@@ -1121,7 +1121,7 @@ def micro_panel_mark(C):
 
 
 def micro_rows(C):
-    """KZ.micro（分域呈现，给药者）：[sid, 日期, 访视, 项目, 结果原文, 判读/说明, C|S, sheet, row]；同受试者同日培养行在前。"""
+    """KZ.micro（分域呈现，给药者）：[sid, 日期, 访视, 项目, 结果原文, 判读/说明, C|S, sheet, row]；同参与者同日培养行在前。"""
     out = [[f['sid'], f.get('date') or '', f.get('visit') or '', f.get('test') or '', '' if f.get('raw') is None else str(f.get('raw')),
             f.get('desc') or '', f.get('_micro'), f.get('sheet') or '', f.get('row')]
            for f in getattr(C, 'micro', []) if f['sid'] in C.pop]
@@ -1180,7 +1180,7 @@ def hb_short_jump_note(C, mid, rows) -> str:
     for a, b_ in zip(pts, pts[1:]):
         if 0 <= days(b_['date'], a['date']) <= 7 and (b_['value'] - a['value']) >= thr:
             return (f"短期跳升：{b_.get('visit')}访视较{a.get('visit')}访视（{days(b_['date'], a['date'])} 天内）升高 "
-                    f"{fmt(b_['value'] - a['value'])} {b_.get('unit') or ''}——如受试者近期有红细胞输注，请结合输血记录判读（方案依赖输血信息）")
+                    f"{fmt(b_['value'] - a['value'])} {b_.get('unit') or ''}——如参与者近期有红细胞输注，请结合输血记录判读（方案依赖输血信息）")
     return ''
 
 
@@ -1557,7 +1557,7 @@ def _thr_hit(C, r, sig):
     if seen is None:
         seen = C._thr_seen = set()
     k = (r['sid'], r.get('wb') or '', r.get('sheet') or '', r.get('row'), r.get('mid'), sig)
-    # V6（MY008：本地/中心实验室同日同指标各出一条，231 对重复）：同受试者同指标同日同判据只出一条
+    # V6（MY008：本地/中心实验室同日同指标各出一条，231 对重复）：同参与者同指标同日同判据只出一条
     kd = (r['sid'], 'day', str(r.get('date') or '')[:10], r.get('mid'), sig) if is_full_date(r.get('date')) else None
     if k in seen or (kd and kd in seen):
         return True
@@ -1702,7 +1702,7 @@ def threshold_rules(C):
                 if R.get('baseCond') and isinstance(b_.get('value'), (int, float)):
                     b_abn = (b_.get('hi') is not None and b_['value'] > b_['hi']) or (b_.get('lo') is not None and b_['value'] < b_['lo'])
                     if (R['baseCond'] == 'abn') != bool(b_abn):
-                        continue                         # 方案只对「基线异常/基线正常」一类受试者适用该阈值
+                        continue                         # 方案只对「基线异常/基线正常」一类参与者适用该阈值
                 x = {'val': r.get('value'), 'chg': r.get('chg'), 'pct': r.get('pct'),
                      'chg_uln': (r['chg'] / r['hi']) if r.get('chg') is not None and r.get('hi') else None,
                      'uln': (r['value'] / r['hi']) if r.get('value') is not None and r.get('hi') else None,
@@ -1937,7 +1937,7 @@ def ae_checks(C):
             if g['sid'] not in C.pop:
                 continue
             rows = '、'.join(_ae_ref(x) for x in g['recs'])     # V6 措辞排查：不写「#2（行 12）」，行号已在证据定位里
-            add_other(C, g['sid'], 'AE重复记录核对', 2, f"同一受试者“{g['term']}”同一开始日期（{g['start']}）记录了 {len(g['recs'])} 条 AE（{rows}），请核实是否重复录入或修订未归并",
+            add_other(C, g['sid'], 'AE重复记录核对', 2, f"同一参与者“{g['term']}”同一开始日期（{g['start']}）记录了 {len(g['recs'])} 条 AE（{rows}），请核实是否重复录入或修订未归并",
                       None, g['start'], g['recs'][0]['sh'], g['recs'][0]['row'], g['term'],
                       rel=[['AE', x['t'], x['s'], x['n']] for x in g['recs']], risk='AE',
                       wb=g['recs'][0].get('wb') or '')
@@ -1946,7 +1946,7 @@ def ae_checks(C):
                 for y in L[i + 1:]:
                     if not (x['s'] and y['s'] and (not x['e'] or y['s'] <= x['e']) and (not y['e'] or x['s'] <= y['e'])):
                         continue
-                    # mm4 用户裁定（2026-10-30）：风险＝同一临床事实（同受试者、时间重叠）下记录了**不同 PT** 的 AE
+                    # mm4 用户裁定（2026-10-30）：风险＝同一临床事实（同参与者、时间重叠）下记录了**不同 PT** 的 AE
                     # （疑似重复记录或编码不一致）；同一 PT（含原文写法不同）视为同一 AE，不发；
                     # pt 缺失（字典降级）时本规则不运行（知识层降级状态在研究依据页可见）。
                     if not x.get('pt') or not y.get('pt') or x['pt'] == y['pt']:
@@ -1955,7 +1955,7 @@ def ae_checks(C):
                     # ALT 与 AST、CK 与 LDH 这类同期并发的不同 AE 不提示
                     if not (x.get('soc') and x.get('soc') == y.get('soc') and (_ae_similar(x['pt'], y['pt']) or _ae_similar(x['t'], y['t']))):
                         continue
-                    add_other(C, sid, 'AE一致性核对（PT级）', 2, f"同一受试者同期记录了不同 AE（PT 级：{x['pt']} vs {y['pt']}）："
+                    add_other(C, sid, 'AE一致性核对（PT级）', 2, f"同一参与者同期记录了不同 AE（PT 级：{x['pt']} vs {y['pt']}）："
                               f"“{x['t']}”（{_ae_ref(x, True)}）与“{y['t']}”（{_ae_ref(y, True)}），请核实是否重复记录或编码不一致",
                               None, y['s'], y['sh'], y['row'], y['t'], rel=[['AE', x['t'], x['s'], x['n']], ['AE', y['t'], y['s'], y['n']]], risk='AE')
 
@@ -2003,7 +2003,7 @@ def _corroborated(C, sid, r):
 
 def entry_errors(C):
     """mm5 疑似录入错误（用户 2026-10-31：某指标多次都在 50 上下、突然一次 500 多 → 很可能小数点/单位录错）。
-    只看检验/生命体征/心电图数值（有效性另有「有效性数据量级异常」）。判据（同受试者同指标、该指标 ≥4 个数值）：
+    只看检验/生命体征/心电图数值（有效性另有「有效性数据量级异常」）。判据（同参与者同指标、该指标 ≥4 个数值）：
     ①孤立尖峰——前后相邻两次都在本人其余结果中位数的 2 倍以内（持续上升的真实变化如药物性肝损伤不算）；
     ②与本人其余结果中位数之比约为 10 的整数次幂（±15%，疑似小数点错位）或 ≥20 倍/≤1/20（疑似录入或单位错误）。
     另：单位与本人该指标多数记录（≥3 条）不同 → 单位不一致。只作数据质量提示（临床监察页），不发医学质疑；
@@ -2064,7 +2064,7 @@ def entry_errors(C):
 
 
 def build_ops(C):
-    """mm5 临床监察数据块（KZ.ops，前端「临床监察」页）：受试者里程碑、访视记录、方案访视窗、给药依从摘要、知情版本、疑似录入错误。
+    """mm5 临床监察数据块（KZ.ops，前端「临床监察」页）：参与者里程碑、访视记录、方案访视窗、给药依从摘要、知情版本、疑似录入错误。
     全部来自已映射的 listing 字段；EDC 录入/核查时间戳 listing 中没有，录入及时性与 SDV 进度不做。"""
     vis = defaultdict(list)
     first = {}
@@ -2109,7 +2109,7 @@ def _ie_label(r):
 
 
 def arm_name(g):
-    """分组名归一：去掉随机系统导出的组名尾缀标记（RUX 受试者报表「磷酸芦可替尼乳膏治疗组Y / 安慰剂组N」——Y/N 含义待项目确认，
+    """分组名归一：去掉随机系统导出的组名尾缀标记（RUX 参与者报表「磷酸芦可替尼乳膏治疗组Y / 安慰剂组N」——Y/N 含义待项目确认，
     不拆成四组）。"""
     if g in (None, ''):
         return g
@@ -2162,7 +2162,7 @@ def ie_checks(C):
 
 def range_checks(C):
     """mm4：参考范围缺失——同一实验室指标多数记录有参考范围，而该记录数值存在但上下限均缺失（无法判异常与分级）。
-    V6：受试者×表单×日期一条（同页各指标进上下文）；同一中心同一表单 ≥3 例缺失 → 中心系统性问题，转中心沟通提示（pr2，不逐例发 query）。"""
+    V6：参与者×表单×日期一条（同页各指标进上下文）；同一中心同一表单 ≥3 例缺失 → 中心系统性问题，转中心沟通提示（pr2，不逐例发 query）。"""
     if C.A.get('rangeCheck') is False:
         return
     miss = defaultdict(list)                    # (sid, mid) -> rows
@@ -2181,7 +2181,7 @@ def range_checks(C):
             if r.get('lo') is None and r.get('hi') is None:
                 miss[(r['sid'], mid)].append(r)
     # V6 R4（审阅者 2026-11-02，四项目复盘：同一张化验单漏填范围被按指标拆成十几条 query）：
-    # 按（受试者，表单，日期）合并为一条——CRC 是按一张化验单补范围的；同中心同表单 ≥3 例 → 中心系统性问题
+    # 按（参与者，表单，日期）合并为一条——CRC 是按一张化验单补范围的；同中心同表单 ≥3 例 → 中心系统性问题
     page = defaultdict(list)
     for (sid, mid), rows in miss.items():
         for r in rows:
@@ -2663,7 +2663,7 @@ def _premise_treated(C, sid, E):
 
 def _exc_state(C, sid, E, r):
     """方案例外条款（「青少年碱性磷酸酶>1.5×ULN 且具有临床意义者」）逐条判：只认提到本指标的分句；分句带人群限定
-    （青少年/儿童/<18 岁 / 成人）而受试者不在该人群 → 例外不适用；在该人群且要求「具有临床意义」→ 研究者判 NCS 时例外成立。
+    （青少年/儿童/<18 岁 / 成人）而参与者不在该人群 → 例外不适用；在该人群且要求「具有临床意义」→ 研究者判 NCS 时例外成立。
     返回 exception_met / violated / undetermined；没有适用分句 → None（照常判）。"""
     exc = str(E.get('exc') or '')
     if not exc:
@@ -2762,7 +2762,7 @@ _OP_CN = {'>': '＞', '>=': '≥', '<': '＜', '<=': '≤', '==': '＝'}
 
 
 def _elig_subj_txt(E, v):
-    """受试者字段类入排（年龄等）：「年龄 16，不符合入选标准：年龄18~50周岁」。"""
+    """参与者字段类入排（年龄等）：「年龄 16，不符合入选标准：年龄18~50周岁」。"""
     t = str(E.get('text') or '')
     t = t if re.match(r'^(入选|排除)标准', t) else f"入排标准“{t}”"
     return f"{E.get('label', E['field'])} {fmt(v) if isinstance(v, float) else v}，不符合{t}"
@@ -2803,8 +2803,8 @@ def _elig_cite(E, kind):
 
 
 def _near_val(C, sid, mre, r):
-    """同受试者、指标匹配 mre、距判定记录最近日期（同表单优先）的数值结果行；无 → None。
-    用户 2026-11-01 裁定：复合条件/例外的伴随值按「同 sheet/同受试者/最近日期」取。"""
+    """同参与者、指标匹配 mre、距判定记录最近日期（同表单优先）的数值结果行；无 → None。
+    用户 2026-11-01 裁定：复合条件/例外的伴随值按「同 sheet/同参与者/最近日期」取。"""
     d0 = r.get('date')
     if not is_full_date(d0):
         return None
@@ -2844,7 +2844,7 @@ def _gate_ok(C, sid, G, r):
 
 
 def eligibility_checks(C):
-    """入排数值核对（受试者×标准一条）。判定值按 `pick`：last（默认，入组前末次有效测量——方案允许复查时以复查值为准）/
+    """入排数值核对（参与者×标准一条）。判定值按 `pick`：last（默认，入组前末次有效测量——方案允许复查时以复查值为准）/
     first（首次筛选值）/ any（任一测量不符即提示，方案明确不允许复查时用）。其余不符测量写入上下文，不另成信号。"""
     for E in C.A.get('eligibility', []):  # {"id","metric","visits":[..],"op","v","text","pr","on","pick","window","kind"}
         mre = re.compile(E['metric'])
@@ -2917,7 +2917,7 @@ def eligibility_checks(C):
                     continue
                 if st == 'undetermined':
                     o = add_other(C, sid, E.get('cat', '入排标准核对'), E.get('pr', 4),
-                                  f"{det}{hit}，方案要求经治疗后仍超标方构成排除，受试者有相关病史但未见治疗用药记录，请提供该受试者的相关治疗情况",
+                                  f"{det}{hit}，方案要求经治疗后仍超标方构成排除，参与者有相关病史但未见治疗用药记录，请提供该参与者的相关治疗情况",
                                   r.get('visit'), r.get('date'), r['sheet'], r['row'], lab, r.get('clin'), ctx=ctx, bkey=bkey, wb=r.get('wb') or '')
                     o['_elig'] = 'undetermined'
                     continue
@@ -2933,12 +2933,12 @@ def eligibility_checks(C):
                           r.get('visit'), r.get('date'), r['sheet'], r['row'], lab, r.get('clin'), ctx=ctx, bkey=bkey, wb=r.get('wb') or '')
             o['_elig'] = 'undetermined' if ex == 'undetermined' else 'violated'
             if ex == 'violated':
-                ctx.append('方案例外条款不适用于该受试者')
+                ctx.append('方案例外条款不适用于该参与者')
     for E in C.A.get('eligibilitySubject', []):  # {"field":"age","op","v","text"}
         for sid in sorted(C.pop):
             v = C.subj[sid].get(E['field'])
             if isinstance(v, str):
-                # R2-2（D002 仿真定罪连带）：受试者字段可能是文本型数值（'47'）——按数值参与比较；
+                # R2-2（D002 仿真定罪连带）：参与者字段可能是文本型数值（'47'）——按数值参与比较；
                 # 不可数值化的文本（空串/区间写法）不比较（cmp 对 None 已跳过，此处同口径不猜）。
                 try:
                     v = float(v.strip())
@@ -3269,8 +3269,8 @@ def build_queries(C):
             if m and b and v is not None and abs(abs((v - b) / b * 100) - int(m.group(2))) > 1.5:
                 print(f"WARN  事实卡数值不一致 {q['id']}：基线 {c.get('基线')} 数值 {c.get('数值')} {c.get('较基线')}", file=sys.stderr)
     for q in Q:                                          # 输出端统一中文引号（事实卡不动，卡片哈希与已写句子复用不受影响）
-        q['text'] = cs_plain(cn_quotes(q['text']))
-        q['parts'] = [[cs_plain(cn_quotes(x[0]))] + list(x[1:]) for x in q['parts']]
+        q['text'] = cs_plain(cn_quotes(q['text'])).replace('受试者', '参与者')       # 用户 2026-11-11：统一称「参与者」（含模型写的句子）
+        q['parts'] = [[cs_plain(cn_quotes(x[0])).replace('受试者', '参与者')] + list(x[1:]) for x in q['parts']]
     C.queries = Q
     C.qcommon = dict(common)
     C.qMerged = sum(q.get('merged', 1) - 1 for q in Q)     # H6：被同格合并掉的信号条数（总信号数＝len(Q)+qMerged）
@@ -3278,13 +3278,13 @@ def build_queries(C):
 
 # ----------------------------------------------------------------------------- consistency / centers
 def build_cons(C):
-    """判定一致性数据面（用户 2026-10-30 终版：同中心换芯＋同受试者版新增；旧 ±5%「相近即双向报」废止）。
-    可比对＝同受试者（scope=subject）或同中心跨受试者（scope=center）×同指标/单位/参考范围×同向异常
+    """判定一致性数据面（用户 2026-10-30 终版：同中心换芯＋同参与者版新增；旧 ±5%「相近即双向报」废止）。
+    可比对＝同参与者（scope=subject）或同中心跨参与者（scope=center）×同指标/单位/参考范围×同向异常
     （都超参考范围同向；一升一降不可比）×同给药阶段（给药前不与给药后比）。两维度（ext_rules 同一出处）：
     a. 判定维度（kind=judg，方向性）：更差者（偏离参考边界更远，相对偏离度、无最小差阈值）判 NCS 而更轻者判 CS → 发；
        数值相等而判定不同 → 发（无更差方可定向）；更差者判 CS → 不发。
     b. 归因维度（kind=att，无方向不排序）：两条均 CS 且归因不同（AE/MH/研究疾病/未关联 任一不同）→ 发。
-    同受试者维度的不一致已由 ext_rules.clin_consistency 发质疑——质疑面已覆盖的标「已有问题覆盖」；
+    同参与者维度的不一致已由 ext_rules.clin_consistency 发质疑——质疑面已覆盖的标「已有问题覆盖」；
     跨例比较只作提示，不以多数判定作为医学标准。"""
     C.cons = []
     qrows = {(q['sh'], q['row']) for q in C.queries}
@@ -3300,19 +3300,19 @@ def build_cons(C):
         vb = f"{b.get('visit')}访视 {b.get('raw')}{b.get('unit') or ''}"
         st = '已有问题覆盖' if (a['sheet'], a['row']) in qrows or (b['sheet'], b['row']) in qrows else '需核实'
         if kind == 'att':
-            diff = (f"{'同一受试者' if scope == 'subject' else '同中心'}{lab}相似结果均判为有临床意义但归因不同："
+            diff = (f"{'同一参与者' if scope == 'subject' else '同中心'}{lab}相似结果均判为有临床意义但归因不同："
                     f"{va} {ext_rules.att_cn(a)}，{vb} {ext_rules.att_cn(b)}")
-            why = ('同一受试者' if scope == 'subject' else '同一中心') + \
+            why = ('同一参与者' if scope == 'subject' else '同一中心') + \
                   '对相似结果给出不同医学解释（CS 归因 AE/病史/研究疾病/未关联 不一致）；先核对两次异常的症状/处置与关联记录差异，再决定是否质疑。'
         elif equal:
-            diff = f"{'同一受试者' if scope == 'subject' else '同中心'}{lab}数值相同（{va} 与 {vb}），一次判为有临床意义、一次判为无临床意义"
+            diff = f"{'同一参与者' if scope == 'subject' else '同中心'}{lab}数值相同（{va} 与 {vb}），一次判为有临床意义、一次判为无临床意义"
             why = ('相同数值的判定不同即不一致（无更差方可定向）；' if scope == 'subject' else
                    '同一中心对相同数值分别判 CS 与 NCS——判定尺度不一致；') + \
                   '先核对症状/复查/处置差异，再决定是否质疑。跨例比较只作提示，不以多数判定作为医学标准。'
         else:
-            diff = (f"{'同一受试者' if scope == 'subject' else '同中心'}{lab}同向异常：{vb}（离正常范围更远，"
+            diff = (f"{'同一参与者' if scope == 'subject' else '同中心'}{lab}同向异常：{vb}（离正常范围更远，"
                     f"偏离 {ext_rules.cons_dev(b, d):.0%}）判为无临床意义，{va}（偏离 {ext_rules.cons_dev(a, d):.0%}）却判为有临床意义")
-            why = ('同一受试者' if scope == 'subject' else '同一中心') + \
+            why = ('同一参与者' if scope == 'subject' else '同一中心') + \
                   '对同向异常的判定尺度不一致：偏离参考边界更远者判 NCS、较轻者判 CS；先核对症状/复查/处置差异，再决定是否质疑。跨例比较只作提示，不以多数判定作为医学标准。'
         o = {'id': f'C{len(C.cons) + 1:03d}', 'scope': scope, 'kind': kind, 'site': site, 'test': lab,
              'a': a['sid'], 'b': b['sid'], 'diff': diff, 'st': st, 'why': why, 'av': side(a), 'bv': side(b)}
@@ -3408,7 +3408,7 @@ def build_soa(C):
     out, guard = [], []
     for sp in spec:
         # F-F（CRUX-01）：alt＝替代量表（成人版/儿童版等同一家族的互换表单）。带 alt 时：
-        # ① 应做人群＝做过本表或任一替代表（任一访视有记录）的受试者——从未做过家族任一表者不在该表人群
+        # ① 应做人群＝做过本表或任一替代表（任一访视有记录）的参与者——从未做过家族任一表者不在该表人群
         #（成人不做儿童量表，反之亦然），不再全人群判缺失；② 某访视由本表或替代表任一完成即算完成。
         alts = [a for a in (sp.get('alt') or []) if a]
         members = [sp['sheet']] + alts
@@ -3420,7 +3420,7 @@ def build_soa(C):
                     pop |= d0 | n0
         ap = sp.get('applies') or {}
         elig = _soa_applicable(C, ap, bys)                # V6（用户审阅 RUX 第 7 条）：逐人适用（性别/育龄代理/年龄段）
-        judge = ap.get('judge', True)                     # 必要时/部分受试者/条件无法解析 → 只展示不判缺失
+        judge = ap.get('judge', True)                     # 必要时/部分参与者/条件无法解析 → 只展示不判缺失
         reuse = ap.get('reuse_days')
         dts = defaultdict(set)
         for m in members:
@@ -3496,7 +3496,7 @@ def _reused(C, sid, dates, n):
 
 
 def _soa_guard_cell(C, name, vis, n, miss):
-    """SoA 合理性守卫（用户裁定 7＝A）：某评估在某访视 ≥30% 受试者缺失（且 ≥10 人）——几乎总是对应关系或适用条件有误
+    """SoA 合理性守卫（用户裁定 7＝A）：某评估在某访视 ≥30% 参与者缺失（且 ≥10 人）——几乎总是对应关系或适用条件有误
     （男性被要求妊娠试验、成人被要求儿童量表、首剂前 N 天结果可沿用未抽出），不逐人发质疑，改为一条系统提示并附分布；
     缺失集中于单一中心（≥80%）时不压——那可能是该中心真实的系统性漏做，照常判。返回提示 dict 或 None（不压）。"""
     by_site = Counter(C.subj[x]['site'] for x in miss)
@@ -3570,7 +3570,7 @@ def eff_num(v):
 
 
 def eff_magnitude(C):
-    """mm4：有效性指标中检验/检查来源的测量值，同一受试者某次与本人其余访视中位数相差 ≥10 倍 → 疑似单位/录入错误，发 query
+    """mm4：有效性指标中检验/检查来源的测量值，同一参与者某次与本人其余访视中位数相差 ≥10 倍 → 疑似单位/录入错误，发 query
     （用户 2026-10-27 确认转 query）；量表不查（改善到接近 0 属正常）。结果同时进有效性页异常列表。"""
     C.effmag = []
     for m in C.A.get('efficacy') or []:
@@ -3650,7 +3650,7 @@ def build_eff(C):
         n_had = len(had & C.pop)
         n_have = sum(1 for sid in had & C.pop if kv in data.get(sid, {'v': {}})['v'].get(m['id'], {}))
         if n_had >= 10 and n_have < 0.5 * n_had:
-            # 多数受试者在该访视都没有这项数据 → 多半是该访视按访视流程表不采集（SAR V6 rTNSS 1/171），不逐例报缺失（审阅 2026-11-11）
+            # 多数参与者在该访视都没有这项数据 → 多半是该访视按访视流程表不采集（SAR V6 rTNSS 1/171），不逐例报缺失（审阅 2026-11-11）
             C.A.setdefault('effNotes', []).append(f"{kv} 访视 {n_had} 例中仅 {n_have} 例有{m['label']}数据，判断该访视不采集此项，未逐例列缺失；请对照访视流程表确认")
             continue
         for sid in had & C.pop:
@@ -3703,7 +3703,7 @@ def build_subject_files(C, out):
     pr_by = defaultdict(lambda: {'sur': [], 'pr': []})
     for p in C.proc:
         k = 'sur' if re.search('手术', str(p.get('kind') or '手术')) else 'pr'
-        d_ = p.get('date') or p.get('start') or ''          # MY008：输血记录日期在 start，受试者页 153 条输血日期全空
+        d_ = p.get('date') or p.get('start') or ''          # MY008：输血记录日期在 start，参与者页 153 条输血日期全空
         pr_by[p['sid']][k].append({'t': p.get('term') or '', 'd': d_, 's': d_, 'why': p.get('why') or p.get('indication') or ''})
     for sid, s in C.subj.items():
         d = {'id': sid, 'site': s['site'], 'center': s['center'], 'status': s['status'], 'rand': s.get('rand') or '', 'strat': s.get('strat') or '',
@@ -3821,9 +3821,9 @@ BUILTIN_METHODS = [
     ('M13', '多指标组合规则', '方案规定的组合判定标准（如 Hy’s law）', '方案定义的组合标准（如 Hy’s law：ALT/AST ≥3×ULN 且 TBIL ≥2×ULN 且 ALP <2×ULN）同日/窗口内同时满足', '漏报 AESI/SAE', '按方案要求的严重程度决定是否发质疑'),
     ('M14', 'AE/SAE/AESI 报告时限', 'AE 页（获知/报告日期）＋方案规定的报告时限', '报告日期 − 获知（或发生）日期 > 方案时限', '报告延迟', '发 query 或提示'),
     ('M12', '有效性数据合理性', '方案终点对应的 EDC 量表/检验/检查', '按方案终点定义派生（绝对值/较基线/百分比），离群与关键访视缺失提示；盲态下不分组', '终点数据质量', '核对源数据/测量'),
-    ('M15', '方案偏离·执行层面', '知情同意记录、访视日期、SoA 各评估、给药记录（日期/时刻/途径/空腹/数量）、样本采集时刻', '按方案访视窗与锚点、SoA、给药与样本时点、知情时序逐受试者推断潜在偏离（程序早于知情、未再次知情、访视超窗/缺失、评估缺失/未做、访视内顺序、给药前样本晚于给药、依从性、停药后给药）；关键访视/关键评估升级为重要；方案未给出参数或数据表缺字段的检查不执行，并写明原因', '方案执行偏离', '发 query 或交 CRA 核实；属实录入方案偏离记录表'),
-    ('M16', '方案偏离·科学层面', '入排数值、合并用药与禁用清单、检验异常与 AE/病史、停药阈值、SAE 报告日期', '入排不符仍入组（入组前末次有效值）、洗脱期不足、禁用药、潜在 AE 漏记（CS 未关联 AE 或病史加重）、SAE/AESI 报告超时、达停药标准未停药；重要＝可能显著影响受试者权益/安全/福祉或关键数据可靠性（ICH E3 Q&A R1；E6(R3)）', '入组/用药/安全报告偏离', '按分级：重要优先核实；潜在 AE 漏记先发 query'),
-    ('M17', '已记录 PD 比对与分级', '方案偏离记录表（类别、描述、日期、严重程度）', '原文类别归一到统一分类，严重/轻微/根据实际情况判定 → 重要/一般/待判定；与潜在 PD 按同受试者、同类别、日期 ±窗口逐事件比对：已记录 / 未见记录', 'PD 漏录、分级不一致', '未见记录的潜在 PD 交 CRA 核实后补录'),
+    ('M15', '方案偏离·执行层面', '知情同意记录、访视日期、SoA 各评估、给药记录（日期/时刻/途径/空腹/数量）、样本采集时刻', '按方案访视窗与锚点、SoA、给药与样本时点、知情时序逐参与者推断潜在偏离（程序早于知情、未再次知情、访视超窗/缺失、评估缺失/未做、访视内顺序、给药前样本晚于给药、依从性、停药后给药）；关键访视/关键评估升级为重要；方案未给出参数或数据表缺字段的检查不执行，并写明原因', '方案执行偏离', '发 query 或交 CRA 核实；属实录入方案偏离记录表'),
+    ('M16', '方案偏离·科学层面', '入排数值、合并用药与禁用清单、检验异常与 AE/病史、停药阈值、SAE 报告日期', '入排不符仍入组（入组前末次有效值）、洗脱期不足、禁用药、潜在 AE 漏记（CS 未关联 AE 或病史加重）、SAE/AESI 报告超时、达停药标准未停药；重要＝可能显著影响参与者权益/安全/福祉或关键数据可靠性（ICH E3 Q&A R1；E6(R3)）', '入组/用药/安全报告偏离', '按分级：重要优先核实；潜在 AE 漏记先发 query'),
+    ('M17', '已记录 PD 比对与分级', '方案偏离记录表（类别、描述、日期、严重程度）', '原文类别归一到统一分类，严重/轻微/根据实际情况判定 → 重要/一般/待判定；与潜在 PD 按同参与者、同类别、日期 ±窗口逐事件比对：已记录 / 未见记录', 'PD 漏录、分级不一致', '未见记录的潜在 PD 交 CRA 核实后补录'),
 ]
 
 
@@ -3831,7 +3831,7 @@ BUILTIN_METHODS = [
 DOMAIN_FLOW = {
     '方案阈值专项': ([['方案原文', '方案规定的阈值/组合标准'], ['逐点比对', '达到阈值的检验结果'], ['对应记录', '是否已记录 AE/AESI'], ['处理', '按严重程度发质疑或提示']], ['M06', 'M13']),
     '合并用药': ([['方案禁用清单', '药名与禁用时段'], ['用药记录', '用药起止与首剂/治疗期是否重叠'], ['用药原因', '是否有对应病史/AE'], ['处理', '发质疑并核对方案偏离']], ['M08']),
-    '入排/访视': ([['方案入排与访视窗', '数值条件、访视目标日与窗口'], ['逐受试者比对', '入组前末次值、实际访视日'], ['处理', '核实入组资格/超窗原因']], ['M09', 'M10']),
+    '入排/访视': ([['方案入排与访视窗', '数值条件、访视目标日与窗口'], ['逐参与者比对', '入组前末次值、实际访视日'], ['处理', '核实入组资格/超窗原因']], ['M09', 'M10']),
     '检验记录质量': ([['记录完整性', '参考范围、单位、临床意义是否填写'], ['判定一致性', '相近结果的临床意义判定是否一致'], ['处理', '请中心补充或统一判定']], ['M05']),
     '检验异常·关联核查': ([['关联字段', '检验记录关联的 AE/病史是否存在、是否对应'], ['时间与方向', '异常与关联事件的时间、升降方向'], ['处理', '请核实关联或补充记录']], ['M01', 'M02']),
 }
@@ -3855,7 +3855,7 @@ def calibers(C):
         stt = '待确认' if re.search(key or topic, unres) or (r and not configured) else ('方案规定' if r else ('项目约定' if configured else '报告默认做法'))
         return [topic, val, stt, r, note]
     rows = []
-    pop = {'dosed': '已给药受试者（至少一次给药）', 'randomized': '已随机受试者', 'all': '全部筛选受试者'}.get(A.get('population', 'dosed'), A.get('population'))
+    pop = {'dosed': '已给药参与者（至少一次给药）', 'randomized': '已随机参与者', 'all': '全部筛选参与者'}.get(A.get('population', 'dosed'), A.get('population'))
     rows.append(row('分析人群', pop, r'人群|分析集|population', '筛选失败只在列表中展示', configured='population' in A))
     bl = '；'.join(b.get('label') or f"{b.get('match')}：{ {'visit': '指定访视', 'lastPre': '首剂前最近有效值', 'mean': '多次均值'}.get(b.get('method'), b.get('method'))}"
                   + (f"（{'/'.join(b.get('visits') or [])}）" if b.get('visits') else '') for b in (cfg.get('baselineRules') or []))
@@ -3965,7 +3965,7 @@ def defaults(C):
             exs = [x for x in pot if x['grade'] == '重要'][:2] + [x for x in pot if x['layer'] == '执行' and x['grade'] != '重要'][:2]
             C.review.append({'k': 'pd', 't': '方案偏离', 'sh': sorted({s[0] for x in pot + conf for s in (x.get('src') or []) if s and s[0]})[:4], 'ib': [],
                              'f': ['知情日期/版本', '访视日期', 'SoA 评估', '给药日期/时刻/剂量', '样本采集时刻', '合并用药', '入排数值', '方案偏离记录表'],
-                             'flow': [['方案参数', '访视窗与锚点、SoA、给药/样本时点、禁用药、入排'], ['逐受试者推断', '执行层面＋科学层面规则'], ['分级', '重要 / 待判定 / 一般，附依据'],
+                             'flow': [['方案参数', '访视窗与锚点、SoA、给药/样本时点、禁用药、入排'], ['逐参与者推断', '执行层面＋科学层面规则'], ['分级', '重要 / 待判定 / 一般，附依据'],
                                       ['逐事件比对', '方案偏离记录表：已记录 / 未见记录'], ['处理', '发 query / CRA 核实 / 录入 PD']],
                              'ab': {'个体': [[tx.get(c, [c, c])[1], 'red' if any(x['grade'] == '重要' and x['cat'] == c for x in pot) else 'org', f"{n} 条"] for c, n in cc.most_common(6)],
                                     '中心': [['每例潜在 PD', 'org', '、'.join(f"{s}（{r:.2f}）" for r, s in rate) or '无']],
@@ -4088,7 +4088,7 @@ def analyze(C):
     ie_checks(C)                                         # V6：入排标准页不满足但已入组
     range_checks(C)
     visit_window_checks(C)
-    monitor_v5.gap_check(C, add_other)                   # V6：在研受试者长时间无记录（失访/未录入）
+    monitor_v5.gap_check(C, add_other)                   # V6：在研参与者长时间无记录（失访/未录入）
     pd_reconcile(C)
     csb_candidates = ext_rules.run(C)                    # M13–M23 确定性＋日期序＋CSB 候选（PR-5）
     C.others.sort(key=lambda o: (-o['pr'], o['cat'], o['sid'], o['d']))
@@ -4145,7 +4145,7 @@ def analyze(C):
                           for sid in sorted(C.pop) for c in C.cm_by[sid]]},
           # 第三轮：微生物培养/药敏分域（判读型结果，不进检验异常/CS/阈值链）——[sid, 日期, 访视, 项目, 结果, 判读/说明, C|S, sheet, row]
           'micro': micro_rows(C),
-          # mm4 研究依据页：方案规则的只读视图（编译后的可执行口径，供「监查规则」按领域展示；不含任何受试者数据）
+          # mm4 研究依据页：方案规则的只读视图（编译后的可执行口径，供「监查规则」按领域展示；不含任何参与者数据）
           'basis': {k: C.A.get(k) for k in ('visitWindows', 'eligibility', 'eligibilitySubject', 'prohibited', 'washout', 'aesi', 'reportRules',
                                              'thresholdRules', 'comboRules', 'indicationBackground', 'cmProtocolRequired', 'pd', 'effRulesText') if C.A.get(k)}}
     if C.A.get('knowledge'):

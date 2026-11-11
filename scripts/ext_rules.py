@@ -199,7 +199,7 @@ def desc_mh_match(C, sid, r):
 
 
 def mh_explains(C, sid, mid, pts):
-    """未关联的 CS 点：受试者已有覆盖这些日期的同类病史（指标族词表 mhMatch／AE 族兜底，或研究者描述与病史术语互含）→ 返回该病史。
+    """未关联的 CS 点：参与者已有覆盖这些日期的同类病史（指标族词表 mhMatch／AE 族兜底，或研究者描述与病史术语互含）→ 返回该病史。
     与 CSB 步骤 3 同口径（V6 第二轮医学审阅 RUX S03045：DBIL 判 CS 未关联，病史「血胆红素升高」持续中、数值在给药前波动内）。"""
     if not (getattr(C, 'mh_by', None) or {}).get(sid):
         return None
@@ -308,7 +308,7 @@ _PREG = re.compile(r'妊娠|怀孕|hcg|pregn', re.I)
 
 def m16_qual(C):
     """定性结果：弱阳性提示（M16）、基线阴性后新发阳性（M16-NEW）。
-    V6 R8（审阅者 2026-11-02）：同受试者同指标同类情况按访视逐条拆单 → 合并为一条（首次为证据，其余访视进上下文）。"""
+    V6 R8（审阅者 2026-11-02）：同参与者同指标同类情况按访视逐条拆单 → 合并为一条（首次为证据，其余访视进上下文）。"""
     for (sid, mid), rows in sorted(C.F.items()):
         if sid not in C.pop or _PREG.search(mid) or all(r.get('value') is not None for r in rows):
             continue                                   # 只看定性（无数值）指标；妊娠类定性由 M18 处理
@@ -396,7 +396,7 @@ def m18_preg(C):
     """F-I（PREG-ESCALATION）：妊娠暴露升级为专项核查。证据源两路：
     ① 妊娠类定性指标（检查名含 妊娠/怀孕/HCG/pregn）阳性（CS／「阳」／超上限）；
     ② 影像/描述性发现（妇科超声等）原文或描述含 宫内(早)孕/早孕/妊娠囊/宫内妊娠/怀孕。
-    同一受试者合并为一条 pr4「妊娠暴露核查」——妊娠暴露属必须优先追踪的安全性事项（结局随访、避孕依从核查），
+    同一参与者合并为一条 pr4「妊娠暴露核查」——妊娠暴露属必须优先追踪的安全性事项（结局随访、避孕依从核查），
     不逐条发常规 CS 质疑；阴性/未孕结果不触发。"""
     pre = re.compile(r'妊娠|怀孕|hcg|pregn', re.I)
     desc_pre = re.compile(r'宫内(?:早)?孕|早孕|妊娠囊|宫内妊娠|怀孕|pregnan', re.I)
@@ -441,7 +441,7 @@ def m18_preg(C):
                 f"首剂前妊娠检测/描述提示阳性：{ev[0][0]}「{str(r0.get('raw') or r0.get('value') or '')[:24]}」（{dshow(r0.get('date'))}），"
                 f"首剂 {dshow((C.subj.get(sid) or {}).get('fd'))}",
                 r0.get('visit'), r0.get('date'), r0['sheet'], r0['row'], '妊娠',
-                rule={'ask': '首剂前妊娠检测结果提示阳性，请核实受试者是否符合入组标准、是否已复测排除；如为误录，请更正。'},
+                rule={'ask': '首剂前妊娠检测结果提示阳性，请核实参与者是否符合入组标准、是否已复测排除；如为误录，请更正。'},
                 bkey=f"preg-pre|{sid}", wb=r0.get('wb') or '')
 
 
@@ -581,7 +581,7 @@ def m21_ae_course(C):
             open_abn = [r for r in labs if (r.get('clin') or 0) >= 1 and r.get('date') and (not last_d or r['date'] >= last_d)]
             if open_abn:
                 r0 = open_abn[-1]
-                dn = daily_open(C, sid)                  # 用户 2026-10-28：未出组的受试者在日常阶段降级为提示
+                dn = daily_open(C, sid)                  # 用户 2026-10-28：未出组的参与者在日常阶段降级为提示
                 add_ext(C, sid, 'AE转归与检验走势核对', 'M21', 1 if dn else 2,
                         f"AE「{a['t']}」（{dshow(a['s'])} 起，未结束），末次访视（{last_d or '—'}）关联检验 "
                         f"{C.metric[r0['mid']]['label']} 仍异常",
@@ -654,13 +654,13 @@ def metric_dir(mid_or_label) -> str | None:
 
 
 def daily_open(C, sid) -> bool:
-    """日常监查阶段且受试者尚未出组（无研究结束日期、状态不是完成/退出/终止/死亡/失访）：后续数据可能尚未录入。"""
+    """日常监查阶段且参与者尚未出组（无研究结束日期、状态不是完成/退出/终止/死亡/失访）：后续数据可能尚未录入。"""
     s = C.subj.get(sid) or {}
     return C.cfg.get('dataStage') == 'daily' and not s.get('eos_d') and \
         not re.search(r'完成|退出|终止|死亡|失访|筛选失败|出组', str(s.get('status') or ''))
 
 
-DAILY_NOTE = '受试者尚未出组，后续访视数据可能尚未录入（日常监查阶段仅作提示）'
+DAILY_NOTE = '参与者尚未出组，后续访视数据可能尚未录入（日常监查阶段仅作提示）'
 
 
 def grade_up(bg, cg, v=None, bv=None):
@@ -674,7 +674,7 @@ def grade_up(bg, cg, v=None, bv=None):
 
 
 def pre_values(rows):
-    """同受试者同指标的给药前数值（筛选/基线/给药前复查）。"""
+    """同参与者同指标的给药前数值（筛选/基线/给药前复查）。"""
     return [x['value'] for x in rows or () if not x.get('post') and isinstance(x.get('value'), (int, float))]
 
 
@@ -893,7 +893,7 @@ def _cons_key(r):
 
 def judgment_only(C, r, rows, t_base):
     """该 CS 点只是改判（判定不一致 query 会覆盖），不按「潜在 AE 漏记」处理（用户 2026-10-27）：较基线未加重，
-    且同受试者同指标同可比组里有一次偏离不小于它（更差或相等）却判 NCS 的记录——与 clin_consistency 新口径一致
+    且同参与者同指标同可比组里有一次偏离不小于它（更差或相等）却判 NCS 的记录——与 clin_consistency 新口径一致
     （mm5 审阅修正：旧版用 ±10% 双向相近，新算法不对「CS 更差」发一致性 query，导致这类 CS 两头都不发）。"""
     k = _cons_key(r)
     if not k or worse_vs_base(r, r.get('base'), t_base):
@@ -902,8 +902,8 @@ def judgment_only(C, r, rows, t_base):
     return any(a.get('clin') == 1 and _cons_key(a) == k and cons_dev(a, k[0]) >= dev for a in rows)
 
 
-# ----------------------------------------------------------------------------- 判定一致性（用户 2026-10-30 终版：换芯＋同受试者版）
-# 两维度：a. 判定维度（方向性）——可比对（同受试者/同中心跨受试者 × 同指标/单位/参考范围 × 同向异常 × 同给药阶段）
+# ----------------------------------------------------------------------------- 判定一致性（用户 2026-10-30 终版：换芯＋同参与者版）
+# 两维度：a. 判定维度（方向性）——可比对（同参与者/同中心跨参与者 × 同指标/单位/参考范围 × 同向异常 × 同给药阶段）
 # 中更差者（偏离参考边界更远，相对偏离度、无最小差阈值）判 NCS 而更轻者判 CS → 发；更差者判 CS → 不发；
 # 数值相等而判定不同 → 发（无更差方可定向，判定不同即不一致）。
 # b. 归因维度（无方向不排序）——两条均 CS 且归因不同（AE/MH/研究疾病/未关联 任一不同）→ 发归因不一致。
@@ -937,7 +937,7 @@ def cons_dev(r, d):
 
 
 def cons_witnesses(cs, ncs, d, cross_subject, min_diff=0.0):
-    """判定维度配对：每个 CS 行锚定「偏离度不小于它」的最近一名 NCS 行（cross_subject 时要求不同受试者）。
+    """判定维度配对：每个 CS 行锚定「偏离度不小于它」的最近一名 NCS 行（cross_subject 时要求不同参与者）。
     返回 [(a=CS 更轻, b=NCS 更差或相等, equal)]；equal＝偏离度相等（数值相等）→ 无更差方，判定不同即不一致。"""
     out, used = [], set()
     for a in cs:
@@ -955,7 +955,7 @@ def cons_witnesses(cs, ncs, d, cross_subject, min_diff=0.0):
 
 
 def _mh_then_ae(a, b):
-    """V6 R7（审阅者 2026-11-02）：同一受试者先归因病史、后来归因 AE（病史基础上加重记为 AE）是正常的记录方式，不算归因不一致。"""
+    """V6 R7（审阅者 2026-11-02）：同一参与者先归因病史、后来归因 AE（病史基础上加重记为 AE）是正常的记录方式，不算归因不一致。"""
     pa, pb = att_of(a), att_of(b)
     if {pa, pb} != {'MH', 'AE'}:
         return False
@@ -964,7 +964,7 @@ def _mh_then_ae(a, b):
 
 
 def _near(a, b, days_=14):
-    """同一受试者的归因比较只在时间相近（同一次异常过程）时才有意义（V6 医学审阅：W4 关联 AE、数月后同指标异常关联病史，
+    """同一参与者的归因比较只在时间相近（同一次异常过程）时才有意义（V6 医学审阅：W4 关联 AE、数月后同指标异常关联病史，
     是不同时期的不同解释，不是归因不一致）。"""
     if not (is_full_date(a.get('date')) and is_full_date(b.get('date'))):
         return False
@@ -1005,8 +1005,8 @@ def att_cn(r):
 
 
 def clin_consistency(C):
-    """判定一致性·同受试者（用户 2026-10-30 终版换芯，方向性＋归因维度，见本文件「判定一致性」段头注释）。
-    同一受试者同一表单合并为一条（D002：贫血受试者的 MCH/MCHC/MCV/Hb 常同时出现），锚定最近一次相关记录；
+    """判定一致性·同参与者（用户 2026-10-30 终版换芯，方向性＋归因维度，见本文件「判定一致性」段头注释）。
+    同一参与者同一表单合并为一条（D002：贫血参与者的 MCH/MCHC/MCV/Hb 常同时出现），锚定最近一次相关记录；
     不构成方案偏离。"""
     by = defaultdict(list)
     for (sid, mid), rows in sorted(C.F.items()):
@@ -1114,7 +1114,7 @@ def m23_csb(C):
     candidates, seen = [], set()
     for (sid, mid), rows in sorted(C.F.items()):
         if sid not in C.subj or (sid not in C.pop and re.search(r'筛选失败|筛败', str(C.subj[sid].get('status') or ''))):
-            continue                  # 筛选失败者检验异常不发质疑、只在受试者页可见（用户 2026-11-09；SAR 31002 曾发）
+            continue                  # 筛选失败者检验异常不发质疑、只在参与者页可见（用户 2026-11-09；SAR 31002 曾发）
         for r in rows:
             if r.get('clin') != 2 or (sid, r['sheet'], r['row']) in handled or (sid, r['sheet'], r['row']) in seen \
                     or (sid, r['sheet'], r['row']) in getattr(C, '_preg_rows', set()):     # 妊娠证据走妊娠暴露核查

@@ -9,7 +9,7 @@
 ## sheet 名 → 域（inspect_listing.py 的默认正则，可扩展）
 | 域 | 正则（sheet 名开头） |
 |---|---|
-| subjects | DM、人口学、受试者信息、筛选、知情、ENR、RAND、随机；DS、完成、结束、退出、EOS、EOT、研究总结 |
+| subjects | DM、人口学、参与者信息、筛选、知情、ENR、RAND、随机；DS、完成、结束、退出、EOS、EOT、研究总结 |
 | visits | SV、访视日期、访视 |
 | exposure | EC、EX、给药、研究药物、用药记录、服药、DA、药物发放 |
 | ae / mh / cm / proc | AE、不良事件 / MH、病史 / CM、合并用药 / PR、手术、操作 |

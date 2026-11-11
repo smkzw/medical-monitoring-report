@@ -142,7 +142,7 @@ def main():
                 ERR.append(f"KZT.obs missing metric {m['id']}")
     if KZX is not None and 'soa' not in KZX:
         WARN.append('KZX.soa missing (方案偏离 SoA 完成度为空)')
-    # mm4 方案偏离数据面：分类/分级/状态合法、受试者存在、证据 sheet 可回查、信号回链有效
+    # mm4 方案偏离数据面：分类/分级/状态合法、参与者存在、证据 sheet 可回查、信号回链有效
     P = KZ.get('pd')
     if P:
         tax = {x[0] for x in P.get('taxonomy') or []}
@@ -180,7 +180,7 @@ def main():
             WARN.append('blind.on but subs[].grp populated — make sure it is not the randomised arm')
     if a.source_check and sheets:
         # 批量核验：按（工作簿, sheet）聚合所需行号，每 sheet 单次顺序扫描。
-        # 大研究（如 500 受试者/10 万行、数千 query）下 O(行数) 取代 O(query×行数) 的逐条
+        # 大研究（如 500 参与者/10 万行、数千 query）下 O(行数) 取代 O(query×行数) 的逐条
         # iter_rows(min_row=row) 重扫（read_only 模式每次都要从头解析 XML 流）。
         import openpyxl
         need = {}

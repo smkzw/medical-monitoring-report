@@ -1,5 +1,5 @@
 /* 临床监查·监查概况（mm5 建页；V5 用户 2026-10-31 晚：KRI 与研究层面容忍限度、录入及时性、数据可信度、前瞻视图）。
- * 数据：KZ.ops（受试者里程碑、访视推算 due/upcoming、随访人日、新鲜度、给药依从、知情、疑似录入错误）、KZ.kri、KZ.cred，
+ * 数据：KZ.ops（参与者里程碑、访视推算 due/upcoming、随访人日、新鲜度、给药依从、知情、疑似录入错误）、KZ.kri、KZ.cred，
  * 工作台系统层 KZS.timeliness / history（多次上传才有）。listing 没有录入/核查时间戳：录入及时性由工作台按快照谱系推算上限。 */
 K.init(()=>{
 const D=KZ,app=document.getElementById('app'),H=K.hash(),O=D.ops||{subs:[],vis:{},win:{},ex:{},icf:{},entry:[],fields:[]};
@@ -64,18 +64,18 @@ function vis(){
   const ongo=SU.filter(s=>s.fd&&!end(s)&&!['完成试验','提前退出','筛选失败'].includes(s.status)).map(s=>[s,addD(s.fd,tmax-1)]).sort((a,b)=>a[1]<b[1]?1:-1);
   const sv=sites.filter(s=>g[s]);
   const ovC=colCells(sv.map(si=>[g[si].filter(x=>x.st==='overdue').length,g[si].length]),ovAll),ouC=colCells(sv.map(si=>[g[si].filter(x=>x.st==='out').length,g[si].filter(x=>x.got).length]),outAll);
-  pane.innerHTML=`<div class="note small mb">按方案访视窗（目标日 ± 窗，首剂为锚点）推算截至数据截止应完成的访视；受试者已结束于访视窗之前的不计。${daily?'日常监查阶段数据仍在录入，「逾期未见记录」可能只是尚未录入，请先与中心确认。':''}${(()=>{const al=Object.entries(O.visitAlias||{}),um=O.visitUnmapped||[];return (al.length?`<br>方案访视与数据访视代码写法不同，已按访视日落在方案窗内的比例对齐：${al.map(([a,b])=>`${K.esc(a)}→${K.esc(b)}`).join('、')}。`:'')+(um.length?`<br><b>未映射</b>：${um.map(K.esc).join('、')} 在数据中找不到对应访视代码，未推算逾期（请在研究依据页核对访视窗命名）。`:'')+((O.visitArm||[]).length?`<br>组别专属访视：${O.visitArm.map(K.esc).join('、')}——数据中只见于部分组别，其余组不推算逾期。`:'')})()}</div>
+  pane.innerHTML=`<div class="note small mb">按方案访视窗（目标日 ± 窗，首剂为锚点）推算截至数据截止应完成的访视；参与者已结束于访视窗之前的不计。${daily?'日常监查阶段数据仍在录入，「逾期未见记录」可能只是尚未录入，请先与中心确认。':''}${(()=>{const al=Object.entries(O.visitAlias||{}),um=O.visitUnmapped||[];return (al.length?`<br>方案访视与数据访视代码写法不同，已按访视日落在方案窗内的比例对齐：${al.map(([a,b])=>`${K.esc(a)}→${K.esc(b)}`).join('、')}。`:'')+(um.length?`<br><b>未映射</b>：${um.map(K.esc).join('、')} 在数据中找不到对应访视代码，未推算逾期（请在研究依据页核对访视窗命名）。`:'')+((O.visitArm||[]).length?`<br>组别专属访视：${O.visitArm.map(K.esc).join('、')}——数据中只见于部分组别，其余组不推算逾期。`:'')})()}</div>
   <div class="grid g12"><div class="card"><div class="hd"><h2>各中心访视执行</h2><span class="sub">着色：校正多重比较后仍偏高</span></div><table class="t heat"><thead><tr><th>中心</th><th class="num">应完成</th><th class="num">已完成</th><th class="num">逾期未见记录</th><th class="num">超窗</th><th class="num">未来 14 天</th></tr></thead><tbody>
    ${sv.map((si,i)=>{const r=g[si];return `<tr class="click" data-site="${si}"><td class="nowrap">${cname(si)}</td><td class="num">${r.length}</td><td class="num">${r.filter(x=>x.got).length}</td><td class="num">${ovC[i]}</td><td class="num">${ouC[i]}</td><td class="num">${UP.filter(u=>u.site===si).length||'·'}</td></tr>`}).join('')}</tbody></table>
    <div class="sec-t"><h2>前瞻</h2></div><div class="kv"><dt>未来 14 天应到访视</dt><dd>${UP.length} 次（${new Set(UP.map(u=>u.site)).size} 个中心）</dd>
-    <dt>在研受试者最后一次计划访视</dt><dd>${ongo.length?`最晚约 <b>${ongo[0][1]}</b>（${K.sid(ongo[0][0].id)}，按 ${tmax} 天的最后访视目标日）`:'无在研受试者'}</dd>
+    <dt>在研参与者最后一次计划访视</dt><dd>${ongo.length?`最晚约 <b>${ongo[0][1]}</b>（${K.sid(ongo[0][0].id)}，按 ${tmax} 天的最后访视目标日）`:'无在研参与者'}</dd>
     ${O.planned&&SU.filter(s=>s.fd).length<O.planned?`<dt>尚未入组</dt><dd>${O.planned-SU.filter(s=>s.fd).length} 例：末例末次访视 ≈ 末例入组日 + ${tmax} 天（入组预测见「入组与进度」）</dd>`:''}</div></div>
-   <div class="card"><div class="hd"><h2>逾期未见记录 / 超窗明细</h2><span class="sub">${visRows.filter(r=>r.st!=='ok').length} 条 · 点逾期行查看本受试者访视原始记录</span></div><div id="vt"></div>
+   <div class="card"><div class="hd"><h2>逾期未见记录 / 超窗明细</h2><span class="sub">${visRows.filter(r=>r.st!=='ok').length} 条 · 点逾期行查看本参与者访视原始记录</span></div><div id="vt"></div>
     <div class="hd mt"><h2>未来 14 天应到访视</h2><span class="sub">${UP.length} 次</span></div><div id="ut"></div></div></div>`;
   const rowsV=()=>visRows.filter(r=>r.st!=='ok');
-  const tb=K.table(document.getElementById('vt'),{rows:rowsV(),sort:'due',dir:1,h:'420px',onRow:r=>{if(r.st==='overdue')K.showVis({sid:r.sid,site:r.site,v:r.v,lo:r.lo,hi:r.due})},cols:[{k:'sid',t:'受试者',f:r=>K.sid(r.sid)},{k:'site',t:'中心',f:r=>K.p(r.site,'sq mono')},{k:'v',t:'访视',f:r=>K.p(r.v,'blu')},
+  const tb=K.table(document.getElementById('vt'),{rows:rowsV(),sort:'due',dir:1,h:'420px',onRow:r=>{if(r.st==='overdue')K.showVis({sid:r.sid,site:r.site,v:r.v,lo:r.lo,hi:r.due})},cols:[{k:'sid',t:'参与者',f:r=>K.sid(r.sid)},{k:'site',t:'中心',f:r=>K.p(r.site,'sq mono')},{k:'v',t:'访视',f:r=>K.p(r.v,'blu')},
     {k:'st',t:'情况',f:r=>(r.st==='overdue'?(r.nd?K.p('EDC 记为未进行','red'):K.p(daily?'逾期未见记录（可能未录入）':'逾期未见记录','org')):K.p('超窗','yel'))},{k:'due',t:'方案窗',f:r=>`<span class="nowrap small">${r.lo} ~ ${r.due}</span>`},{k:'got',t:'实际',f:r=>r.got?`${r.got} <span class="xs faint">D${r.sd}</span>`:'—'}]});
-  K.table(document.getElementById('ut'),{rows:UP,sort:'tg',dir:1,h:'260px',cols:[{k:'sid',t:'受试者',f:r=>K.sid(r.sid)},{k:'site',t:'中心',f:r=>K.p(r.site,'sq mono')},{k:'v',t:'访视',f:r=>K.p(r.v,'blu')},{k:'tg',t:'目标日',f:r=>`<span class="nowrap small">${r.tg}</span>`},{k:'lo',t:'方案窗',f:r=>`<span class="nowrap small">${r.lo} ~ ${r.hi}</span>`}]});
+  K.table(document.getElementById('ut'),{rows:UP,sort:'tg',dir:1,h:'260px',cols:[{k:'sid',t:'参与者',f:r=>K.sid(r.sid)},{k:'site',t:'中心',f:r=>K.p(r.site,'sq mono')},{k:'v',t:'访视',f:r=>K.p(r.v,'blu')},{k:'tg',t:'目标日',f:r=>`<span class="nowrap small">${r.tg}</span>`},{k:'lo',t:'方案窗',f:r=>`<span class="nowrap small">${r.lo} ~ ${r.hi}</span>`}]});
   pane.querySelectorAll('tr[data-site]').forEach(tr=>tr.onclick=()=>location.href='center.html#c='+tr.dataset.site);
 }
 /* ---------- 给药依从与知情 ---------- */
@@ -89,7 +89,7 @@ function dose(){
   const ss_=sites.map(si=>ds.filter(s=>s.site===si)).filter(x=>x.length);
   const col=Object.fromEntries(['miss','pause','devi','fast'].map(k=>[k,colCells(ss_.map(ss=>[sumEx(ss,k),nEx(ss)]),all[k])]));
   pane.innerHTML=`<div class="kpis mb">${[['给药记录',nEx(ds)+'<small>条</small>',''],['漏服/0 剂量',sumEx(ds,'miss')+'<small>条</small>',''],['给药中断',sumEx(ds,'pause')+'<small>条</small>',''],['剂量偏离',sumEx(ds,'devi')+'<small>条</small>','实际与计划剂量不同'],['未按要求空腹',sumEx(ds,'fast')+'<small>条</small>',''],
-    ['知情晚于首个研究程序',icfLate.length+'<small>例</small>','首个访视日期早于知情日期'],...(vers.length>1?[['最新版本再知情',reDone.length+'<small>/ '+reNeed.length+' 例</small>','版本 '+K.esc(lastV)+'（在研受试者）']]:[]),['样本采集超窗',samp.length+'<small>条</small>','潜在 PD']].map(([l,v,s])=>`<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="s xs muted">${s}</div></div>`).join('')}</div>
+    ['知情晚于首个研究程序',icfLate.length+'<small>例</small>','首个访视日期早于知情日期'],...(vers.length>1?[['最新版本再知情',reDone.length+'<small>/ '+reNeed.length+' 例</small>','版本 '+K.esc(lastV)+'（在研参与者）']]:[]),['样本采集超窗',samp.length+'<small>条</small>','潜在 PD']].map(([l,v,s])=>`<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="s xs muted">${s}</div></div>`).join('')}</div>
   <div class="card"><div class="hd"><h2>各中心给药依从与知情</h2><span class="sub">给药类为条数（占该中心给药记录%）；着色＝高于整体且校正多重比较后仍显著</span></div><div style="overflow-x:auto"><table class="t heat"><thead><tr><th>中心</th><th class="num">给药</th><th class="num">给药记录</th><th class="num">漏服/0剂量</th><th class="num">中断</th><th class="num">剂量偏离</th><th class="num">未空腹</th><th class="num">知情晚于程序</th>${vers.length>1?'<th class="num">最新版再知情</th>':''}<th class="num">样本超窗</th></tr></thead><tbody>
    ${ss_.map((ss,i)=>{const si=ss[0].site,n=nEx(ss),rn=reNeed.filter(s=>s.site===si);
      return `<tr><td class="nowrap">${cname(si)}</td><td class="num">${ss.length}</td><td class="num">${n}</td>${['miss','pause','devi','fast'].map(k=>`<td class="num">${n?col[k][i]:'·'}</td>`).join('')}<td class="num">${icfLate.filter(s=>s.site===si).length||'·'}</td>${vers.length>1?`<td class="num">${reDone.filter(s=>s.site===si).length}/${rn.length}</td>`:''}<td class="num">${samp.filter(x=>x.site===si).length||'·'}</td></tr>`}).join('')}</tbody></table></div>
@@ -149,26 +149,26 @@ function time(){
 function cred(){
   if(!CRD){pane.innerHTML='<div class="card empty">本构建没有数据可信度数据</div>';return}
   const S=CRD.sites,pc=x=>x==null?'—':x<.001?'<0.001':x.toFixed(3);
-  pane.innerHTML=`<div class="note small mb">${K.esc(CRD.note||'')}。末位数字：血压/心率整数结果末位为 0 或 5 的占比（随机约 20%，全研究 ${CRD.digAll[1]}/${CRD.digAll[0]}）；完全相同：同一受试者同一生命体征 ≥4 次结果完全相同；基线偏离：各中心基线生命体征均值与整体相比（按指标检验并校正）；同日相同：同一中心同一天多名受试者血压与心率完全相同。</div>
+  pane.innerHTML=`<div class="note small mb">${K.esc(CRD.note||'')}。末位数字：血压/心率整数结果末位为 0 或 5 的占比（随机约 20%，全研究 ${CRD.digAll[1]}/${CRD.digAll[0]}）；完全相同：同一参与者同一生命体征 ≥4 次结果完全相同；基线偏离：各中心基线生命体征均值与整体相比（按指标检验并校正）；同日相同：同一中心同一天多名参与者血压与心率完全相同。</div>
   <div class="card"><table class="t heat"><thead><tr><th>中心</th><th class="num">末位 0/5 占比</th><th class="num">q</th><th class="num">≥4 次完全相同</th><th class="num">q</th><th class="num">基线偏离指标</th><th>偏离最大的指标</th><th class="num">同日相同</th><th>提示</th></tr></thead><tbody>
    ${Object.keys(S).sort().map(si=>{const v=S[si],f=K.credFlags(si,v);return `<tr class="click" data-site="${si}"><td class="nowrap">${cname(si)}</td>
      <td class="num" style="${v.dig[3]!=null&&v.dig[3]<.05?'background:rgba(230,126,0,.30)':''}">${v.dig[0]?(v.dig[1]/v.dig[0]*100).toFixed(0)+'% <span class="xs faint">'+v.dig[1]+'/'+v.dig[0]+'</span>':'—'}</td><td class="num xs">${pc(v.dig[3])}</td>
      <td class="num" style="${v.flat[3]!=null&&v.flat[3]<.10&&v.flat[1]>=2?'background:rgba(230,126,0,.30)':''}">${v.flat[1]}/${v.flat[0]}</td><td class="num xs">${pc(v.flat[3])}</td>
      <td class="num" style="${v.shift[1]>=2?'background:rgba(230,126,0,.30)':''}">${v.shift[1]}/${v.shift[0]}</td><td class="small">${v.shift[2].slice(0,2).map(x=>`${K.esc(x[0])} ${x[3]}（整体 ${x[4]}）`).join('；')}</td>
      <td class="num">${v.dup[0]||'·'}</td><td>${f.map(x=>K.p(x.l,'yel')).join('')}</td></tr>`}).join('')}</tbody></table></div>
-  <div class="grid g12 mt"><div class="card"><div class="hd"><h2>≥4 次完全相同</h2><span class="sub">${CRD.flat.length} 组</span></div><div id="cf"></div></div><div class="card"><div class="hd"><h2>同日多名受试者生命体征完全相同</h2><span class="sub">${CRD.dup.length} 组</span></div><div id="cd"></div></div></div>`;
-  K.table(document.getElementById('cf'),{rows:CRD.flat.map(r=>({sid:r[0],site:r[1],t:r[2],v:r[3],n:r[4]})),h:'320px',cols:[{k:'sid',t:'受试者',f:r=>K.sid(r.sid)},{k:'site',t:'中心',f:r=>K.p(r.site,'sq mono')},{k:'t',t:'指标'},{k:'v',t:'结果'},{k:'n',t:'次数',cls:'num'}]});
-  K.table(document.getElementById('cd'),{rows:CRD.dup.map(r=>({site:r[0],d:r[1],s:r[2],v:r[3]})),h:'320px',cols:[{k:'site',t:'中心',f:r=>K.p(r.site,'sq mono')},{k:'d',t:'日期'},{k:'s',t:'受试者',ns:1,f:r=>r.s.map(x=>K.sid(x)).join(' ')},{k:'v',t:'收缩压/舒张压/心率'}]});
+  <div class="grid g12 mt"><div class="card"><div class="hd"><h2>≥4 次完全相同</h2><span class="sub">${CRD.flat.length} 组</span></div><div id="cf"></div></div><div class="card"><div class="hd"><h2>同日多名参与者生命体征完全相同</h2><span class="sub">${CRD.dup.length} 组</span></div><div id="cd"></div></div></div>`;
+  K.table(document.getElementById('cf'),{rows:CRD.flat.map(r=>({sid:r[0],site:r[1],t:r[2],v:r[3],n:r[4]})),h:'320px',cols:[{k:'sid',t:'参与者',f:r=>K.sid(r.sid)},{k:'site',t:'中心',f:r=>K.p(r.site,'sq mono')},{k:'t',t:'指标'},{k:'v',t:'结果'},{k:'n',t:'次数',cls:'num'}]});
+  K.table(document.getElementById('cd'),{rows:CRD.dup.map(r=>({site:r[0],d:r[1],s:r[2],v:r[3]})),h:'320px',cols:[{k:'site',t:'中心',f:r=>K.p(r.site,'sq mono')},{k:'d',t:'日期'},{k:'s',t:'参与者',ns:1,f:r=>r.s.map(x=>K.sid(x)).join(' ')},{k:'v',t:'收缩压/舒张压/心率'}]});
   pane.querySelectorAll('tr[data-site]').forEach(tr=>tr.onclick=()=>{const si=tr.dataset.site,f=K.credFlags(si,S[si]);if(!f.length)return location.href='center.html#c='+si;
     const b=K.drawer(`${si} ${K.esc(CN[si]||'')} · 数据可信度`,`${f.map((x,i)=>`<div class="sec-t"><h2>${K.esc(x.l)}</h2></div><div class="box small">${K.esc(x.why)}</div>`).join('')}<div class="note small mt">${K.esc(CRD.note||'')}</div><div class="mt"><a class="small" href="center.html#c=${si}">中心画像 ›</a></div>`);});
 }
 /* ---------- 疑似录入错误 ---------- */
 function ent(){
   const E=O.entry||[];
-  pane.innerHTML=`<div class="note small mb">同一受试者同一指标，某次结果为本人其余结果的约 10 的整数次幂倍（疑似小数点错位）或 ≥20 倍且为孤立尖峰（前后两次都正常范围波动），或单位与本人其余记录不同。只作数据质量提示（请 CRA 核对源数据），不发医学质疑；若该点同时进了医学风险层，风险行已标注「可能为录入错误，请先核对源数据」。</div>
+  pane.innerHTML=`<div class="note small mb">同一参与者同一指标，某次结果为本人其余结果的约 10 的整数次幂倍（疑似小数点错位）或 ≥20 倍且为孤立尖峰（前后两次都正常范围波动），或单位与本人其余记录不同。只作数据质量提示（请 CRA 核对源数据），不发医学质疑；若该点同时进了医学风险层，风险行已标注「可能为录入错误，请先核对源数据」。</div>
   <div class="card"><div id="et"></div></div>`;
   K.table(document.getElementById('et'),{rows:E,sort:'site',dir:1,h:'620px',onRow:r=>K.showEnt(r),
-    cols:[{k:'sid',t:'受试者',f:r=>K.sid(r.sid)},{k:'site',t:'中心',f:r=>cname(r.site)},{k:'test',t:'指标',f:r=>`<b>${K.esc(r.test)}</b>${r.ctq?K.p('关键','solid-red',r.ctq):''}`},{k:'visit',t:'访视',f:r=>K.p(r.visit,'blu')+` <span class="xs faint">${K.esc(r.date)}</span>`},
+    cols:[{k:'sid',t:'参与者',f:r=>K.sid(r.sid)},{k:'site',t:'中心',f:r=>cname(r.site)},{k:'test',t:'指标',f:r=>`<b>${K.esc(r.test)}</b>${r.ctq?K.p('关键','solid-red',r.ctq):''}`},{k:'visit',t:'访视',f:r=>K.p(r.visit,'blu')+` <span class="xs faint">${K.esc(r.date)}</span>`},
       {k:'raw',t:'录入值',f:r=>`<b>${K.esc(r.raw)}</b> <span class="xs muted">${K.esc(r.unit)}</span>`},{k:'why',t:'判断',f:r=>`<span class="small">${K.esc(r.why)}</span>`},{k:'row',t:'来源',f:r=>`<span class="xs faint">${K.esc(K.loc(r.sh,r.row))}</span>`}]});
 }
 K.qtlBar(document.getElementById('qtlbar'));

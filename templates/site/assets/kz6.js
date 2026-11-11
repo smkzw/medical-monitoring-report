@@ -1,7 +1,7 @@
 /* V6 前端深度优化（审阅者 2026-11-02，docs/v6/FRONTEND.md）：
  *  - K.subjEvidence / K.rawBrowser：个例「原始数据」——逐表单浏览 listing 原行，带信号的行加徽标、点行看对应风险/质疑；
- *  - K.journey：受试者旅程泳道图（给药/访视/AE/合并用药/检验异常/质疑同一时间轴）；
- *  - K.groupSig：信号聚合（同受试者×同日期×同类别×同表单 → 一张卡），风险排名共用。
+ *  - K.journey：参与者旅程泳道图（给药/访视/AE/合并用药/检验异常/质疑同一时间轴）；
+ *  - K.groupSig：信号聚合（同参与者×同日期×同类别×同表单 → 一张卡），风险排名共用。
  * 颜色只表达两件事：风险等级（状态色，配文字）与身份；不用双 y 轴。 */
 (function(){
 const K=window.K;
@@ -17,10 +17,10 @@ K.subjEvidence=sid=>K.allEvidence()[sid]||[];
 /* ---- 原始数据浏览器（个例） */
 K.rawBrowser=async(el,sid,evid=[])=>{el.innerHTML='<div class="card empty">载入原始数据…</div>';
   const I=await K.rawIdx(),R=I&&await K.raw(sid);
-  if(!I||!R){el.innerHTML='<div class="card empty">本报告未包含原始数据层（旧构建或该受试者无原始记录）。</div>';return}
+  if(!I||!R){el.innerHTML='<div class="card empty">本报告未包含原始数据层（旧构建或该参与者无原始记录）。</div>';return}
   const ev={};evid.forEach(e=>{const k=K.rawKey(I,e.sh);if(!k)return;((ev[k]=ev[k]||{})[e.row]=ev[k][e.row]||[]).push(e)});
   const ks=Object.keys(R).sort((a,b)=>(Object.keys(ev[b]||{}).length-Object.keys(ev[a]||{}).length)||(I.sheets[a].mapped===I.sheets[b].mapped?0:I.sheets[a].mapped?-1:1)||I.sheets[a].name.localeCompare(I.sheets[b].name,'zh'));
-  const DN={subjects:'受试者',visits:'访视',exposure:'给药',ae:'AE',mh:'病史',cm:'合并用药',proc:'操作',findings:'检查',lab:'检验',vs:'生命体征',ecg:'心电图',pe:'体格检查',exam:'专项检查',efficacy:'有效性',pd:'方案偏离',sample:'样本'};
+  const DN={subjects:'参与者',visits:'访视',exposure:'给药',ae:'AE',mh:'病史',cm:'合并用药',proc:'操作',findings:'检查',lab:'检验',vs:'生命体征',ecg:'心电图',pe:'体格检查',exam:'专项检查',efficacy:'有效性',pd:'方案偏离',sample:'样本'};
   el.innerHTML=`<div class="grid" style="grid-template-columns:250px 1fr;gap:12px;align-items:start">
    <div class="card" style="padding:6px 0;max-height:760px;overflow:auto"><div class="xs muted" style="padding:2px 10px 6px">${ks.length} 张表单 · 有信号的排在前</div>${ks.map(k=>{const m=I.sheets[k],n=Object.keys(ev[k]||{}).length;
      return `<div class="it rs" data-k="${K.esc(k)}" style="padding:5px 10px;cursor:pointer;display:flex;gap:6px;align-items:center"><span class="small" style="flex:1;color:var(--ink)">${K.esc(m.name)}</span>${m.mapped?`<span class="xs faint">${K.esc(DN[m.domain]||m.domain||'')}</span>`:'<span class="xs" style="color:#B86400">未映射</span>'}<span class="xs faint">${R[k].length}</span>${n?`<span class="p org sq">${n}</span>`:''}</div>`}).join('')}</div>
@@ -38,7 +38,7 @@ K.rawBrowser=async(el,sid,evid=[])=>{el.innerHTML='<div class="card empty">载�
   const pick=k=>{cur=k;el.querySelectorAll('.rs').forEach(x=>x.classList.toggle('on',x.dataset.k===k));draw()};
   el.querySelectorAll('.rs').forEach(x=>x.onclick=()=>pick(x.dataset.k));q.oninput=draw;onlyHit.onchange=draw;
   if(ks.length)pick(ks[0])};
-/* ---- 受试者旅程（ECharts custom 泳道） */
+/* ---- 参与者旅程（ECharts custom 泳道） */
 const LANES=['给药','访视','不良事件','合并用药','检验异常','质疑'];
 K.journeyH=d=>Math.min(320,120+Math.min(4,Math.max(1,...(d.ae||[]).map((_,i)=>i%4+1)))*12+Math.min(3,(d.cm||[]).length?2:0)*10);
 K.journey=(el,d,{lr=[],ot=[],qs=[]}={})=>{if(!el||!window.echarts)return;
@@ -93,12 +93,12 @@ K.labHeat=(el,labs,{onPick}={})=>{if(!el||!window.echarts)return 0;
     series:[{type:'heatmap',data,itemStyle:{borderColor:'#fff',borderWidth:2},label:{show:true,fontSize:9,color:'#fff',formatter:p=>p.data.cs?'CS':''},emphasis:{itemStyle:{borderColor:'#333',borderWidth:1}}}]});
   const c=echarts.getInstanceByDom(el);c.off('click');c.on('click',p=>{if(onPick&&p.data)onPick(p.data.t)});
   return tests.length};
-/* ---- 受试者风险构成（中心页）：横向堆叠条，一行一名受试者；同一套类别顺序与颜色（状态色＝风险，蓝＝AE 身份） */
+/* ---- 参与者风险构成（中心页）：横向堆叠条，一行一名参与者；同一套类别顺序与颜色（状态色＝风险，蓝＝AE 身份） */
 K.roster=(el,sids)=>{if(!el||!window.echarts)return;const Dd=D();
   const C=[['CS 未关联','#8B0000',s=>(K.lab||[]).filter(g=>g.sid===s&&g.risk==='CSX').length],['专项（需核实+）','#E67E00',s=>(Dd.others||[]).filter(o=>o.sid===s&&o.pr>=3).length],
     ['质疑','#E8C300',s=>(Dd.queries||[]).filter(q=>q.sid===s).length],['TEAE','#407AAA',s=>(Dd.aes||[]).filter(a=>a.sid===s&&a.te!==false).length],['SAE','#1F3B57',s=>(Dd.aes||[]).filter(a=>a.sid===s&&a.sae&&a.te!==false&&!a.dup).length]];   /* F4①：与总览「SAE 例次」同口径（TEAE、完全重复导出第 2 份起不计） */
   const rows=sids.map(s=>[s,C.map(c=>c[2](s))]).sort((a,b)=>b[1].slice(0,3).reduce((x,y)=>x+y,0)-a[1].slice(0,3).reduce((x,y)=>x+y,0)||b[1][3]-a[1][3]).slice(0,40);
-  if(!rows.length){el.innerHTML='<div class="empty">本中心无已给药受试者</div>';return}
+  if(!rows.length){el.innerHTML='<div class="empty">本中心无已给药参与者</div>';return}
   el.style.height=Math.max(140,50+rows.length*18)+'px';
   K.chart(el,{grid:{left:70,right:20,top:26,bottom:20},legend:{top:0,itemWidth:10,itemHeight:10,textStyle:{fontSize:11,color:'#3A3D41'}},
     tooltip:{trigger:'axis',axisPointer:{type:'shadow'}},xAxis:{type:'value',minInterval:1,...K.axis},yAxis:{type:'category',data:rows.map(r=>r[0]),inverse:true,...K.axis},
@@ -110,7 +110,7 @@ K.countUpAll=root=>{if(K.RM)return;(root||document).querySelectorAll('.kpi .v,.f
   el.dataset.cu='1';el.setAttribute('aria-label',el.textContent.trim());const t0=performance.now(),dur=520;
   const step=now=>{const k=Math.min(1,(now-t0)/dur),e=1-Math.pow(1-k,3);tn.nodeValue=m[1]+(end*e).toFixed(dec)+m[3];if(k<1)requestAnimationFrame(step);else tn.nodeValue=m[1]+m[2]+m[3]};requestAnimationFrame(step)})};
 if(typeof window.addEventListener==='function')window.addEventListener('load',()=>setTimeout(()=>K.countUpAll(),30));
-/* ---- 信号聚合：同受试者 × 同日期 × 同类别 × 同表单 → 一组（风险排名） */
+/* ---- 信号聚合：同参与者 × 同日期 × 同类别 × 同表单 → 一组（风险排名） */
 /* 检验项标题＝「指标 · 类别」→ 按类别聚合（指标进明细）；其余（专项/偏离…）标题本身就是类别 */
 const catOf=o=>o.kind==='lab'?(o.title||'').replace(/^.*? · /,''):(o.title||'');
 const itemOf=o=>o.kind==='lab'?(o.title||'').split(' · ')[0]:(String(o.x&&o.x.test||'')||String(o.why||'').slice(0,24));
@@ -118,7 +118,7 @@ K.groupKey=o=>[o.kind||'',o.sid||'',(o.x&&(o.x.d||((o.x.pts||[])[0]||[])[1]))||'
 K.groupSig=list=>{const m=new Map();list.forEach(o=>{if(!o.sid){m.set(Symbol(),[o]);return}const k=K.groupKey(o);(m.get(k)||m.set(k,[]).get(k)).push(o)});
   return [...m.values()].map(g=>g.length===1?g[0]:{...g[0],group:g,score:Math.max(...g.map(x=>x.score||0)),
     title:`${catOf(g[0])} · ${g.length} 项`,why:[...new Set(g.map(itemOf).filter(Boolean))].slice(0,6).join('、')+(g.length>6?'…':''),
-    open:()=>{const b=K.drawer(`${g[0].sid} · ${K.esc(catOf(g[0]))}`,`<div class="small muted mb">同一受试者同一日期同类信号 ${g.length} 项（已合并为一条风险项）</div>${g.map((x,i)=>`<div class="drow click" data-i="${i}" style="padding:7px 0;border-bottom:1px solid #F0F1F4"><b>${K.esc(itemOf(x))}</b> <span class="small muted">${K.esc(String(x.why||'').slice(0,90))}</span></div>`).join('')}<div class="rawg mt"></div>`);
+    open:()=>{const b=K.drawer(`${g[0].sid} · ${K.esc(catOf(g[0]))}`,`<div class="small muted mb">同一参与者同一日期同类信号 ${g.length} 项（已合并为一条风险项）</div>${g.map((x,i)=>`<div class="drow click" data-i="${i}" style="padding:7px 0;border-bottom:1px solid #F0F1F4"><b>${K.esc(itemOf(x))}</b> <span class="small muted">${K.esc(String(x.why||'').slice(0,90))}</span></div>`).join('')}<div class="rawg mt"></div>`);
       b.querySelectorAll('[data-i]').forEach(d=>d.onclick=()=>g[+d.dataset.i].open());
       const ev=g.flatMap(x=>x.x&&x.x.pts?x.x.pts.map(p=>[shKey(p[11],p[7]),p[8]]):x.x&&x.x.sh?[[shKey(x.x.wb,x.x.sh),x.x.row]]:[]);K.rawBox(b.querySelector('.rawg'),g[0].sid,ev)}})};
 })();

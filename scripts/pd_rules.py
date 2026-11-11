@@ -4,7 +4,7 @@
 由 mm_build.py 在全部信号生成之后调用（`pd_rules.run(C)` → C.pdd，写入 KZ.pd）。
 
 口径（详见 references/protocol-deviation.md）：
-- **PD**：任何对方案（含方案引用的手册/程序）的偏离（ICH E6(R3) 术语表）；**重要 PD**：可能显著影响受试者权益、
+- **PD**：任何对方案（含方案引用的手册/程序）的偏离（ICH E6(R3) 术语表）；**重要 PD**：可能显著影响参与者权益、
   安全或福祉，或显著影响关键数据完整性/准确性/可靠性的 PD 子集（ICH E3 Q&A R1；E6(R3)）。
 - **已记录 PD**：PD listing 中的事件；**潜在 PD**：本引擎从数据推出、待 CRA/研究者核实的候选——**不是 PD 结论**。
 - 分级三档：重要 / 一般 / 待判定（需医学或现场判断）；每条给出依据（why），可被 analysis.pd.grades 按规则覆盖。
@@ -60,7 +60,7 @@ SIG_CAT = {'入排标准核对': ('ELIG', 'ELIG-01'), '入排洗脱用药核对'
            '访视超窗核对': ('VIS', 'VIS-01')}
 # 方案「可沿用既往结果」条目常写检测品牌/英文名，listing 写中文通用名：按同一检测的常见写法扩展（医学同义，非研究特判）
 PRE_ICF_SYN = [(r'结核|QuantiFERON|T-?SPOT|IGRA|干扰素释放', r'γ-?干扰素释放|干扰素释放试验|IGRA|QuantiFERON|T-?SPOT|结核感染T细胞')]
-ICF_TIP = ('数据层面无法区分该检查是为本研究而做，还是受试者常规诊疗中已做、按方案可沿用的结果。'
+ICF_TIP = ('数据层面无法区分该检查是为本研究而做，还是参与者常规诊疗中已做、按方案可沿用的结果。'
            '请 CRA 核对源文件（检查申请/医嘱时间、是否为常规诊疗）：属方案允许沿用的既往结果则不构成偏离。')
 
 
@@ -100,14 +100,14 @@ LAB_PD = {'CSX': '研究者判 CS 但未关联 AE/病史', 'DISW': '归因研究
 # 规则目录：id → (类别, 标题, 默认分级, 处理, 依据/逻辑, 所需数据)；DVDECOD 见 RULE_DV（CDISC C225353，用于对接 PD log / SDTM DV）
 RULES = {
     'ICF-01': ('ICF', '研究程序早于知情同意', '重要', 'CRA 核实', '任何研究程序（访视/检查/给药/采样）日期早于知情同意签署日期；排除方案允许的 ICF 前既往检查结果（analysis.pd.preIcfAllowed）', '知情日期＋各程序日期'),
-    'ICF-02': ('ICF', '方案修订后未再次知情', '重要', 'CRA 核实', '新版知情同意生效且要求再签后受试者仍在研，但无新版签署记录（analysis.pd.icfVersions）', '知情记录（版本/日期）＋版本生效表'),
+    'ICF-02': ('ICF', '方案修订后未再次知情', '重要', 'CRA 核实', '新版知情同意生效且要求再签后参与者仍在研，但无新版签署记录（analysis.pd.icfVersions）', '知情记录（版本/日期）＋版本生效表'),
     'RAND-01': ('RAND', '首次给药早于随机', '重要', 'CRA 核实', '首剂日期早于随机日期', '随机日期＋给药记录'),
     'RAND-02': ('RAND', '未随机即给药', '重要', '录入 PD', '有研究药物给药记录但无随机号/随机日期，或状态为筛选失败', '随机信息＋给药记录'),
     'ELIG-01': ('ELIG', '入组时检查值不符合入排标准', '重要', '录入 PD', '入组前末次有效测量（或方案指定判定值）对照入排标准不符，但已随机/给药', '筛选期检验/体征/人口学'),
     'ELIG-02': ('ELIG', '洗脱期不足', '重要', 'CRA 核实', '方案要求入组前停用的药物在洗脱窗口内仍在使用', '合并用药起止日期'),
     'VIS-01': ('VIS', '访视超窗', '一般', 'CRA 核实', '实际访视日期不在方案窗口内（锚点按方案：首剂/随机/前一访视/末次给药）；关键访视（主要终点访视）超窗升级为重要', '访视日期＋首剂/锚点'),
-    'VIS-02': ('VIS', '计划访视缺失', '一般', 'CRA 核实', '访视窗口已在数据截止前关闭、受试者仍在研，但无该访视记录；关键访视缺失升级为重要', '访视日期＋状态/结束日期'),
-    'ASMT-01': ('ASMT', '已完成访视但缺少方案规定的评估', '一般', '发 query', '受试者已完成该访视，但 SoA 要求的评估无任何记录；关键评估（主要终点/安全监测）升级为重要', 'SoA＋各评估表'),
+    'VIS-02': ('VIS', '计划访视缺失', '一般', 'CRA 核实', '访视窗口已在数据截止前关闭、参与者仍在研，但无该访视记录；关键访视缺失升级为重要', '访视日期＋状态/结束日期'),
+    'ASMT-01': ('ASMT', '已完成访视但缺少方案规定的评估', '一般', '发 query', '参与者已完成该访视，但 SoA 要求的评估无任何记录；关键评估（主要终点/安全监测）升级为重要', 'SoA＋各评估表'),
     'ASMT-02': ('ASMT', '方案规定的评估记录为“未做”', '待判定', 'CRA 核实', '评估记录为「未查/未做」：是否属方案允许情形需结合原因判断', '各评估表的「是否进行」'),
     'ASMT-03': ('ASMT', '同次访视检查顺序不符合方案', '一般', 'CRA 核实', '方案要求在 A 之前完成的评估，记录时刻晚于 A（如量表/生命体征须在给药前）', '评估时刻＋给药时刻'),
     'IP-01': ('IP', '给药途径/频次/剂量与方案不符', '待判定', '发 query', '给药记录的途径、频次或剂量与方案规定不一致（analysis.pd.dosing）', '给药记录'),
@@ -159,7 +159,7 @@ NOT_DETECTABLE = [
     ('ASMT', '访视内操作细节：静息时长、空腹采血、采血与生命体征/心电图的先后（无时刻字段时）'),
     ('SAMP', '样本处理、离心、分装、冷链运输与储存'),
     ('ELIG', '需研究者判断或源文件支持的入排条件（如「研究者认为不适合」）'),
-    ('OTH', '伦理规范执行、受试者隐私保护'),
+    ('OTH', '伦理规范执行、参与者隐私保护'),
 ]
 
 
@@ -269,7 +269,7 @@ class _PD:
                 st = o.get('_elig', 'violated')
                 if st in ('exception_met', 'premise_unmet'):
                     continue                             # V6（用户审阅 RUX 第 9 条）：例外已满足/前提不成立 → 不构成偏离（信号仍作提示）
-                why = '入组资格不符：受试者不应暴露于研究药物，且影响分析人群（ICH E3 Q&A 列举的典型重要偏离）'
+                why = '入组资格不符：参与者不应暴露于研究药物，且影响分析人群（ICH E3 Q&A 列举的典型重要偏离）'
                 if st == 'undetermined':
                     grade, why = '待判定', '方案该标准带前提或例外条款，现有数据无法判定是否满足，需核实后再确定是否构成偏离'
             o['pd'] = rule
@@ -349,7 +349,7 @@ class _PD:
                          date=d0[0], src=[[x[2], x[3], x[1]] for x in early[:4]],
                          grade=g_rs, why=(f"重复筛选（首次筛选编号 {s.get('prev_sid') or '未填'}）：核实早于本次知情的记录是否为首次筛选所做、"
                                           "且沿用符合方案；否则按知情同意偏离处理") if rs else
-                         '知情同意先于任何研究程序是受试者权益保护的基本要求（GCP）；核实是否为方案允许的既往常规诊疗结果')
+                         '知情同意先于任何研究程序是参与者权益保护的基本要求（GCP）；核实是否为方案允许的既往常规诊疗结果')
         vers = P.get('icfVersions') or []
         icfs = getattr(C, 'icf', []) or []
         if vers and icfs:
@@ -369,7 +369,7 @@ class _PD:
                                for r in by.get(sid, [])):
                         last = sorted(by.get(sid, []), key=lambda r: r.get('date') or '')
                         dn = ext_rules.daily_open(C, sid)
-                        self.add('ICF-02', sid, f"知情同意 {v['ver']} 版 {v['effective']} 生效且要求再签，受试者其后仍在研（至 {end}），未见新版签署记录"
+                        self.add('ICF-02', sid, f"知情同意 {v['ver']} 版 {v['effective']} 生效且要求再签，参与者其后仍在研（至 {end}），未见新版签署记录"
                                  + (f"（最近签署 {last[-1].get('ver') or '?'} 版 {dshow(last[-1].get('date'))}）" if last else ''),
                                  date=v['effective'], src=[[_sh(r), r['row'], '知情同意'] for r in last[-1:]],
                                  **({'grade': '待判定', 'why': ext_rules.DAILY_NOTE + '：新版签署记录可能尚未录入'} if dn else {}))
@@ -436,7 +436,7 @@ class _PD:
                 if not close or close.isoformat() >= stop or close.isoformat() >= self.cutoff:
                     continue
                 crit = vis in self.crit_visits
-                self.add('VIS-02', sid, f"{vis} 窗口已于 {close.isoformat()} 关闭，受试者其后仍在研，未见该访视记录",
+                self.add('VIS-02', sid, f"{vis} 窗口已于 {close.isoformat()} 关闭，参与者其后仍在研，未见该访视记录",
                          date=close.isoformat(), visit=vis, grade='重要' if crit else None,
                          why=(f'{vis} 为关键访视：缺失影响主要终点/关键安全评估' if crit else '规则默认分级：一般（随之缺失的检查不另报）'),
                          src=[])
@@ -460,11 +460,11 @@ class _PD:
             crit = bool(self.crit_items and self.crit_items.search(name))
             for vis, cell in row['cells'].items():
                 if cell[6] or vis not in row['exp'] or row.get('judge') is False or (len(cell) > 7 and cell[7]):
-                    continue                     # V6：不判缺失的项目（必要时/部分受试者）与合理性守卫压下的格子不逐人生成
+                    continue                     # V6：不判缺失的项目（必要时/部分参与者）与合理性守卫压下的格子不逐人生成
                 for sid in (cell[4] if self.stage != 'daily' else []):
                     if sid not in C.pop:
                         continue
-                    self.add('ASMT-01', sid, f"{vis} 已完成访视，但未见「{name}」记录" + ('' if proto else '（按本研究多数受试者的完成情况推断为该访视应做项目）'),
+                    self.add('ASMT-01', sid, f"{vis} 已完成访视，但未见「{name}」记录" + ('' if proto else '（按本研究多数参与者的完成情况推断为该访视应做项目）'),
                              visit=vis, grade='重要' if crit else None,
                              why=('关键评估缺失（主要终点/安全监测）' if crit else ('规则默认分级：一般' + ('' if proto else '；SoA 未由方案配置，期望项目为数据推断，置信度较低'))),
                              src=[], ctx=[] if proto else ['SoA 推断'])
@@ -539,7 +539,7 @@ class _PD:
                 if late:
                     e = late[0]
                     self.add('IP-02', sid, f"{why}日期 {d}，给药记录至 {_last_dose(e)}（{e['start']} 起）", date=_last_dose(e),
-                             src=[[_sh(e), e['row'], '给药']], why='终止治疗后继续暴露于研究药物，可能影响受试者安全（重要偏离）')
+                             src=[[_sh(e), e['row'], '给药']], why='终止治疗后继续暴露于研究药物，可能影响参与者安全（重要偏离）')
                     break
             for d, o in sorted(stop_hit.get(sid, []), key=lambda x: x[0])[:1]:   # 按达标日期排序（元组含 dict，显式 key 防比较崩溃）
                 late = [e for e in ex if (_last_dose(e) or '') > d and is_dosing(e)]
@@ -783,7 +783,7 @@ class _PD:
                     if best is None or (dd is not None and abs(dd) < best[0]):
                         best = (abs(dd) if dd is not None else 999, c)
             if best is None and it.get('visit'):
-                # 兜底：同受试者、同访视、日期相差 ≤3 天（类别口径不同也视为同一事件）
+                # 兜底：同参与者、同访视、日期相差 ≤3 天（类别口径不同也视为同一事件）
                 for c in out:
                     dd = days(c['date'], it['date']) if is_full_date(c['date']) and is_full_date(it['date']) else None
                     if c['sid'] == it['sid'] and c.get('visit') and c['visit'] == it['visit'] and dd is not None and abs(dd) <= 3:

@@ -18,7 +18,7 @@ T.metrics.forEach(m=>{m.nab=abn(m);m.npt=(T.obs[m.id]||[]).filter(r=>dosed(r[0])
 const gpt={};T.metrics.forEach(m=>gpt[m.group]=(gpt[m.group]||0)+m.npt);
 const groups=[...new Set(T.metrics.map(m=>m.group))].sort((a,b)=>gpt[b]-gpt[a]);
 const MS=g=>T.metrics.filter(m=>m.group===g).sort((a,b)=>b.npt-a.npt);
-/* 定性/描述性结果：只列至少 1 名受试者有 ≥2 个时点的项目（裁定 13），单次检查（如筛选期一次性的定性项）不进趋势页 */
+/* 定性/描述性结果：只列至少 1 名参与者有 ≥2 个时点的项目（裁定 13），单次检查（如筛选期一次性的定性项）不进趋势页 */
 const QTESTS=((T.qual&&T.qual.tests)||[]).filter(t=>{const by={};(T.qual.obs[t]||[]).forEach(r=>{(by[r[0]]=by[r[0]]||new Set()).add(r[2])});return Object.values(by).some(x=>x.size>=2)});   // R2-1 空数据守卫
 if(!T.metrics.length&&!QTESTS.length){app.innerHTML=`<div class="flex mb"><h1 style="font-size:18px">检验检查趋势</h1></div><div class="box yel">暂无可展示的定量指标与定性结果（数据面为空或指标未映射）；终点指标缺失的升级行动项见有效性页</div>`;return}
 app.innerHTML=`<div class="flex mb"><h1 style="font-size:18px">检验检查趋势</h1><span class="muted small">${T.metrics.length} 项定量指标${QTESTS.length?' + 定性 '+QTESTS.length+' 项（多时点）':''} · 仅给药参与者 · 基线按方案定义</span><span class="sp"></span>${(K.cfg().blind||{}).on?K.p('盲态合并','blu'):''}</div>
@@ -75,7 +75,7 @@ function draw(){
    ${isCT?'':`<span class="xs muted" style="margin-left:auto">阈值 ① <input id="th1" type="number" min="1" step="5" value="${TH[0]}" class="s" style="width:56px;padding:2px 4px">% ② <input id="th2" type="number" min="1" step="5" value="${TH[1]}" class="s" style="width:56px;padding:2px 4px">%</span>`}</div>
    <table class="t mt shift" style="text-align:center"><thead><tr><th style="text-align:left">基线 \\ 基线后最差</th>${CL.map(c=>`<th style="text-align:center">${c}</th>`).join('')}</tr></thead><tbody>${RL.map((rl,a)=>`<tr><td style="text-align:left"><b>${rl}</b></td>${CL.map((c,b)=>{const n=SHc.filter(x=>x.bl===a&&x.wl===b).length,na=SH.filter(x=>x.bl===a&&x.wl===b).length,k=cellC(a,b);
      return `<td class="${k&&n?'hit':''}" data-a="${a}" data-b="${b}" style="${k===2?'background:#F3E0E0;color:var(--risk)':k===1?'background:#FFF4E2;color:#B86400':''};${k&&n?'font-weight:700;cursor:pointer;text-decoration:underline dotted':''}">${n}${hc?`<span class="xs faint" style="font-weight:400">/${na}</span>`:''}</td>`}).join('')}</tr>`).join('')}</tbody></table>
-   <div class="flex wrap mt" style="gap:6px">${[['c1','①',isCT?'基线正常→≥1级，或基线异常→升级≥1级':`|Δ%| ≥ ${TH[0]}%`,'org'],['c2','②',isCT?'基线正常→≥3级，或基线异常→升级≥2级':`|Δ%| ≥ ${TH[1]}%`,'red']].map(([k,n,t,c])=>{const m=SHc.filter(x=>x[k]).length;return `<span class="p ${c}" data-k="${k}" style="cursor:pointer" title="点击查看受试者">${n} ${t}：${m} 人${SHc.length?'（'+(m/SHc.length*100).toFixed(0)+'%）':''}</span>`}).join('')}<span class="xs faint">n=${SHc.length}${hc?' / 整体 '+SH.length:''} · 不含计划外/提前退出访视</span></div>`;
+   <div class="flex wrap mt" style="gap:6px">${[['c1','①',isCT?'基线正常→≥1级，或基线异常→升级≥1级':`|Δ%| ≥ ${TH[0]}%`,'org'],['c2','②',isCT?'基线正常→≥3级，或基线异常→升级≥2级':`|Δ%| ≥ ${TH[1]}%`,'red']].map(([k,n,t,c])=>{const m=SHc.filter(x=>x[k]).length;return `<span class="p ${c}" data-k="${k}" style="cursor:pointer" title="点击查看参与者">${n} ${t}：${m} 人${SHc.length?'（'+(m/SHc.length*100).toFixed(0)+'%）':''}</span>`}).join('')}<span class="xs faint">n=${SHc.length}${hc?' / 整体 '+SH.length:''} · 不含计划外/提前退出访视</span></div>`;
   // center stats：给药后个体均值（当前口径）均值漏斗 + 给药后超范围比例漏斗
   const inC=(i,s)=>!s||SJ[i][1]===s;
   const sMean=i=>{const a=subj[i].post.map(vfn).filter(x=>x!=null);return a.length?K.mean(a):null};
@@ -100,13 +100,13 @@ function draw(){
       :K.kpiCS('中心偏离提示',C.filter(c=>c.flag.length).length,'',{unit:'个中心',note:`其中明显偏离 ${C.filter(c=>c.sev===2).length} 个`})];
   mn.innerHTML=`<div class="card mb"><div class="flex wrap" style="gap:8px"><b style="font-size:16px;color:var(--ink)">${K.esc(cur.label)}</b>${K.p(unit,'line')}${K.p(cur.baseline.replace('规定基线：','基线 '),'blu')}${lo!=null||hi!=null?K.p(`参考 ${K.rng(lo,hi)}`,''):''}${FIX[cur.id]?K.p('分类阈值 '+K.rng(FIX[cur.id][0],FIX[cur.id][1]),'org'):''}${cur.note?`<span class="xs muted" title="${K.esc(cur.note)}">ⓘ 单位换算/口径</span>`:''}<span class="sp"></span><div class="seg" id="md"></div><span class="small muted">选择中心</span><select class="s" id="hc"><option value="">全部中心（整体）</option>${C.map(c=>`<option value="${c.site}" ${c.site===hc?'selected':''}>${c.site} ${K.esc(c.name)}</option>`).join('')}</select></div>
    <div class="kpis mt" style="margin-top:10px">${kp.join('')}</div></div>
-  <div class="grid g12 mb"><div class="card"><div class="xs muted">按访视分布（${modeL}）· 线 = 中位数，色带 = 四分位间距，点 = 受试者，深红点 = 个体离群/方案阈值${hc?` · <b style="color:#E67E00">橙 = ${hc} 中心</b>，灰 = 整体；横轴 n = 中心/整体`:''} <span id="b1n" style="color:var(--risk)"></span></div><div class="chart" id="b1" style="height:300px"></div></div>
+  <div class="grid g12 mb"><div class="card"><div class="xs muted">按访视分布（${modeL}）· 线 = 中位数，色带 = 四分位间距，点 = 参与者，深红点 = 个体离群/方案阈值${hc?` · <b style="color:#E67E00">橙 = ${hc} 中心</b>，灰 = 整体；横轴 n = 中心/整体`:''} <span id="b1n" style="color:var(--risk)"></span></div><div class="chart" id="b1" style="height:300px"></div></div>
    <div class="card"><div id="sh">${shiftHTML()}</div>
-   <div class="xs muted mt">点击着色单元格查看受试者；①含②。CS 判定与 AE 记录在明细中核对</div><div class="xs muted mt">各访视超范围比例${hc?`（实线 = ${hc} 中心，虚线 = 整体）`:''}</div><div class="chart" id="b3" style="height:150px"></div></div></div>
-  <div class="card mb"><div class="xs muted">个体轨迹（研究日）· ${hc?`橙色加粗 = ${hc} 中心，其余淡化`:'选择中心后加粗显示该中心'} · 深红 = 离群/阈值受试者 · 点击线查看参与者</div><div class="chart" id="b2" style="height:260px"></div></div>
+   <div class="xs muted mt">点击着色单元格查看参与者；①含②。CS 判定与 AE 记录在明细中核对</div><div class="xs muted mt">各访视超范围比例${hc?`（实线 = ${hc} 中心，虚线 = 整体）`:''}</div><div class="chart" id="b3" style="height:150px"></div></div></div>
+  <div class="card mb"><div class="xs muted">个体轨迹（研究日）· ${hc?`橙色加粗 = ${hc} 中心，其余淡化`:'选择中心后加粗显示该中心'} · 深红 = 离群/阈值参与者 · 点击线查看参与者</div><div class="chart" id="b2" style="height:260px"></div></div>
   <div class="card mb"><div class="sec-t" style="margin-top:0"><h2>中心偏离</h2><span class="muted small">中心与整体比较：越出虚线＝需关注，越出点线＝明显偏离（按各中心例数放宽范围）；不足 2 例不判 · 点击中心切换选择</span></div>
    <div class="grid g12"><div><div class="xs muted">给药后个体均值（${modeL}）· 整体 ${K.fmt(FM.mu)} · n=${FM.N}</div><div class="chart" id="f1" style="height:260px"></div></div><div><div class="xs muted">给药后超范围比例 · 整体 ${(totAb*100).toFixed(0)}% · n=${FP.N}</div><div class="chart" id="f2" style="height:260px"></div></div></div></div>
-  <div class="grid g2"><div class="card"><div class="sec-t" style="margin-top:0"><h2>受试者离群 / 方案阈值</h2><span class="muted small">${MR.map(x=>K.esc(x.note||'')).filter(Boolean).join('；')}${MR.some(x=>x.note)?' · ':''}同访视变化幅度明显离群${hc?` · 仅 ${hc} 中心`:''}</span></div><div id="ot"></div></div>
+  <div class="grid g2"><div class="card"><div class="sec-t" style="margin-top:0"><h2>参与者离群 / 方案阈值</h2><span class="muted small">${MR.map(x=>K.esc(x.note||'')).filter(Boolean).join('；')}${MR.some(x=>x.note)?' · ':''}同访视变化幅度明显离群${hc?` · 仅 ${hc} 中心`:''}</span></div><div id="ot"></div></div>
    <div class="card"><div class="sec-t" style="margin-top:0"><h2>中心对比</h2><span class="muted small">给药后均值 · 超范围比例（整体 ${(totAb*100).toFixed(0)}%）· 点击行选择中心</span></div><div id="ct"></div></div></div>`;
   K.seg(document.getElementById('md'),[['val','原值'],['chg','较基线Δ'],['pct','Δ%']],mode,v=>{mode=v;draw()});
   const pick=s=>{hc=hc===s?'':s;draw()};
@@ -133,11 +133,11 @@ function draw(){
   // funnels
   K.funnelChart('#f1',FM,{hc,names:CN,onPick:pick,left:52});
   K.funnelChart('#f2',FP,{hc,names:CN,onPick:pick,kind:'p',fmt:v=>(v*100).toFixed(0)+'%',ymin:0,ymax:1});
-  // ---- 受试者列表弹窗 + 个体历史 ----
+  // ---- 参与者列表弹窗 + 个体历史 ----
   const LBL=cur.label,UN=unit;
   const showList=(list,title)=>{
     const lv=x=>isCT?`${x.wl} 级${x.term?' <span class="xs muted">'+K.esc(x.term)+'</span>':''}`:K.pct(x.w[11]);
-    const b=K.drawer(`${K.esc(LBL)} · ${title}`,`<div class="xs muted mb">${list.length} 人 · 点击受试者展开整个研究过程的变化图与明细（含 USV / ET）</div><table class="t" id="dl"><thead><tr><th>受试者</th><th>基线</th><th>基线后最差</th><th>${isCT?'最差等级':'Δ%'}</th><th>判定/关联</th></tr></thead><tbody>${list.map((x,j)=>{const g=LRk[x.sid+'|'+LBL];return `<tr class="click" data-j="${j}"><td><b style="color:var(--blue)">▸ ${x.sid}</b> <span class="xs faint">${x.site}</span></td><td>${K.fmt(x.b.v)} <span class="xs faint">${isCT?gr(x.b.v,x.b.l,x.b.u,null,true).g+'级':RL[x.bl]}</span></td><td>${K.fmt(x.w[3])} <span class="xs faint">${UN}</span> ${K.p(vk(x.w),'blu')}</td><td>${lv(x)}</td><td>${g?K.risk(g.risk):''}</td></tr>`}).join('')}</tbody></table>`,isCT?CTC.label()+' · 基线按方案定义':'较基线变化% · 阈值 '+TH.join(' / ')+'%');
+    const b=K.drawer(`${K.esc(LBL)} · ${title}`,`<div class="xs muted mb">${list.length} 人 · 点击参与者展开整个研究过程的变化图与明细（含 USV / ET）</div><table class="t" id="dl"><thead><tr><th>参与者</th><th>基线</th><th>基线后最差</th><th>${isCT?'最差等级':'Δ%'}</th><th>判定/关联</th></tr></thead><tbody>${list.map((x,j)=>{const g=LRk[x.sid+'|'+LBL];return `<tr class="click" data-j="${j}"><td><b style="color:var(--blue)">▸ ${x.sid}</b> <span class="xs faint">${x.site}</span></td><td>${K.fmt(x.b.v)} <span class="xs faint">${isCT?gr(x.b.v,x.b.l,x.b.u,null,true).g+'级':RL[x.bl]}</span></td><td>${K.fmt(x.w[3])} <span class="xs faint">${UN}</span> ${K.p(vk(x.w),'blu')}</td><td>${lv(x)}</td><td>${g?K.risk(g.risk):''}</td></tr>`}).join('')}</tbody></table>`,isCT?CTC.label()+' · 基线按方案定义':'较基线变化% · 阈值 '+TH.join(' / ')+'%');
     b.querySelectorAll('#dl tr[data-j]').forEach(tr=>tr.onclick=()=>{const nx=tr.nextElementSibling;if(nx&&nx.classList.contains('dx')){nx.remove();tr.querySelector('b').innerHTML='▸ '+list[+tr.dataset.j].sid;return}
       tr.querySelector('b').innerHTML='▾ '+list[+tr.dataset.j].sid;const x=list[+tr.dataset.j];const d=document.createElement('tr');d.className='dx';d.innerHTML=`<td colspan="5" style="background:#FAFAFB;padding:8px"><div class="chart" style="height:220px"></div><div class="hx"></div><div class="mt"><a class="p click blu" href="subjects.html#s=${x.sid}&t=lab">参与者资料 →</a></div></td>`;tr.after(d);hist(x,d.querySelector('.chart'),d.querySelector('.hx'))})};
   const hist=(x,el,tb)=>{const rs=ALL.filter(r=>r[0]==+x.i&&r[3]!=null).sort((a,b)=>a[2]-b[2]||a[5]-b[5]);const g=LRk[x.sid+'|'+LBL];const csm={};if(g)g.pts.forEach(p=>csm[p[7]+'|'+p[8]]=p);
@@ -157,7 +157,7 @@ function draw(){
   wire();
   // tables
   K.table(document.getElementById('ot'),{rows:OLc,pageSize:12,h:'360px',onRow:o=>go(SJ[o.r[0]][0]),cols:[
-    {k:'sid',t:'受试者',s:o=>SJ[o.r[0]][0],f:o=>`<b style="color:var(--blue)">${SJ[o.r[0]][0]}</b> <span class="faint xs">${SJ[o.r[0]][1]}</span>`},{k:'v',t:'访视',f:o=>K.p(o.v,'blu')},
+    {k:'sid',t:'参与者',s:o=>SJ[o.r[0]][0],f:o=>`<b style="color:var(--blue)">${SJ[o.r[0]][0]}</b> <span class="faint xs">${SJ[o.r[0]][1]}</span>`},{k:'v',t:'访视',f:o=>K.p(o.v,'blu')},
     {k:'val',t:'值',s:o=>o.r[3],f:o=>`<b>${K.esc(o.r[14])}</b> <span class="xs faint">${K.esc(o.r[15]||'')}</span>`},{k:'chg',t:'Δ / Δ%',s:o=>o.r[10],f:o=>`${o.r[10]!=null?(o.r[10]>0?'+':'')+K.fmt(o.r[10]):'—'} <span class="xs muted">${K.pct(o.r[11])}</span>`},
     {k:'why',t:'依据',s:o=>o.why?1e9:Math.abs(o.z||0),f:o=>o.why?K.p(o.why,'red'):K.p(Math.abs(o.z)>=5?'变化幅度明显离群':'变化幅度离群','yel','同访视全体变化值的稳健离群度 '+(o.z>0?'+':'')+o.z.toFixed(1)+'（越大越离群）')},
     {k:'lr',t:'判定/关联',ns:1,f:o=>{const g=LRk[SJ[o.r[0]][0]+'|'+cur.label];return g?K.risk(g.risk):''}}]});
@@ -177,7 +177,7 @@ function qual(){
   mn.innerHTML=`<div class="card mb"><div class="flex"><b style="font-size:16px;color:var(--ink)">${K.esc(t)}</b>${K.p('定性','line')}${CF.qualNote?`<span class="xs muted">${K.esc(CF.qualNote)}</span>`:''}</div><div class="chart" id="q1" style="height:300px"></div></div>
   <div class="card"><div class="sec-t" style="margin-top:0"><h2>给药后较基线升高 ≥2 级</h2><span class="muted small">${inc.length} 人</span></div><div id="qt"></div></div>`;
   K.chart('#q1',{grid:{left:40,right:16,top:28,bottom:24},legend:{top:0,itemWidth:10,itemHeight:8,textStyle:{fontSize:10}},tooltip:{trigger:'axis'},xAxis:{type:'category',data:vs.map(i=>VL[i]),...K.axis},yAxis:{type:'value',...K.axis},series:L.map((l,j)=>({type:'bar',stack:'a',name:l,data:cnt.map(c=>c[j]),itemStyle:{color:COL[j]},barWidth:22}))});
-  K.table(document.getElementById('qt'),{rows:inc,noPage:true,max:false,onRow:x=>location.href='subjects.html#s='+SJ[x.i][0]+'&t=lab',cols:[{k:'i',t:'受试者',f:x=>`<b style="color:var(--blue)">${SJ[x.i][0]}</b>`},{k:'b',t:'基线最高',f:x=>x.b>=0?L[x.b]:'—'},{k:'w',t:'给药后最高',f:x=>`${K.p(L[x.w.k],x.w.k>=4?'red':'org')} ${K.p(VL[x.w.r[2]],'blu')} <span class="xs faint">${x.w.r[1]} · ${K.esc(x.w.r[3])}</span>`},{k:'lr',t:'判定/关联',ns:1,f:x=>{const g=LRk[SJ[x.i][0]+'|'+t];return g?K.risk(g.risk)+' '+K.ctxTags(g.ctx):''}}]});
+  K.table(document.getElementById('qt'),{rows:inc,noPage:true,max:false,onRow:x=>location.href='subjects.html#s='+SJ[x.i][0]+'&t=lab',cols:[{k:'i',t:'参与者',f:x=>`<b style="color:var(--blue)">${SJ[x.i][0]}</b>`},{k:'b',t:'基线最高',f:x=>x.b>=0?L[x.b]:'—'},{k:'w',t:'给药后最高',f:x=>`${K.p(L[x.w.k],x.w.k>=4?'red':'org')} ${K.p(VL[x.w.r[2]],'blu')} <span class="xs faint">${x.w.r[1]} · ${K.esc(x.w.r[3])}</span>`},{k:'lr',t:'判定/关联',ns:1,f:x=>{const g=LRk[SJ[x.i][0]+'|'+t];return g?K.risk(g.risk)+' '+K.ctxTags(g.ctx):''}}]});
 }
 draw();
 });

@@ -6,8 +6,8 @@ description: |
   深度医学分析（按方案指定分级标准/版本自动分级——内置 CTCAE v5.0 / v6.0，支持方案自定义表、单位换算、指标自动映射；AE 漏报风险、AE/MH 关联、方案基线定义、方案阈值/AESI（术语/PT/SOC/实验室组合如 Hy’s law）、TEAE/AE 收集期、SAE/AESI 报告时限、禁用药与洗脱期、入排、访视窗、AE 记录质量、中心偏离漏斗图、
   有效性合理性、方案偏离（已记录 PD 归一、执行层面与科学层面潜在 PD、重要/一般/待判定分级、逐事件比对）），生成 12 页康哲风格交互式 HTML 报告（总览及行动项/临床监察〔监察概况·方案偏离·中心画像〕/安全性概览〔概览·AE/MH 风险·检验检查趋势〕/有效性概览/
   参与者资料/时间线/医学质疑/研究依据）与可直接粘贴 EDC 的申办方 MM query 工作簿。
-  触发词：医学监察报告、医学监查、MM 报告、medical monitoring、AE 漏报、实验室异常核查、受试者时间线、patient profile、
-  受试者画像、个例 profile、禁用药核查、入排违背、医学 query、数据审阅。
+  触发词：医学监察报告、医学监查、MM 报告、medical monitoring、AE 漏报、实验室异常核查、参与者时间线、patient profile、
+  参与者画像、个例 profile、禁用药核查、入排违背、医学 query、数据审阅。
   融合并取代 clinical-patient-profile-html、ae-risk-assessment、subject-timeline-builder 三个技能。
 metadata:
   version: 1.0.0
@@ -68,7 +68,7 @@ python3 scripts/inspect_listing.py edc=EDC.xlsx pd=PD.xlsx lab=central_lab.xlsx 
 访视窗及锚点、有效性终点、aeMatch）。键说明见 `references/study-config.md`。
 
 **阶段 2 · listing 解构与映射** → `mapping.json`
-以 `mapping.draft.json` 为起点逐 sheet 确认（`references/mapping-schema.md`）：受试者/中心、访视、给药（首剂/末剂）、AE、MH、CM、PR、
+以 `mapping.draft.json` 为起点逐 sheet 确认（`references/mapping-schema.md`）：参与者/中心、访视、给药（首剂/末剂）、AE、MH、CM、PR、
 实验室（长表）、生命体征/心电图（常为宽表，需写 `tests`）、有效性、PD、CRO 质疑、PK/ADA；`visit_map` 与 `clin_map`（正常 0 / NCS 1 / CS 2）必须完整。
 
 **阶段 3 · 预检与最少提问**
@@ -96,7 +96,7 @@ python3 scripts/validate_contract.py out/S/HTML --source-check   # 数据契约�
 ```
 构建日志的 `grading … · graded metrics … · unit issues …` 必须核对：单位问题 >0 时补 `analysis.unitConv` 或 `cfg.ctcaeMap`。
 内置分级表交付前可用 `python3 scripts/ctcae_import.py <NCI官方CTCAE.xlsx> --check scripts/grading/ctcae_v5.0.json` 对照官方文本。
-用 `view_image` 抽查截图（总览、受试者、时间线、安全性、质疑、方法学）。检查清单见 `references/validation-checklist.md`。
+用 `view_image` 抽查截图（总览、参与者、时间线、安全性、质疑、方法学）。检查清单见 `references/validation-checklist.md`。
 
 **阶段 7 · 交付**
 打包 `out/S/HTML/`（双击 `index.html` 离线可用）+ query 工作簿 + `analysis/`。向用户说明：人群口径、基线口径、信号数、query 数（按域）、
@@ -104,7 +104,7 @@ CRO 查重结果、未决问题与已知局限。
 
 ## 报告页面
 
-`index` 总览及行动项（综合数据 → 风险数据 → 需要干什么，按角色的行动项与处置）· `profile` 安全性概览（全试验/中心/受试者三级，中心对照整体、受试者对照中心与整体）· `center` 中心画像 · `study` 研究依据（概况→关键口径→按领域监查规则→规则库）· `subjects` 受试者 Profile · `timeline` 受试者时间线 · `safety` 安全性（中心总览热力图/AE/检验风险/其他信号，潜在 PD 标签）·
+`index` 总览及行动项（综合数据 → 风险数据 → 需要干什么，按角色的行动项与处置）· `profile` 安全性概览（全试验/中心/参与者三级，中心对照整体、参与者对照中心与整体）· `center` 中心画像 · `study` 研究依据（概况→关键口径→按领域监查规则→规则库）· `subjects` 参与者 Profile · `timeline` 参与者时间线 · `safety` 安全性（中心总览热力图/AE/检验风险/其他信号，潜在 PD 标签）·
 `deviations` 方案偏离（已记录 PD＋潜在 PD 执行/科学层面，分级与比对）· `monitor` 临床监察（入组进度、访视执行、给药与知情、数据质量、疑似录入错误）· `efficacy` 有效性（盲态下不分组）· `objective` 客观检查趋势/中心漏斗图 · `queries` 质疑清单。主导航 8 项，临床监察与安全性概览为多页空间（V5，审阅要点页取消）。
 页面职责与数据来源见 `references/report-pages.md`；视觉规范见 `references/design-system.md`。
 

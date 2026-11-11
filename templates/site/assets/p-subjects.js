@@ -15,11 +15,11 @@ app.innerHTML=`<div class="grid" style="grid-template-columns:270px 1fr;gap:14px
   ${ARMS.length>1?`<div style="padding:0 10px 6px"><select class="s" id="fg" style="width:100%"><option value="">全部分组</option>${ARMS.map(a=>`<option value="${K.esc(a)}">${K.esc(a)}（${subs.filter(s=>s.grp===a&&s.fd).length} 例给药）</option>`).join('')}</select></div>`:''}
   <div style="padding:0 10px 6px" class="chips" id="fs"></div>
   <div style="padding:0 10px 6px" class="flex"><span class="xs muted">排序</span><div class="seg" id="fo"></div></div>
-  <div style="padding:0 10px 6px;line-height:1.9" class="xs muted">${K.p('n','solid-red')} 有临床意义未关联 AE/病史　${K.p('n','red')} 专项核查　${K.p('n','org')} 仅关联病史　${K.p('Q','line')} 质疑条数　AE 不良事件例次　圆点＝受试者状态</div>
+  <div style="padding:0 10px 6px;line-height:1.9" class="xs muted">${K.p('n','solid-red')} 有临床意义未关联 AE/病史　${K.p('n','red')} 专项核查　${K.p('n','org')} 仅关联病史　${K.p('Q','line')} 质疑条数　AE 不良事件例次　圆点＝参与者状态</div>
   <div class="subj-list" id="sl"></div></div>
  <div id="main"></div></div>`;
 const st={q:'',c:H.c||'',g:'',s:'dosed',o:'risk'};
-const DS=((window.KZS||{}).delta||{}).subjects||null;   /* 较上次：有新增/修改/删除记录的受试者 */
+const DS=((window.KZS||{}).delta||{}).subjects||null;   /* 较上次：有新增/修改/删除记录的参与者 */
 document.getElementById('fc').value=st.c;
 K.chips(document.getElementById('fs'),[['dosed','已给药',subs.filter(s=>s.fd).length],['risk','有风险提示',subs.filter(s=>s.fd&&(s.sc.csx||s.sc.mh||s.sc.ot)).length],['q','有质疑',subs.filter(s=>s.sc.q).length],['sf','筛选失败',subs.filter(s=>s.status==='筛选失败').length],...(DS?[['chg','本次有新数据',subs.filter(s=>DS[s.id]).length]]:[])],v=>{st.s=v;list()},{all:'全部',value:'dosed'});
 K.seg(document.getElementById('fo'),[['risk','风险'],['id','编号'],['ae','AE数']],'risk',v=>{st.o=v;list()});
@@ -66,7 +66,7 @@ async function show(id){
    </div>
    <div class="flex wrap mt" style="margin-top:10px;gap:6px">${[['AE',d.ae.length,d.ae.some(a=>a.sae)?'SAE':''],['MH',d.mh.length],['合并用药',d.cm.length,iron.length?HL.label+iron.length:''],['检验异常行',lr.length],['专项核查',ot.length],['质疑',qs.length],[EXS+'意见',cro.length]].map(([a,b,c])=>`<span class="chip" style="cursor:default">${a} <b>${b}</b>${c?` <span class="xs" style="color:var(--risk)">${c}</span>`:''}</span>`).join('')}</div>
    ${risks.length?`<div class="flex wrap" style="margin-top:8px;gap:4px"><span class="xs muted" style="margin-right:4px">风险提示</span>${risks.map(([t,c,k])=>`<span class="p ${c} click" data-go="${k}">${K.esc(t)}</span>`).join('')}</div>`:''}
-   ${d.fd?`<div class="jr-wrap"><div class="xs muted" style="margin:10px 0 2px">受试者旅程 · 给药、访视、AE、合并用药、检验异常与质疑同一时间轴（默认从知情同意前 30 天起，滚轮缩放可看更早记录；点任一元素查看证据与原始数据）</div><div id="jr" class="chart" style="height:${K.journeyH(d)}px"></div></div>`:''}
+   ${d.fd?`<div class="jr-wrap"><div class="xs muted" style="margin:10px 0 2px">参与者旅程 · 给药、访视、AE、合并用药、检验异常与质疑同一时间轴（默认从知情同意前 30 天起，滚轮缩放可看更早记录；点任一元素查看证据与原始数据）</div><div id="jr" class="chart" style="height:${K.journeyH(d)}px"></div></div>`:''}
   </div>
   <div class="tabs" id="ptabs"></div><div id="pp"></div>`;
   const dayOf=x=>K.studyDay(x,d.fd);
@@ -75,7 +75,7 @@ async function show(id){
   const pp=document.getElementById('pp');
   const R={ov:()=>K.profile(pp,{sid:id}),ae:tAE,mh:tMH,cm:tCM,lab:tLab,vs:tVS,img:tImg,eff:tEff,q:tQ,raw:()=>K.rawBrowser(pp,id,K.subjEvidence(id))};
   if(d.fd)K.journey(document.getElementById('jr'),d,{lr,ot,qs});
-  let t0=H.t&&R[H.t]?H.t:(d.fd&&K.profile?'ov':'ae');H.t=null;   /* mm5：已给药受试者默认先看概况（对照所在中心与整体） */
+  let t0=H.t&&R[H.t]?H.t:(d.fd&&K.profile?'ov':'ae');H.t=null;   /* mm5：已给药参与者默认先看概况（对照所在中心与整体） */
   const tb=K.tabs(document.getElementById('ptabs'),T,t0,x=>{K.setHash({s:id,c:st.c,t:x});R[x]()});
   m.querySelectorAll('[data-go]').forEach(e=>e.onclick=()=>{const [k,val]=e.dataset.go.split(':');if(k==='lab'){tb.set('lab');setTimeout(()=>labChart(val),50)}else{tb.set('ae');setTimeout(()=>{const o=D.others[+val];drawOt(o)},50)}});
   function drawOt(o){K.drawer(`${K.catN(o.cat)}`,`<div class="flex wrap mb">${K.sid(o.sid)}${K.pri(o.pr)}${K.p(o.v||'','blu')}${K.p(K.loc(o.sh,o.row),'sq')}</div><div class="box org">${K.hlNum(o.sum)}</div>${o.rel.length?`<div class="sec-t"><h2>已关联</h2></div>${o.rel.map(r=>K.p(r[0]+' '+r[1],'grn')).join(' ')}`:''}${o.q.length?`<div class="sec-t"><h2>质疑</h2></div>${o.q.map(K.qPill).join(' ')}`:''}${o.ctx.length?`<div class="sec-t"><h2>判读背景</h2></div><ul class="lst small muted">${o.ctx.map(c=>`<li>${K.esc(c)}</li>`).join('')}</ul>`:''}${o.cro?`<div class="sec-t"><h2>${K.esc(EXL)}</h2></div><div class="small">${K.esc(o.cro)}</div>`:''}`)}

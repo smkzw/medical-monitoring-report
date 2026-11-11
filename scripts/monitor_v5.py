@@ -5,7 +5,7 @@
 - kri：中心 × 关键风险指标（KRI）与研究层面数值，研究层面容忍限度（QTL）三档默认值（经验值，需研究团队确认）。
 - ctq：关键数据（关键访视 / 关键评估 / 停药相关指标）标记，行动项加权用。
 - lab_shift：范围内明显变化（肌酐 KDIGO 幅度、QTcF 较基线 >60 ms、血红蛋白降 ≥20 g/L）与持续变化趋势预警（提示，不发质疑）。
-- cred：数据可信度（中心层面）：末位数字偏好、多次访视数值完全相同、中心基线均值偏离、同日多名受试者生命体征完全相同。
+- cred：数据可信度（中心层面）：末位数字偏好、多次访视数值完全相同、中心基线均值偏离、同日多名参与者生命体征完全相同。
 口径见 references/analysis-rules.md §19。
 """
 import datetime as _dt
@@ -149,7 +149,7 @@ def visit_alias(C, W):
 
 def visit_due(C, cutoff):
     """→ (due, upcoming)。due 行 [sid, site, 访视, 窗起, 窗止, 实际日期, 状态 overdue|out|ok, 实际研究日, 目标日, −窗, +窗]；
-    upcoming 行 [sid, site, 访视, 窗起, 窗止, 目标日期]（未来 14 天内窗口开启或在窗、受试者未结束）。
+    upcoming 行 [sid, site, 访视, 窗起, 窗止, 目标日期]（未来 14 天内窗口开启或在窗、参与者未结束）。
     V6：方案键经 visit_alias 对齐到数据代码；同一代码下多条记录（如 V6/V7 都记 FU）按访视目标日先后，各取最接近目标日、
     尚未被占用的一条；「未映射」的方案访视不推算（不计逾期，原因写入 ops.visitUnmapped）。"""
     W = C.A.get('visitWindows') or {}
@@ -245,7 +245,7 @@ _GONE = re.compile(r'失访|拒绝|撤回|撤销知情|退出研究|死亡')
 
 
 def _stop(s):
-    """受试者实际离开研究的日期：研究结束日；提前退出者无研究结束日时取治疗结束日。完成治疗、进入随访的不算离开。"""
+    """参与者实际离开研究的日期：研究结束日；提前退出者无研究结束日时取治疗结束日。完成治疗、进入随访的不算离开。"""
     xs = [s['eos_d']] if is_full_date(s.get('eos_d')) else []
     if is_full_date(s.get('eot_d')) and _early_wd(s):     # 提前终止治疗（状态或治疗结束原因判定）：其后的治疗期访视不再应做
         xs.append(s['eot_d'])                              # （末次给药锚定的随访访视另按锚点推算，不受此限）
@@ -293,7 +293,7 @@ def _pd_firm(p):
 
 def gap_check(C, add_other):
     """V6（CRA 审阅 2026-11-02：D001 某例 D3 发生 SAE 后再无访视、无治疗/研究结束页，52 天无任何信号）：
-    在研受试者末次记录距数据截止超过 max(42 天, 2×研究访视间隔中位数)、且无研究结束记录 → 访视中断核对（日常阶段同样提示）。"""
+    在研参与者末次记录距数据截止超过 max(42 天, 2×研究访视间隔中位数)、且无研究结束记录 → 访视中断核对（日常阶段同样提示）。"""
     alld = [s.get('lo') for s in C.subj.values() if is_full_date(s.get('lo'))]
     cut = (C.cfg.get('study') or {}).get('cutoff') or (max(alld) if alld else '')
     if not is_full_date(cut):
@@ -319,13 +319,13 @@ def gap_check(C, add_other):
                   f"末次记录 {s['lo']}，距数据截止 {g} 天（超过 {int(thr)} 天），未见治疗结束/研究结束记录"
                   + (f"；此前有 SAE「{sae[-1]['t']}」（{sae[-1]['s']}）" if sae else ''),
                   None, s['lo'], s.get('sheet', ''), s.get('row'), '',
-                  ctx=['在研受试者长时间无任何记录：可能失访、已退出未录入，或访视未录入'],
-                  rule={'ask': '请确认受试者当前状态（是否失访/退出），并补录后续访视或治疗结束、研究结束页。'},
+                  ctx=['在研参与者长时间无任何记录：可能失访、已退出未录入，或访视未录入'],
+                  rule={'ask': '请确认参与者当前状态（是否失访/退出），并补录后续访视或治疗结束、研究结束页。'},
                   bkey=f"gap|{sid}")
 
 
 def freshness(C, cutoff):
-    """{site: [最近记录日期, 距数据截止天数, 在研受试者数]}（晚于数据截止的日期视为录入错误，不计）。"""
+    """{site: [最近记录日期, 距数据截止天数, 在研参与者数]}（晚于数据截止的日期视为录入错误，不计）。"""
     last = defaultdict(str)
     for dom in ('visits', 'exposure', 'ae', 'findings', 'efficacy', 'cm'):
         for r in getattr(C, dom, None) or []:
@@ -343,7 +343,7 @@ def freshness(C, cutoff):
 def followup(C, cutoff):
     """{sid: 随访人日}：首剂 → 研究结束（无则在研者到数据截止、已结束者到最后观察日），不超过数据截止。"""
     fu = {}
-    for sid in sorted(C.pop):                                # 按受试者号遍历：输出字节级可复现（集合顺序随哈希种子变）
+    for sid in sorted(C.pop):                                # 按参与者号遍历：输出字节级可复现（集合顺序随哈希种子变）
         s = C.subj[sid]
         fd = s.get('fd')
         if not is_full_date(fd):
@@ -364,15 +364,15 @@ KRI_DEFS = [
     ('wd', '提前退出率', '入组', '%', 'high', (10, 15, 20), '提前退出或提前终止治疗 / 给药'),
     ('ovd', '访视逾期率', '执行', '%', 'high', None, '逾期未见记录 / 应完成访视（日常监查阶段含尚未录入）'),
     ('oow', '访视超窗率', '执行', '%', 'high', (5, 10, 15), '超窗 / 已完成访视'),
-    ('ipd', '重要潜在方案偏离', '执行', '%', 'high', (5, 10, 15), '有重要潜在方案偏离的受试者 / 给药'),
-    ('elig', '入排不符仍入组', '执行', '%', 'high', (1, 2, 5), '入排类潜在偏离的受试者 / 给药'),
-    ('icf', '知情同意问题', '执行', '%', 'high', (0, 1, 3), '知情类潜在偏离的受试者 / 筛选'),
-    ('comp', '依从性不符', '执行', '%', 'high', (5, 10, 15), '依从性超出方案范围的受试者 / 给药（方案无依从性公式时按有漏服记录的受试者）'),
+    ('ipd', '重要潜在方案偏离', '执行', '%', 'high', (5, 10, 15), '有重要潜在方案偏离的参与者 / 给药'),
+    ('elig', '入排不符仍入组', '执行', '%', 'high', (1, 2, 5), '入排类潜在偏离的参与者 / 给药'),
+    ('icf', '知情同意问题', '执行', '%', 'high', (0, 1, 3), '知情类潜在偏离的参与者 / 筛选'),
+    ('comp', '依从性不符', '执行', '%', 'high', (5, 10, 15), '依从性超出方案范围的参与者 / 给药（方案无依从性公式时按有漏服记录的参与者）'),
     ('pem', '主要终点缺失', '数据', '%', 'high', (3, 5, 10), '关键访视已完成但关键评估无记录 / 已完成的关键访视'),
     ('ae', 'TEAE 报告率', '安全', '/100人月', 'low', None, 'TEAE 例次 / 随访人月 ×100（偏低提示可能漏报）'),
     ('sae', 'SAE 报告率', '安全', '/100人月', 'both', None, 'SAE 例次 / 随访人月 ×100'),
     ('late', 'SAE/AESI 报告超时', '安全', '%', 'high', (0, 5, 10), '报告超时 / SAE 与 AESI 例次'),
-    ('csx', 'CS 未关联（检验）', '安全', '/例', 'high', None, '检验风险层：判 CS 未关联 AE/病史（受试者×指标，一个指标多次只计一次）/ 给药。专项（心电图/生命体征整份判定等）与质疑另计'),
+    ('csx', 'CS 未关联（检验）', '安全', '/例', 'high', None, '检验风险层：判 CS 未关联 AE/病史（参与者×指标，一个指标多次只计一次）/ 给药。专项（心电图/生命体征整份判定等）与质疑另计'),
     # 审阅者 2026-11-10（用户：研究者「过严」方向）：轻微超限判 CS、相关性判定偏倚——中心层面展示，不发质疑
     ('csm', '轻微超限判 CS', '安全', '%', 'high', None, '给药后轻微超出参考范围（超限 <10%、≤1 级）且已评价的检验值中判有临床意义的比例（偏高提示判定偏严、易多报 AE）'),
     ('rel', 'AE 判相关比例', '安全', '%', 'both', None, 'TEAE 中研究者判与研究药物相关的比例（显著偏高或偏低都提示相关性判定习惯偏倚）'),
@@ -460,7 +460,7 @@ def kri(C):
     elif not due and C.ops.get('visitUnmapped'):
         na['ovd'] = na['oow'] = f"方案访视（{'、'.join(C.ops['visitUnmapped'][:6])}）在数据中找不到对应访视代码"
 
-    marg = defaultdict(lambda: [0, 0])               # 受试者 → [轻微超限判 CS, 轻微超限已评价]
+    marg = defaultdict(lambda: [0, 0])               # 参与者 → [轻微超限判 CS, 轻微超限已评价]
     for (sid_, _mid), rows_ in (getattr(C, 'F', None) or {}).items():
         for r_ in rows_:
             v_, hi_, lo_ = r_.get('value'), r_.get('hi'), r_.get('lo')
@@ -515,7 +515,7 @@ def kri(C):
     fr = [f[1] for f in fresh.values() if f[1] is not None and f[2]]
     study['fresh'] = [statistics.median(fr) if fr else None, 1]
     defs = [{'k': k, 'l': l, 'g': g, 'u': u, 'dir': d, 'qtl': list(q) if q else None, 'note': n} for k, l, g, u, d, q, n in KRI_DEFS]
-    # F6②（V6 RUX）：提前退出率分子＝「提前退出或提前终止治疗」，与受试者状态分布的「提前退出」不是一套口径——
+    # F6②（V6 RUX）：提前退出率分子＝「提前退出或提前终止治疗」，与参与者状态分布的「提前退出」不是一套口径——
     # 脚注写明「另 N 例仅提前终止治疗（未退出研究）」，两套数字可互推，不再无脚注并存（实证 12/192 vs 状态分布 8）。
     wd_def = next((d for d in defs if d['k'] == 'wd'), None)
     if wd_def is not None:
@@ -689,7 +689,7 @@ _META_RX = re.compile(r'页面号|访视号|访视OID|表单OID|页码|行号|�
 
 def stable_metrics(C, share=0.6):
     """V6 R12（审阅者 2026-11-02，构建 Agent 复盘：身高在 SAR 产生假「全程不变」）：按数据形态、不列名单——
-    vs/pe 数值指标中，≥2 次测量的受试者里有 ≥60% 全程取值相同（且 ≥5 人可评）→ 该指标本身在受试者内稳定，
+    vs/pe 数值指标中，≥2 次测量的参与者里有 ≥60% 全程取值相同（且 ≥5 人可评）→ 该指标本身在参与者内稳定，
     「全程不变」不是可疑信号。"""
     tot, same = Counter(), Counter()
     for (sid, mid), rows in C.F.items():
@@ -720,7 +720,7 @@ def cred(C):
         if dom not in ('vs', 'pe') or _META_RX.search(label):
             continue                                           # 检验多为各中心本地实验室，方法/单位差异天然存在；EDC 元数据列（页面号等）不是测量指标
         if mid in stable:
-            continue                                           # V6 R12：受试者内天然不变的指标（如成人身高）不作「全程不变/同日相同」信号
+            continue                                           # V6 R12：参与者内天然不变的指标（如成人身高）不作「全程不变/同日相同」信号
         num = [r for r in rows if isinstance(r.get('value'), (int, float))]
         for r in num:
             raw = str(r.get('raw') if r.get('raw') is not None else '').strip()

@@ -12,9 +12,9 @@ const sites=[...new Set(subs.map(s=>s.site))].sort();
 app.innerHTML=`<div class="flex mb"><h1 style="font-size:18px">参与者时间线</h1><span class="muted small">访视 · 给药 · AE · 合并用药 · 病史 · 检验异常 · 心电图/生命体征 · 专项检查 · 质疑</span><span class="sp"></span><div class="seg" id="mode"></div></div><div id="pane"></div>`;
 const pane=document.getElementById('pane');
 let mode=H.c&&!H.s?'c':'s';
-/* R2-1 空数据守卫：无给药受试者/无给药中心（数据面为空或映射缺失）→ 占位态，不崩页 */
+/* R2-1 空数据守卫：无给药参与者/无给药中心（数据面为空或映射缺失）→ 占位态，不崩页 */
 const emptyPane=txt=>{pane.innerHTML=`<div class="box yel">${txt}</div>`};
-K.seg(document.getElementById('mode'),[['s','单受试者'],['c','中心概览']],mode,v=>{mode=v;v==='s'?(subs.length?one(H.s||subs[0].id):emptyPane('暂无给药受试者时间线（数据面为空或受试者/暴露表未映射）')):center(H.c||'')});
+K.seg(document.getElementById('mode'),[['s','单参与者'],['c','中心概览']],mode,v=>{mode=v;v==='s'?(subs.length?one(H.s||subs[0].id):emptyPane('暂无给药参与者时间线（数据面为空或参与者/暴露表未映射）')):center(H.c||'')});
 mode==='s'&&subs.length?one(H.s||subs[0].id):center(H.c||'');
 /* ---------------- single subject */
 async function one(id){
@@ -70,7 +70,7 @@ async function one(id){
   const fl=new Set(lr.filter(g=>g.risk!=='NCS').map(g=>g.test));
   allT.sort((a,b)=>(fl.has(b[1])-fl.has(a[1])));
   const ts=document.getElementById('tsel');
-  if(!allT.length){ts.innerHTML='<option value="">（该受试者无≥2 次数值检验）</option>';return;}   // 单次/定性-only 受试者不再崩溃
+  if(!allT.length){ts.innerHTML='<option value="">（该参与者无≥2 次数值检验）</option>';return;}   // 单次/定性-only 参与者不再崩溃
   ts.innerHTML=allT.map(([o,t])=>`<option value="${K.esc(t)}">${fl.has(t)?'● ':''}${K.esc(t)}</option>`).join('');
   const def=H.t&&allT.some(x=>x[1]===H.t)?H.t:(allT.find(x=>fl.has(x[1]))||allT.find(x=>x[1]===CF.defaultTest)||allT[0])[1];ts.value=def;
   ts.onchange=trend;
@@ -87,16 +87,16 @@ async function one(id){
 /* ---------------- center overview */
 function center(site){
   const C=D.centers.filter(c=>c.dosed);
-  if(!C.length){H.c=site;K.setHash({c:site});emptyPane('暂无给药中心概览（数据面为空或受试者/暴露表未映射）');return}   // R2-1 空数据守卫
+  if(!C.length){H.c=site;K.setHash({c:site});emptyPane('暂无给药中心概览（数据面为空或参与者/暴露表未映射）');return}   // R2-1 空数据守卫
   site=site&&C.some(x=>x.site===site)?site:C[0].site;                                          // 回退首个给药中心，不写死中心号
   H.c=site;K.setHash({c:site});
-  pane.innerHTML=`<div class="card"><div class="tbar"><select class="s" id="cs">${C.map(c=>`<option value="${c.site}" ${c.site===site?'selected':''}>${c.site} ${K.esc(c.name)}（${c.dosed}例）</option>`).join('')}</select><span id="ck" class="flex wrap" style="gap:4px"></span><span class="sp"></span><span class="note">横轴 = 研究日（以 D1 为第 1 天）；每位受试者下方按风险标签分行（AE / CS未关联 / CS仅关联MH / 质疑）；点击受试者编号进入单人时间线</span></div><div class="chart" id="cg" style="height:400px"></div><div id="ctb" class="mt"></div></div>`;
+  pane.innerHTML=`<div class="card"><div class="tbar"><select class="s" id="cs">${C.map(c=>`<option value="${c.site}" ${c.site===site?'selected':''}>${c.site} ${K.esc(c.name)}（${c.dosed}例）</option>`).join('')}</select><span id="ck" class="flex wrap" style="gap:4px"></span><span class="sp"></span><span class="note">横轴 = 研究日（以 D1 为第 1 天）；每位参与者下方按风险标签分行（AE / CS未关联 / CS仅关联MH / 质疑）；点击参与者编号进入单人时间线</span></div><div class="chart" id="cg" style="height:400px"></div><div id="ctb" class="mt"></div></div>`;
   document.getElementById('cs').onchange=e=>center(e.target.value);
   const S=subs.filter(s=>s.site===site).sort((a,b)=>a.fd.localeCompare(b.fd));
   const c=C.find(x=>x.site===site);
   document.getElementById('ck').innerHTML=`${K.p('给药 '+c.dosed,'blu')}${K.p('AE '+c.ae,c.ae?'':'red')}${c.csx?K.p('CS未关联 '+c.csx,'solid-red'):''}${c.mhx?K.p('CS仅MH '+c.mhx,'org'):''}${K.p('质疑 '+c.q,'line')}`;
   const day=(x,fd)=>{const t=T(x);return t==null?null:Math.round((t-T(fd))/864e5)+1};
-  // 每位受试者：主行（暴露）+ 各风险标签子行（AE / CS未关联 / CS仅关联MH / 质疑，仅在有记录时显示）
+  // 每位参与者：主行（暴露）+ 各风险标签子行（AE / CS未关联 / CS仅关联MH / 质疑，仅在有记录时显示）
   const bars=[],pts=[],R=[];
   S.forEach((s,si)=>{const lr=LR[s.id]||[],ae=D.aes.filter(a=>a.sid===s.id&&a.s),qq=(QS[s.id]||[]).filter(q=>q.d);
     const i=R.push({sid:s.id,si,k:'S',lab:s.id})-1;
@@ -116,7 +116,7 @@ function center(site){
      {type:'scatter',data:pts,z:5,markLine:{symbol:'none',silent:true,lineStyle:{color:'#407AAA'},label:{formatter:'D1',fontSize:10},data:[{xAxis:1},...(CF.keyDays||[]).map(([x,l])=>({xAxis:x,lineStyle:{type:'dashed',color:'#9A9DA3'},label:{formatter:l}}))]}}]});
   ch.on('click',p=>{if(p.data&&p.data.q)K.showQ(p.data.q)});
   K.table(document.getElementById('ctb'),{rows:S,noPage:true,max:false,onRow:r=>{mode='s';document.querySelectorAll('#mode button').forEach(b=>b.classList.toggle('on',b.dataset.v==='s'));one(r.id)},cols:[
-   {k:'id',t:'受试者',f:r=>`<b style="color:var(--blue)">${r.id}</b>`},{k:'status',t:'状态',f:r=>K.status(r.status)},{k:'fd',t:'D1'},{k:'dur',t:'给药天数',s:r=>r.ld?K.days(r.ld,r.fd):0,f:r=>r.ld?K.days(r.ld,r.fd)+1:'—'},
+   {k:'id',t:'参与者',f:r=>`<b style="color:var(--blue)">${r.id}</b>`},{k:'status',t:'状态',f:r=>K.status(r.status)},{k:'fd',t:'D1'},{k:'dur',t:'给药天数',s:r=>r.ld?K.days(r.ld,r.fd):0,f:r=>r.ld?K.days(r.ld,r.fd)+1:'—'},
    {k:'nae',t:'AE',f:r=>r.nae?`<b>${r.nae}</b>${r.maxg?' '+K.p('最高'+r.maxg+'级',r.maxg>=3?'solid-red':r.maxg>=2?'red':'yel'):''}`:K.p('0','red')},
    {k:'csx',t:'CS未关联',s:r=>(LR[r.id]||[]).filter(g=>g.risk==='CSX').length,f:r=>{const n=(LR[r.id]||[]).filter(g=>g.risk==='CSX');return n.length?n.map(g=>K.p(g.test.replace(/（.*）/,''),'solid-red')).join(' '):''}},
    {k:'mhx',t:'CS仅MH·加重',s:r=>(LR[r.id]||[]).filter(g=>g.risk==='MH').length,f:r=>(LR[r.id]||[]).filter(g=>g.risk==='MH').map(g=>K.p(g.test.replace(/（.*）/,''),'org')).join(' ')},

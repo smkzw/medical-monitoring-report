@@ -12,7 +12,7 @@
 - 规则信号 pr < `queryMinPr`，或规则 `query:false`。
 
 ## 与 CRO 已发质疑查重
-同受试者 + 表单匹配（sheet / `labGroups` / findings group / `formNames`）后，按中文二元组重叠度 + 共同数字 + `synonyms` 判定：
+同参与者 + 表单匹配（sheet / `labGroups` / findings group / `formNames`）后，按中文二元组重叠度 + 共同数字 + `synonyms` 判定：
 - `重叠 ≥ dedupMinOverlap`，或含相同数字且 `≥ dedupMinOverlapNum` → 「同主题已查重」，展示 CRO 原文；
 - CRO 原文含 `conflictRe`（无需/删除…）→ 标记「与 CRO 意见冲突」，由 MM 决定。
 

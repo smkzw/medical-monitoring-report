@@ -7,7 +7,7 @@
 |---|---|---|
 | `cfg` | dict | study.json.cfg（补默认值，含 taxonomy） |
 | `meta` | dict | 生成时间、源文件、人群口径、计数 |
-| `subs` | list | 受试者摘要（id, site, center, status, icf, fd, ld, age, sex, 风险计数…；盲态下无 grp） |
+| `subs` | list | 参与者摘要（id, site, center, status, icf, fd, ld, age, sex, 风险计数…；盲态下无 grp） |
 | `centers` | list | 中心汇总（n、csx/mhx/ncs2、AE 率、漏斗图数据） |
 | `aes` / `aesum` | list / dict | AE 明细（含分类、IB 标签、TEAE、相关性、SAE/AESI；mm5 `rl`＝与试验药相关，TRAE 用）/ 汇总 |
 | `labrows` | list | 检验风险组：`sid test mid risk pts[[visit,date,raw,unit,grade,clin,pct,sheet,row,desc]] base rel ctx q cro qkey…` |
@@ -23,7 +23,7 @@
 | `kri` | dict | V5：`defs[{k,l,g,u,dir,qtl:[严格,标准,宽松]|null,note}]`、`tiers`、`tierDefault`、`study{k:[分子,分母]}`、`sites{site:{k:[分子,分母]}}`、`na{k:原因}`、`pem{visits,items}`、`source`；随阈值档位（TIER_KEYS） |
 | `cred` | dict | V5 数据可信度：`sites{site:{dig:[n,末位0/5数,p,q], flat:[可判组数,完全相同组数,p,q], shift:[检验数,偏离数,[[指标,z,n,中心均值,整体均值]]], dup:[组数]}}`、`flat[[sid,site,指标,值,次数]]`、`dup[[site,日期,[sid],值]]`、`digAll`、`flatRate`、`note` |
 | `mhcm` | dict | mm5 安全性概况：`mh[[sid,术语,持续0/1]]`、`cm[[sid,药名,开始,结束,持续0/1,用药原因]]`（仅给药者） |
-| `micro` | list | 微生物培养/药敏分域（判读型结果，不进检验异常/CS/阈值/PD/风险链；`micro_panel_mark` 先于 `build_findings`，带 `_micro` 的行不进 C.F/C.metric）：`[[sid,日期,访视,项目,结果原文,判读/说明,C\|S,sheet,row]]`（仅给药者；同受试者同日培养行 C 在药敏行 S 之前）。受试者文件 `ext` 同步追加「微生物培养与药敏」组 |
+| `micro` | list | 微生物培养/药敏分域（判读型结果，不进检验异常/CS/阈值/PD/风险链；`micro_panel_mark` 先于 `build_findings`，带 `_micro` 的行不进 C.F/C.metric）：`[[sid,日期,访视,项目,结果原文,判读/说明,C\|S,sheet,row]]`（仅给药者；同参与者同日培养行 C 在药敏行 S 之前）。参与者文件 `ext` 同步追加「微生物培养与药敏」组 |
 | `basis` | dict | mm4 研究依据页只读视图（visitWindows/eligibility*/prohibited/washout/aesi/reportRules/thresholdRules/comboRules/indicationBackground/cmProtocolRequired/pd/effRulesText） |
 
 `qkey`（labrows / others / queries 各自带，PR-2）：跨快照稳定的业务键，格式 `lab|<sid>|<risk>|<wb>:<sheet>|<mid>|<主访视>`、
@@ -45,7 +45,7 @@ labrows `pts` 行：`[visit,date,raw,unit,grade,clin,pct,sheet,row,desc,dev,wb]`
 
 ## data/s/<sid>.js → `KZ_SUB({...})`
 个例：基本信息、`visits[[code,label,date,flag]]`、`ae` `mh` `cm` `ec`（给药）`pr` `labs` `vs` `ecg`（按指标的时间序列；行 `[0 date,1 visit,2 value,3 raw,4 unit,5 lo,6 hi,7 clin,8 desc,9 sheet,10 row,11 tpt,12 time,13 isBaseline,14 归因码,15 原因说明,16 关联摘要（「；」分隔）,17 分级,18 较基线%,19 疑似录入错误说明]`，既有位不动、只在尾部扩位）`ext`（CRO 质疑）`eff` `tl`（时间线事件/风险行）。
-`KZ.subs` 中每个受试者都必须有对应文件（按需加载）。
+`KZ.subs` 中每个参与者都必须有对应文件（按需加载）。
 
 ## 不变量
 - 证据 `[sheet,row]` 必须指向 `_source.json.sheets` 中的 sheet（PR-8 起键＝逐工作簿唯一 id `wb:sheet`；同名 sheet 于不同工作簿各有其键，`sheets_by_name` 供名称反查），`--source-check` 时必须是源 workbook 的非空行。
@@ -58,11 +58,11 @@ labrows `pts` 行：`[visit,date,raw,unit,grade,clin,pct,sheet,row,desc,dev,wb]`
 - 工作台系统层（`window.KZS`，可无）：`sigstate{键:{s,r,n,rk,by,at}}`（处置状态）、`history[{bid,snap,cutoff,n{lab,oth,pd,ent,q},rd{new,worse,resolved},kri,sites}]`（跨上传，旧→新，≤12）、`timeliness{basis,snaps,sites{site:{n,med,p90,gt14,mod:[修改删除数,当前记录数],lastNew}}}`；汇总失败时 `trendError`。
 
 ### V6 追加（2026-11-02）
-- **原始数据层**（`raw_export.py`）：`data/rawidx.js` → `window.KZRI={sheets:{<表单id>:{name,wb,mapped,domain,cols,const,hl,n,nsub}},subs:{sid:[表单id…]},dropped:[隐私列名…]}`；`data/r/<sid>.js` → `KZ_RAW(sid,{<表单id>:[[原始行号,…值]]})`。覆盖全部工作簿中含受试者列的表单（含未映射表单）；剔除姓名/缩写/身份证/电话/住址类列；全导出行同值的列上提为 `const`；差异导出中标记删除的行不导出。表单 id 与 `_source.json.sheets` 同口径，证据 `[sh,row]` 可直接定位。
+- **原始数据层**（`raw_export.py`）：`data/rawidx.js` → `window.KZRI={sheets:{<表单id>:{name,wb,mapped,domain,cols,const,hl,n,nsub}},subs:{sid:[表单id…]},dropped:[隐私列名…]}`；`data/r/<sid>.js` → `KZ_RAW(sid,{<表单id>:[[原始行号,…值]]})`。覆盖全部工作簿中含参与者列的表单（含未映射表单）；剔除姓名/缩写/身份证/电话/住址类列；全导出行同值的列上提为 `const`；差异导出中标记删除的行不导出。表单 id 与 `_source.json.sheets` 同口径，证据 `[sh,row]` 可直接定位。
 - `_source.json`：`sheets.<id>.domain`（映射域）、`unmapped`（未映射表名，终点无数据时给候选来源表）。
-- `KZ.ops`：`visitAlias{方案访视键:数据代码}`、`visitUnmapped[…]`、`kriPending{ipd,elig}`（待核实未计入容忍限度分子的受试者数）；访视推算 `due` 的研究日按锚点（首剂 D1 记法；末次给药/随机/知情/前一访视为「锚点后第 t 天」）。
+- `KZ.ops`：`visitAlias{方案访视键:数据代码}`、`visitUnmapped[…]`、`kriPending{ipd,elig}`（待核实未计入容忍限度分子的参与者数）；访视推算 `due` 的研究日按锚点（首剂 D1 记法；末次给药/随机/知情/前一访视为「锚点后第 t 天」）。
 - `KZ.bind.notes[]`：规则指标正则零命中时的重绑说明、有效性终点 src 名称核心对齐说明（研究依据页显示）。
 - `KZ.eff.missing[].cands[]`：可能的来源表（未映射）。
 - `KZ.qx[]`（工作台回写）：AI 来源质疑（ai_csb/ai_review），`kz.js` 载入时按 qkey 并入 `KZ.queries`。
 - `analysis.consMinDiff`（默认 0.05）：判定一致性「更差方」须多偏离参考边界的相对幅度；0＝无最小差（2026-10-30 旧口径）。
-- 页面：参与者资料空间新增 `raw.html`（原始数据浏览）；个例页新增「原始数据」页签、受试者旅程图、异常指标热力图；中心页新增受试者风险构成图；行动项按「受试者×日期×类别×表单」聚合。
+- 页面：参与者资料空间新增 `raw.html`（原始数据浏览）；个例页新增「原始数据」页签、参与者旅程图、异常指标热力图；中心页新增参与者风险构成图；行动项按「参与者×日期×类别×表单」聚合。
