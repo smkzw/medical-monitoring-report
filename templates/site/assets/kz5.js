@@ -72,7 +72,7 @@ K.risks=()=>{if(K._risk)return K._risk;const Dd=D(),O=Dd.ops||{},out=[];
     if(ds==='new'||ds==='worse'){sc*=1.3;tags.push([ds==='new'?'本次新增':'较上次加重','red'])}
     if(o.x&&o.x.ctq){sc*=1.4;tags.push(['关键数据','solid-red',o.x.ctq])}
     o.score=Math.round(sc);o.tags=tags;out.push(o)};
-  const LB={CSX:[90,'CS 未关联 AE/病史'],DISW:[70,'研究疾病·较基线加重'],MH:[70,'仅关联病史·较基线加重'],NCS2:[55,'≥2 级判 NCS'],NA2:[55,'≥2 级未评价'],G2NF:[50,'≥2 级·无评价字段'],
+  const LB={CSX:[90,'有临床意义·未关联 AE/病史'],DISW:[70,'研究疾病·较基线加重'],MH:[70,'仅关联病史·较基线加重'],NCS2:[55,'≥2 级判无临床意义'],NA2:[55,'≥2 级未评价'],G2NF:[50,'≥2 级·无评价字段'],
     NA:[35,'超范围未评价'],MHU:[35,'仅关联病史·无法判断加重'],HXU:[45,'已归因既往情况·病史未记录'],CSI:[30,'判定不一致'],'MHX-T':[25,'疑似病史漏记·首剂前']};
   K.lab.forEach(g=>{const b=g.risk==='REL'?(K.relRisk(g)?[30,'较基线显著变化·未关联']:null):LB[g.risk];if(!b)return;
     add({kind:'lab',x:g,base:b[0]+(g.mg||0)*3,roles:['mm'],sid:g.sid,site:g.site,title:`${g.test} · ${b[1]}`,why:(g.ctx||[])[0]||'',tag:['检验','org'],open:()=>K.showLabG(g)})});

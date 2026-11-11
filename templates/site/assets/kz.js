@@ -292,7 +292,30 @@ K._markerItemOk=it=>{if(it==null)return false;if(Array.isArray(it))return it.len
   if('xAxis'in it||'yAxis'in it)return(!('xAxis'in it)||K._coordOk(it.xAxis))&&(!('yAxis'in it)||K._coordOk(it.yAxis));
   return true};
 K.chartGuard=opt=>{(opt&&opt.series||[]).forEach(s=>{if(!s)return;for(const mk of['markLine','markPoint','markArea']){const m=s[mk];   /* V6：markArea 同口径（区间端点缺失→整块撤除，不让整张图空白） */
-  if(!m||!Array.isArray(m.data))continue;m.data=m.data.filter(K._markerItemOk);if(!m.data.length)delete s[mk]}});return opt};
+  if(!m||!Array.isArray(m.data))continue;m.data=m.data.filter(K._markerItemOk);if(!m.data.length)delete s[mk]}});return K.axisGuard(opt)};
+/* 用户 2026-11-11（首页入组进度横轴「7月」与「3」重叠、参考线标签「计划」被裁成「计」）：全部图表统一防重叠——
+ * 坐标轴标签自动避让（显式 interval:0 的分类轴除外）；时间轴用中文分级标签（年/月/日不混排）；
+ * 水平参考线标签放线内侧右上、竖直参考线标签放顶端，不压坐标轴文字；显示数值标签的系列自动隐藏互相重叠的标签。 */
+K.TIMEFMT={year:'{yyyy}年',month:'{M}月',day:'{M}/{d}',hour:'{HH}:{mm}',minute:'{HH}:{mm}',second:'{HH}:{mm}:{ss}',millisecond:'{HH}:{mm}:{ss}',none:'{yyyy}-{MM}-{dd}'};
+/* 访视代码中文名（重叠排查 2026-11-11：横轴 SCR/USV/ET/EOT 英文代码外露）；只换显示，数据键不变 */
+K.VCODE=/^(SCR|USV|UNS|ET|EOT|EOS|FU)(?=$|[\s\d])/;
+K.VNAME={SCR:'筛选期',USV:'计划外',UNS:'计划外',ET:'提前退出',EOT:'治疗结束',EOS:'研究结束',FU:'随访'};
+K.sup=t=>String(t).replace(/10\^(-?\d+)/g,(_,e)=>'10'+[...e].map(c=>'⁰¹²³⁴⁵⁶⁷⁸⁹'['0123456789'.indexOf(c)]||'⁻').join(''));   /* ×10^9/L → ×10⁹/L */
+K.vname=v=>String(v??'').replace(K.VCODE,m=>K.VNAME[m]||m);
+K.axisGuard=opt=>{if(!opt)return opt;const ax=k=>[].concat(opt[k]||[]).filter(a=>a&&typeof a==='object');
+  [...ax('xAxis'),...ax('yAxis')].forEach(a=>{const L=a.axisLabel=Object.assign({},a.axisLabel||{});if(typeof a.name==='string')a.name=K.sup(a.name);
+    if(L.hideOverlap==null&&!(a.type==='category'&&L.interval===0))L.hideOverlap=true;
+    if(a.type==='time'&&L.formatter==null)L.formatter=K.TIMEFMT;
+    if(a.type==='category'&&L.formatter==null&&Array.isArray(a.data)&&a.data.some(v=>K.VCODE.test(String(v))))L.formatter=v=>K.vname(v)});
+  /* 柱图纵轴从 0 起（自动范围从 2 起时值 3 的柱像满格）；自动范围的数值轴上下留白，落在边上的点和标签不被轴线/边框遮一半 */
+  const hasBar=(opt.series||[]).some(s=>s&&s.type==='bar');
+  ax('yAxis').forEach(a=>{if(a.type!=='value'||a.min!=null||a.max!=null)return;if(hasBar&&a.scale)a.scale=false;else if(a.scale&&a.boundaryGap==null)a.boundaryGap=['6%','10%']});
+  const vert=new Set(ax('xAxis').length?['xAxis']:[]);
+  (opt.series||[]).forEach(s=>{if(!s)return;const m=s.markLine;
+    if(m&&Array.isArray(m.data))m.data.forEach(d=>{if(!d||Array.isArray(d))return;const lb=d.label=Object.assign({},m.label||{},d.label||{});if(lb.position)return;
+      if(d.yAxis!=null)lb.position='insideEndTop';else if(d.xAxis!=null&&vert.size)lb.position='end'});
+    const lb=s.label;if(lb&&lb.show&&!s.labelLayout&&['line','scatter','bar'].includes(s.type))s.labelLayout={hideOverlap:true}});
+  return opt};
 /* V6（用户审阅 RUX 第 17 条、裁定 14）：生长动效只在图第一次进入视野时播放——此前图在页面下方/隐藏页签里初始化，
  * 动画在用户看见之前就放完了。不在视野内的新图先挂起配置，进入视野（IntersectionObserver）再渲染；同一张图之后的更新不再动画。 */
 K._waitQ=new Set();
@@ -538,14 +561,15 @@ K.funnelChart=(el,F,o={})=>{const fm=o.fmt||(v=>K.fmt(v)),hc=o.hc||'',maxN=Math.
   const lim=(k,s)=>ns.map(n=>[n,cl(F.mu+s*k*F.se(n))]);
   const ms=F.rows.map(r=>r.m).concat([F.mu]),y0=Math.min(...ms),y1=Math.max(...ms),yp=(y1-y0)*.25||Math.abs(F.mu)*.1||1,st=Math.pow(10,Math.floor(Math.log10((y1-y0+2*yp)/4)))/2,yr=[Math.floor((y0-yp)/st)*st,Math.ceil((y1+yp)/st)*st].map(x=>+x.toPrecision(6));
   const L=(name,data,c,t)=>({type:'line',name,data,symbol:'none',silent:true,lineStyle:{color:c,width:1,type:t},z:1});
-  const c=K.chart(el,{grid:{left:o.left||48,right:16,top:18,bottom:34},
+  const c=K.chart(el,{grid:{left:o.left||48,right:28,top:18,bottom:34},
    tooltip:{trigger:'item',formatter:p=>{const r=p.data&&p.data.r;if(!r)return '';return `<b>中心 ${r.site}</b>${o.names&&o.names[r.site]?' '+K.esc(o.names[r.site]):''}<br>n=${r.n}${r.x!=null?'（'+r.x+' 例）':''} · ${o.kind==='p'?'比例':'均值'} ${fm(r.m)}<br>整体 ${fm(F.mu)} · z=${r.z.toFixed(1)}<br>${K.FL[r.flag][0]}${r.n<2?'（n<2 不判）':''}`}},
-   xAxis:{type:'value',name:o.xName||'中心参与者数 n',nameLocation:'middle',nameGap:20,nameTextStyle:{color:'#64676B',fontSize:10},min:0,max:Math.ceil(maxN),minInterval:1,...K.axis},
-   yAxis:{type:'value',scale:true,...K.axis,axisLabel:{color:'#64676B',formatter:v=>o.kind==='p'?Math.round(v*100)+'%':K.fmt(v)},min:o.ymin!=null?o.ymin:yr[0],max:o.ymax!=null?o.ymax:yr[1]},
+   xAxis:{type:'value',name:o.xName||'中心参与者数 n',nameLocation:'middle',nameGap:20,nameTextStyle:{color:'#64676B',fontSize:10},min:0,max:Math.ceil(maxN*1.05),minInterval:1,...K.axis,axisLabel:{color:'#404040',showMaxLabel:false}},
+   yAxis:{type:'value',scale:true,...K.axis,axisLabel:{color:'#64676B',showMinLabel:false,showMaxLabel:false,formatter:v=>o.kind==='p'?Math.round(v*100)+'%':K.fmt(v)},min:o.ymin!=null?o.ymin:yr[0],max:o.ymax!=null?o.ymax:yr[1]},
    series:[L('整体',[[0,F.mu],[maxN,F.mu]],'#64676B','solid'),L('+2SE',lim(2,1),'#F2B567','dashed'),L('−2SE',lim(2,-1),'#F2B567','dashed'),L('+3SE',lim(3,1),'#B88A8A','dotted'),L('−3SE',lim(3,-1),'#B88A8A','dotted'),
-    {type:'scatter',z:5,data:F.rows.map(r=>{const s=r.site===hc;return {value:[r.n,o.ymax!=null?Math.min(r.m,o.ymax):r.m],r,symbolSize:s?13:8,
+    /* 用户 2026-11-11 重叠排查：中心编号互相压住 → 标签自动避让，优先保留选中中心与偏离中心（数据按优先级排序） */
+    {type:'scatter',z:5,labelLayout:{hideOverlap:true},data:F.rows.slice().sort((a,b)=>(b.site===hc)-(a.site===hc)||(!!b.flag)-(!!a.flag)||b.n-a.n).map(r=>{const s=r.site===hc;return {value:[r.n,o.ymax!=null?Math.min(r.m,o.ymax):r.m],r,symbolSize:s?13:8,
       itemStyle:{color:K.FL[r.flag][1],opacity:hc&&!s?.55:.9,borderColor:s?'#0F1115':'#fff',borderWidth:s?2:1},
-      label:{show:s||!!r.flag||r.n>=3,position:'right',formatter:r.site,fontSize:s?11:9,fontWeight:s?700:400,color:s?'#0F1115':'#9A9DA3'}}})}]});
+      label:{show:s||!!r.flag||r.n>=Math.max(3,maxN*.2),position:'right',formatter:r.site,fontSize:s?11:9,fontWeight:s?700:400,color:s?'#0F1115':'#9A9DA3'}}})}]});
   c.off('click');if(o.onPick)c.on('click',p=>{if(p.data&&p.data.r)o.onPick(p.data.r.site)});return c};
 K.flagPill=r=>r&&r.flag?K.p(K.FL[r.flag][0],r.flag):'';
 /* ---- 连续变量按访视：中位线 + IQR 带 + 个体散点；选中中心加粗，整体淡化 ---- */
@@ -608,3 +632,28 @@ K.ybOpt=R=>{if(!R)return {};const br=R.breaks||[],o={};if(R.hi!=null)o.max=R.hi;
     if (done && i === sys.length - 1) t.onload = t.onerror = () => done();
     head.appendChild(t); });
 })();
+/* 用户 2026-11-11：各处手写表格与原始数据表补排序、筛选（K.table 已有的不重复处理）。
+ * 规则：单行表头、≥6 行的表——点表头升/降序；≥8 行时表上方加表内搜索，取值 2–20 种的列（最多 3 列）加下拉筛选。
+ * 跳过：K.table 生成的（data-kz）、热力矩阵（.heat）、多级表头、含展开明细/分组行的、无表头的键值表。 */
+K.enhanceTable=tb=>{if(!tb||tb.dataset.kz||tb.dataset.kze||tb.classList.contains('heat'))return;tb.dataset.kze='1';
+  const th=tb.tHead&&tb.tHead.rows.length===1?[...tb.tHead.rows[0].cells]:null,body=tb.tBodies[0];
+  if(!th||!body||th.some(c=>c.colSpan>1||c.rowSpan>1))return;
+  const rows=[...body.rows];if(rows.length<6||rows.some(r=>r.classList.contains('grp')||r.classList.contains('dx')||[...r.cells].some(c=>c.colSpan>1)))return;
+  const txt=(r,i)=>(r.cells[i]&&r.cells[i].innerText||'').trim();
+  let sc=-1,dir=1;
+  th.forEach((h,i)=>{h.style.cursor='pointer';h.title=(h.title?h.title+'；':'')+'点击排序';h.addEventListener('click',()=>{dir=sc===i?-dir:1;sc=i;
+    const rs=[...body.rows].sort((a,b)=>{const x=txt(a,i),y=txt(b,i);if(!x&&!y)return 0;if(!x)return 1;if(!y)return -1;return K.cmpTxt(x,y)*dir});
+    rs.forEach(r=>body.appendChild(r));th.forEach((c,j)=>{const m=c.querySelector('.kzs');if(m)m.remove();if(j===i)c.insertAdjacentHTML('beforeend',`<span class="kzs" style="color:var(--brand-d)"> ${dir>0?'▲':'▼'}</span>`)})})});
+  if(rows.length<8)return;
+  const fc=[];th.forEach((h,i)=>{if(fc.length>=3)return;const m=new Map();for(const r of rows){const v=txt(r,i);if(v.length>24){m.clear();break}if(v)m.set(v,(m.get(v)||0)+1);if(m.size>20)break}
+    if(m.size>=2&&m.size<=20&&[...m.values()].some(n=>n>1))fc.push([i,[...m.entries()].sort((a,b)=>K.cmpTxt(a[0],b[0]))])});
+  const host=tb.closest('.tw,.listing')||tb,bar=document.createElement('div');bar.className='tflt';
+  bar.innerHTML=`<input class="s" placeholder="在表内搜索"><span class="xs muted kzn"></span>${fc.map(([i,vs])=>`<select class="s" data-i="${i}"><option value="">${K.esc(th[i].innerText.replace(/[▲▼]/g,'').trim())}：全部</option>${vs.map(([v,n])=>`<option value="${K.esc(v)}">${K.esc(v)}（${n}）</option>`).join('')}</select>`).join('')}`;
+  host.parentNode.insertBefore(bar,host);
+  const apply=()=>{const q=bar.querySelector('input').value.trim().toLowerCase(),fs=[...bar.querySelectorAll('select')].filter(s=>s.value).map(s=>[+s.dataset.i,s.value]);let n=0;
+    [...body.rows].forEach(r=>{const ok=fs.every(([i,v])=>txt(r,i)===v)&&(!q||r.innerText.toLowerCase().includes(q));r.style.display=ok?'':'none';if(ok)n++});
+    bar.querySelector('.kzn').textContent=q||fs.length?`${n} / ${rows.length} 行`:''};
+  bar.querySelector('input').addEventListener('input',apply);bar.querySelectorAll('select').forEach(s=>s.addEventListener('change',apply))};
+K._enhQ=null;K.enhanceAll=()=>{K._enhQ=null;document.querySelectorAll('table').forEach(K.enhanceTable)};
+if(typeof MutationObserver==='function'&&typeof document!=='undefined')document.addEventListener('DOMContentLoaded',()=>{K.enhanceAll();
+  new MutationObserver(()=>{if(!K._enhQ)K._enhQ=setTimeout(K.enhanceAll,60)}).observe(document.body,{childList:true,subtree:true})});

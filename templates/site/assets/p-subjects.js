@@ -18,11 +18,11 @@ app.innerHTML=`<div class="grid" style="grid-template-columns:270px 1fr;gap:14px
   <div style="padding:0 10px 6px;line-height:1.9" class="xs muted">${K.p('n','solid-red')} 有临床意义未关联 AE/病史　${K.p('n','red')} 专项核查　${K.p('n','org')} 仅关联病史　${K.p('Q','line')} 质疑条数　AE 不良事件例次　圆点＝参与者状态</div>
   <div class="subj-list" id="sl"></div></div>
  <div id="main"></div></div>`;
-const st={q:'',c:H.c||'',g:'',s:'dosed',o:'risk'};
+const st={q:'',c:H.c||'',g:'',s:'dosed',o:'id'};   /* 用户 2026-11-11：默认按编号、按中心分组 */
 const DS=((window.KZS||{}).delta||{}).subjects||null;   /* 较上次：有新增/修改/删除记录的参与者 */
 document.getElementById('fc').value=st.c;
 K.chips(document.getElementById('fs'),[['dosed','已给药',subs.filter(s=>s.fd).length],['risk','有风险提示',subs.filter(s=>s.fd&&(s.sc.csx||s.sc.mh||s.sc.ot)).length],['q','有质疑',subs.filter(s=>s.sc.q).length],['sf','筛选失败',subs.filter(s=>s.status==='筛选失败').length],...(DS?[['chg','本次有新数据',subs.filter(s=>DS[s.id]).length]]:[])],v=>{st.s=v;list()},{all:'全部',value:'dosed'});
-K.seg(document.getElementById('fo'),[['risk','风险'],['id','编号'],['ae','AE数']],'risk',v=>{st.o=v;list()});
+K.seg(document.getElementById('fo'),[['id','编号'],['risk','风险'],['ae','AE数']],'id',v=>{st.o=v;list()});
 document.getElementById('fq').oninput=e=>{st.q=e.target.value.trim();list()};
 document.getElementById('fc').onchange=e=>{st.c=e.target.value;list()};
 if(ARMS.length>1)document.getElementById('fg').onchange=e=>{st.g=e.target.value;list()};
@@ -31,9 +31,11 @@ let cur=H.s;
 function list(){
   let r=subs.filter(s=>(!st.c||s.site===st.c)&&(!st.g||s.grp===st.g)&&(!st.q||s.id.includes(st.q)));
   if(st.s==='dosed')r=r.filter(s=>s.fd);else if(st.s==='risk')r=r.filter(s=>s.fd&&(s.sc.csx||s.sc.mh||s.sc.ot));else if(st.s==='q')r=r.filter(s=>s.sc.q);else if(st.s==='sf')r=r.filter(s=>s.status==='筛选失败');else if(st.s==='chg')r=r.filter(s=>DS&&DS[s.id]);
-  r.sort(st.o==='risk'?(a,b)=>rk(b)-rk(a)||a.id.localeCompare(b.id):st.o==='ae'?(a,b)=>b.nae-a.nae||a.id.localeCompare(b.id):(a,b)=>a.id.localeCompare(b.id));
+  const ord=st.o==='risk'?(a,b)=>rk(b)-rk(a)||a.id.localeCompare(b.id):st.o==='ae'?(a,b)=>b.nae-a.nae||a.id.localeCompare(b.id):(a,b)=>a.id.localeCompare(b.id,undefined,{numeric:true});
+  r.sort((a,b)=>String(a.site).localeCompare(String(b.site),undefined,{numeric:true})||ord(a,b));   /* 按中心分簇，簇内按所选排序 */
   const el=document.getElementById('sl');
-  el.innerHTML=r.map(s=>`<div class="it ${s.id===cur?'on':''}" data-id="${s.id}"><b style="width:44px;color:var(--ink)">${s.id}</b><span class="dot ${K.STC[s.status]||''}" title="${s.status}"></span>${DS&&DS[s.id]?'<span class="p red sq" title="较上次有新增/修改的记录">新</span>':''}<span class="sp"></span>${s.sc.csx?`<span class="p solid-red sq" title="有临床意义但未关联 AE/病史">${s.sc.csx}</span>`:''}${s.sc.ot?`<span class="p red sq" title="专项核查（需核实及以上）">${s.sc.ot}</span>`:''}${s.sc.mh?`<span class="p org sq" title="有临床意义、仅关联病史">${s.sc.mh}</span>`:''}${s.sc.q?`<span class="p line sq" title="质疑条数">Q${s.sc.q}</span>`:''}<span class="xs faint" style="width:30px;text-align:right">${s.nae?'AE'+s.nae:''}</span></div>`).join('')||'<div class="empty">无</div>';
+  const nOf={};r.forEach(s=>nOf[s.site]=(nOf[s.site]||0)+1);
+  el.innerHTML=r.map((s,i)=>(i===0||r[i-1].site!==s.site?`<div class="xs muted" style="padding:6px 10px 2px;font-weight:600;border-top:${i?'1px solid var(--line)':'0'}">中心 ${K.esc(s.site)} ${K.esc(K.center(s.site)||'')} · ${nOf[s.site]} 人</div>`:'')+`<div class="it ${s.id===cur?'on':''}" data-id="${s.id}"><b style="width:44px;color:var(--ink)">${s.id}</b><span class="dot ${K.STC[s.status]||''}" title="${s.status}"></span>${DS&&DS[s.id]?'<span class="p red sq" title="较上次有新增/修改的记录">新</span>':''}<span class="sp"></span>${s.sc.csx?`<span class="p solid-red sq" title="有临床意义但未关联 AE/病史">${s.sc.csx}</span>`:''}${s.sc.ot?`<span class="p red sq" title="专项核查（需核实及以上）">${s.sc.ot}</span>`:''}${s.sc.mh?`<span class="p org sq" title="有临床意义、仅关联病史">${s.sc.mh}</span>`:''}${s.sc.q?`<span class="p line sq" title="质疑条数">Q${s.sc.q}</span>`:''}<span class="xs faint" style="width:30px;text-align:right">${s.nae?'AE'+s.nae:''}</span></div>`).join('')||'<div class="empty">无</div>';
   el.querySelectorAll('.it').forEach(it=>it.onclick=()=>show(it.dataset.id));
   if(!cur&&r.length)show(r[0].id);
 }
@@ -120,7 +122,7 @@ async function show(id){
     el.querySelectorAll('tr[data-t]').forEach(tr=>tr.onclick=()=>labChart(tr.dataset.t,obj));
   }
   function tLab(){
-    pp.innerHTML=`<div class="card mb"><div class="sec-t" style="margin-top:0"><h2>异常指标热力图</h2><span class="muted small">曾超出参考范围或判 CS 的指标 × 访视；颜色＝偏离参考范围的相对幅度，「CS」＝研究者判有临床意义；点格查看全程与原始行</span></div><div id="lhm" class="chart"></div></div><div class="card"><div class="tbar"><label class="chip"><input type="checkbox" id="abn"> 仅异常项目</label><span class="sp"></span><span class="vchip cs">CS</span><span class="vchip ncs">NCS</span><span class="xs muted">橙色下划线 = 方案定义的基线（${K.esc(BL.labLabel||BL.lab||'首次给药前最近一次有效值')}；缺失时用首次给药前最近一次有效值替代，多次均值时全部标记）· 点击行看趋势</span></div><div id="lm"></div></div>`;
+    pp.innerHTML=`<div class="card mb"><div class="sec-t" style="margin-top:0"><h2>异常指标热力图</h2><span class="muted small">曾超出参考范围或判有临床意义的指标 × 访视；颜色＝偏离参考范围的相对幅度（灰＝在范围内，空白＝该访视未检测），格内「CS」＝研究者判有临床意义；点格查看全程与原始行</span></div><div id="lhm" class="chart"></div></div><div class="card"><div class="tbar"><label class="chip"><input type="checkbox" id="abn"> 仅异常项目</label><span class="sp"></span><span class="vchip cs">CS</span><span class="vchip ncs">NCS</span><span class="xs muted">橙色下划线 = 方案定义的基线（${K.esc(BL.labLabel||BL.lab||'首次给药前最近一次有效值')}；缺失时用首次给药前最近一次有效值替代，多次均值时全部标记）· 点击行看趋势</span></div><div id="lm"></div></div>`;
     const by={};Object.entries(d.labs).forEach(([t,rows])=>{const sh=rows[0][9];(by[sh]=by[sh]||[]).push(t)});
     const groups=Object.keys(by).sort((a,b)=>SHO.indexOf(a)-SHO.indexOf(b)).map(sh=>[SHEET[sh]||sh,by[sh]]);
     const draw=()=>mx(document.getElementById('lm'),groups,d.labs,{abn:document.getElementById('abn').checked});
@@ -131,7 +133,7 @@ async function show(id){
   function tVS(){
     pp.innerHTML=`${Object.keys(d.ecg||{}).length?`<div class="card mb"><div class="sec-t" style="margin-top:0"><h2>心电图</h2><span class="muted small">${K.esc(CF.ecgNote||'')}</span></div><div id="em"></div></div>`:''}${Object.keys(d.vs||{}).length?`<div class="card"><div class="sec-t" style="margin-top:0"><h2>生命体征</h2><span class="muted small">${K.esc(CF.vsNote||'')}</span></div><div id="vm"></div></div>`:''}`;
     /* V6：心电图/生命体征同样给异常热力图（超出参考范围或判 CS 的项目；无参考范围的只显示 CS 标记） */
-    pp.insertAdjacentHTML('afterbegin','<div class="card mb"><div class="sec-t" style="margin-top:0"><h2>异常项目热力图</h2><span class="muted small">心电图与生命体征中超出参考范围或判 CS 的项目 × 访视；点格查看全程与原始行</span></div><div id="vhm" class="chart"></div></div>');
+    pp.insertAdjacentHTML('afterbegin','<div class="card mb"><div class="sec-t" style="margin-top:0"><h2>异常项目热力图</h2><span class="muted small">心电图与生命体征中超出参考范围或判有临床意义的项目 × 访视（灰＝在范围内，空白＝该访视未检测）；点格查看全程与原始行</span></div><div id="vhm" class="chart"></div></div>');
     if(!K.labHeat||!K.labHeat(document.getElementById('vhm'),{...(d.ecg||{}),...(d.vs||{})},{onPick:t=>{const g=lr.find(x=>x.test===t);g?K.showLabG(g):K.seriesPanel(K.drawer(`${id} · ${K.esc(t)}`,'<div id="sp"></div>').querySelector('#sp'),{sid:id,tests:[t],hl:(((d.ecg||{})[t])||((d.vs||{})[t])||[]).filter(r=>r[7]===2).map(r=>[r[9],r[10]])})}}))
       document.getElementById('vhm').closest('.card').remove();
     const vb=(vis,tp)=>rows=>{const i=vis?rows.findIndex(r=>r[1]===vis&&(!tp||new RegExp(tp).test(r[11]||''))):-1;return i>=0?i:baseIdx(rows,d.fd)};

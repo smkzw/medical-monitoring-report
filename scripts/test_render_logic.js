@@ -156,6 +156,14 @@ if (typeof K.chartGuard === 'function') {
   const o6 = { series: [{ type: 'line', markArea: { data: [[{ xAxis: '2026-01-01' }, { xAxis: undefined }]] } }, { type: 'line', markArea: { data: [[{ yAxis: 1 }, { yAxis: 3 }]] } }] };
   K.chartGuard(o6);
   ok(!o6.series[0].markArea && o6.series[1].markArea.data.length === 1, 'markArea：端点缺失整块撤除、完整区间保留（V6 抽屉图空白）');
+  /* 用户 2026-11-11：全部图表防重叠（坐标轴标签避让、时间轴中文分级标签、参考线标签放线内侧、数值标签自动隐藏重叠） */
+  const o7 = { xAxis: { type: 'time' }, yAxis: { type: 'category', axisLabel: { interval: 0 } },
+    series: [{ type: 'line', label: { show: true }, markLine: { data: [{ yAxis: 5, label: { formatter: '计划' } }, { xAxis: 3 }] } }] };
+  K.chartGuard(o7);
+  ok(o7.xAxis.axisLabel.hideOverlap === true && o7.xAxis.axisLabel.formatter && o7.xAxis.axisLabel.formatter.month === '{M}月', '时间轴：避让＋中文分级标签');
+  ok(o7.yAxis.axisLabel.hideOverlap === undefined, '显式 interval:0 的分类轴不自动隐藏');
+  ok(o7.series[0].markLine.data[0].label.position === 'insideEndTop' && o7.series[0].markLine.data[0].label.formatter === '计划', '水平参考线标签放线内侧且保留文字');
+  ok(o7.series[0].labelLayout && o7.series[0].labelLayout.hideOverlap, '数值标签自动隐藏重叠');
   ok(K.dt('2026-01-02', '2025-01-27 10:23:11') === '2026-01-02' && K.dt('2026-01-02', '9:05') === '2026-01-02T09:05', 'K.dt：只接受时:分');
   ok(K.cmpTxt('2025-01-03', '2025-02-01') < 0 && K.cmpTxt('2025-03-01 09:00', '2025-03-01 10:00') < 0, 'K.cmpTxt：日期按字符串比（不只比年份）');
   ok(K.cmpTxt('10', '9') > 0 && K.cmpTxt('0.53 ×10^9/L', '1.2') < 0 && K.cmpTxt('甲', '乙') !== 0, 'K.cmpTxt：数值与文字');

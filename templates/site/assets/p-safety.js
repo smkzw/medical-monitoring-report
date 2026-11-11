@@ -17,8 +17,11 @@ function tabOv(){
   const sfAll=S.filter(s=>s.status==='筛选失败').length/(S.length||1);
   const sfF=K.colFlags(CS.map(c=>{const ss=st(c.site);return [ss.filter(s=>s.status==='筛选失败').length,ss.length]}),sfAll);
   const pm=site=>st(site).reduce((a,s)=>a+(fu[s.id]||0),0)/30.4375;
-  const prog=c=>{const ss=st(c.site),n=ss.length||1,grp=[['完成试验','grn','完成'],['已入组','blu','在组'],['治疗结束','line','治疗结束'],['提前终止治疗','line','提前终止治疗'],['提前退出','red','提前退出'],['筛选失败','faint','筛败']];
-    return `<div class="bar-in" style="display:flex;height:10px;width:120px" title="${grp.map(([k,,l])=>l+' '+ss.filter(s=>s.status===k).length).join(' · ')}">${grp.map(([k,cl])=>{const m=ss.filter(s=>s.status===k).length;return m?`<i style="width:${m/n*100}%;background:var(--${cl==='faint'?'line':cl==='line'?'muted':cl==='grn'?'green':cl==='blu'?'blue':'risk'})"></i>`:''}).join('')}</div>`};
+  /* 用户 2026-11-11：原「进度」条把筛败算进分母、只有悬停才有说明，锁库项目（RUX）也显示不满，像是未入组结束 →
+   * 改「参与者去向」：分母＝已入组（不含筛败），条旁直接写人数 */
+  const prog=c=>{const ss=st(c.site).filter(s=>s.status!=='筛选失败'),n=ss.length||1,grp=[['完成试验','green','完成'],['已入组','blue','在组'],['治疗结束','muted','治疗结束'],['提前终止治疗','muted','提前终止治疗'],['提前退出','risk','退出']];
+    const oth=ss.filter(s=>!grp.some(g=>g[0]===s.status)).length,cnt=grp.map(([k])=>ss.filter(s=>s.status===k).length);
+    return `<div class="flex" style="gap:6px;align-items:center;flex-wrap:nowrap"><div style="display:flex;height:10px;width:90px;background:var(--line);border-radius:2px;overflow:hidden">${grp.map(([,cl],i)=>cnt[i]?`<i style="width:${cnt[i]/n*100}%;background:var(--${cl})"></i>`:'').join('')}${oth?`<i style="width:${oth/n*100}%;background:#D5D8DD"></i>`:''}</div><span class="xs nowrap">${grp.map(([,,l],i)=>cnt[i]?l+' '+cnt[i]:'').filter(Boolean).concat(oth?['其他 '+oth]:[]).join(' · ')||'—'}</span></div>`};
   const groups=[...new Set(C.map(c=>c[1]))];
   /* F12⑦（V6 RUX）：安全性概览补 AESI 定义清单（有定义时）与死亡转归例数（0 例也明示——「无死亡」要看得见） */
   const B=D.basis||{};
@@ -30,7 +33,7 @@ function tabOv(){
    <div class="box small mt">转归为死亡的 AE：<b>${deaths}</b> 例${deaths?'（见 AE 记录页转归列）':'（本数据截止无死亡转归记录）'}</div>`;
   pane.innerHTML=`<div class="card"><div class="hd"><h2>中心总览</h2><span class="sub">颜色＝观察数比「按本中心${K.esc(CR.unit)}推算的期望数」高出多少，且经多重比较校正后仍显著才着色（人少、随访短的中心不会被放大）；数字为条数，悬停看观察/期望；点击看明细</span></div>
    <div class="flex wrap mb xs muted" style="gap:12px"><span><i class="dot" style="background:rgba(230,126,0,.30)"></i> 偏高（校正后 q&lt;0.10）</span><span><i class="dot" style="background:rgba(230,126,0,.62)"></i> 明显偏高（q&lt;0.05）</span><span><i class="dot" style="background:rgba(64,122,170,.18)"></i> TEAE 偏少（q&lt;0.10，可能漏报）</span><span>筛败率着色同理（对照总体 ${(sfAll*100).toFixed(0)}%，按列校正）</span><span>✳ 个案驱动（分母极小的小中心，偏高可能由个别参与者驱动）</span></div>
-   <div style="overflow-x:auto"><table class="t heat" id="ovt"><thead><tr><th rowspan="2">中心</th><th rowspan="2" class="num">筛选</th><th rowspan="2" class="num">筛败</th><th rowspan="2" class="num">给药</th><th rowspan="2" class="num" title="随访人月（首剂至研究结束或数据截止）">随访人月</th><th rowspan="2">进度</th>${groups.map(g=>`<th colspan="${C.filter(c=>c[1]===g).length}" style="text-align:center;border-left:1px solid var(--line)">${g}</th>`).join('')}<th rowspan="2" class="num" title="校正后偏高的类别数">需关注</th></tr>
+   <div style="overflow-x:auto"><table class="t heat" id="ovt"><thead><tr><th rowspan="2">中心</th><th rowspan="2" class="num">筛选</th><th rowspan="2" class="num">筛败</th><th rowspan="2" class="num">给药</th><th rowspan="2" class="num" title="随访人月（首剂至研究结束或数据截止）">随访人月</th><th rowspan="2" title="已入组参与者（不含筛选失败）的当前状态构成：完成 / 在组 / 治疗结束 / 退出">参与者去向</th>${groups.map(g=>`<th colspan="${C.filter(c=>c[1]===g).length}" style="text-align:center;border-left:1px solid var(--line)">${g}</th>`).join('')}<th rowspan="2" class="num" title="校正后偏高的类别数">需关注</th></tr>
    <tr>${C.map((c,i)=>`<th class="h" title="${K.esc(c[4])}" style="${i&&C[i-1][1]!==c[1]?'border-left:1px solid var(--line)':''}">${c[2]}</th>`).join('')}</tr></thead><tbody>
    ${CS.map((c,ci)=>{const ss=st(c.site),sf=ss.filter(s=>s.status==='筛选失败').length,hot=CR.hot(c.site).length;
      const cells=C.map(([k],i)=>{const n=(items[k][c.site]||[]).length,x=(cell[k]||{})[c.site],cd=CR.cased&&CR.cased(k,c.site);
@@ -112,9 +115,9 @@ function tabAE(){
    <div class="card"><div class="hd"><h2>AE 结构</h2><span class="sub">给药后，${aes.filter(a=>!a.pre&&!a.dup).length} 例次${aes.some(a=>a.dup)?'（完全重复记录已去重）':''}</span></div><div id="aep" class="chart" style="height:250px"></div></div></div>
    <div class="card"><div class="tbar"><div class="chips" id="cc"></div></div><div class="tbar">${sel('g',[['','全部等级'],['1级','1级'],['2级','2级'],['3级','3级']],'')}${sel('rel',[['','全部相关性'],['rel','相关（可能/很可能/肯定）'],['unrel','无关/可能无关']],'')}${sel('site',centerOpts,'')}${ARMS.length>1?sel('arm',[['','全部分组'],...ARMS.map(a=>[a,a])],''):''}<label class="chip"><input type="checkbox" id="aesi" ${st.aesi?'checked':''}> AESI</label><label class="chip"><input type="checkbox" id="pre"> 首剂前</label><span id="chg-ae" style="margin-left:6px"></span><span class="sp"></span><span class="note">首剂前的 AE 不计入治疗期不良事件（TEAE）</span></div><div id="tb"></div></div>`;
   const grp=['1级','2级','3级'].map(g=>aes.filter(a=>!a.pre&&!a.dup&&a.g===g).length);const rel=x=>/可能有关|很可能有关|肯定有关/.test(x)&&!/无关/.test(x);
-  K.chart('#aep',{tooltip:{},series:[{type:'pie',radius:['38%','62%'],center:['28%','50%'],label:{formatter:'{b}\n{c}',fontSize:11},data:[{name:'1级',value:grp[0],itemStyle:{color:'#FFCC80'}},{name:'2级',value:grp[1],itemStyle:{color:'#E67E00'}},{name:'3级',value:grp[2],itemStyle:{color:'#8B0000'}}]},
-    {type:'pie',radius:['38%','62%'],center:['74%','50%'],label:{formatter:'{b}\n{c}',fontSize:11},data:[{name:'相关',value:aes.filter(a=>!a.pre&&!a.dup&&rel(a.rel)).length,itemStyle:{color:'#407AAA'}},{name:'无关/可能无关',value:aes.filter(a=>!a.pre&&!a.dup&&!rel(a.rel)).length,itemStyle:{color:'#C9D7E6'}}]}],
-    title:[{text:'严重程度',left:'28%',top:'47%',textAlign:'center',textStyle:{fontSize:11,color:'#64676B',fontWeight:400}},{text:'相关性',left:'74%',top:'47%',textAlign:'center',textStyle:{fontSize:11,color:'#64676B',fontWeight:400}}]});
+  K.chart('#aep',{tooltip:{},legend:{bottom:0,itemWidth:10,itemHeight:10,textStyle:{fontSize:11}},series:[{type:'pie',left:0,right:'50%',radius:['32%','50%'],center:['50%','44%'],avoidLabelOverlap:true,labelLine:{length:6,length2:4},label:{formatter:'{c}',fontSize:11},data:[{name:'1级',value:grp[0],itemStyle:{color:'#FFCC80'}},{name:'2级',value:grp[1],itemStyle:{color:'#E67E00'}},{name:'3级',value:grp[2],itemStyle:{color:'#8B0000'}}]},
+    {type:'pie',left:'50%',right:0,radius:['32%','50%'],center:['50%','44%'],avoidLabelOverlap:true,labelLine:{length:6,length2:4},label:{formatter:'{c}',fontSize:11},data:[{name:'相关',value:aes.filter(a=>!a.pre&&!a.dup&&rel(a.rel)).length,itemStyle:{color:'#407AAA'}},{name:'无关/可能无关',value:aes.filter(a=>!a.pre&&!a.dup&&!rel(a.rel)).length,itemStyle:{color:'#C9D7E6'}}]}],
+    title:[{text:'严重程度',left:'25%',top:'41%',textAlign:'center',textStyle:{fontSize:11,color:'#64676B',fontWeight:400}},{text:'相关性',left:'75%',top:'41%',textAlign:'center',textStyle:{fontSize:11,color:'#64676B',fontWeight:400}}]});
   K.chips(document.getElementById('cc'),cats.map(c=>[c,c,aes.filter(a=>a.c===c).length]),v=>{st.c=v;draw()},{all:'全部类别',value:st.c});
   ['g','rel','site'].concat(ARMS.length>1?['arm']:[]).forEach(k=>document.getElementById(k).onchange=e=>{st[k]=e.target.value;draw()});document.getElementById('aesi').onchange=e=>{st.aesi=e.target.checked;draw()};document.getElementById('pre').onchange=e=>{st.pre=e.target.checked;draw()};
   const tb=K.table(document.getElementById('tb'),{rows:[],h:'600px',pageSize:100,sort:'s',dir:1,cols:[
@@ -158,16 +161,16 @@ function tabCons(){
 function tabCtr(){
   const C=D.centers.filter(c=>c.dosed);
   pane.innerHTML=`<div class="grid g2"><div class="card"><div class="hd"><h2>AE 报告密度 × 检验异常负荷</h2><span class="sub">气泡=给药例数；右下象限（异常多、AE少）优先关注漏报</span></div><div id="sc" class="chart lg"></div></div>
-  <div class="card"><div class="hd"><h2>给药后检验异常的判定构成</h2><span class="sub">每中心「参与者×指标」行：CS未关联 / CS仅MH·加重 / 已关联AE / NCS</span></div><div id="st" class="chart lg"></div></div></div>
-  <div class="note mt">判读：AE/例 低于全体中位数且 CS未关联或 CS仅MH·加重 行偏多，提示该中心可能以病史或「复查」替代AE记录；NCS 占比显著高于全体时，结合同中心判定一致性页核对判定尺度。跨中心差异只作提示，不以多数中心的判定作为医学标准。</div>`;
+  <div class="card"><div class="hd"><h2>给药后检验异常的判定构成</h2><span class="sub">每中心「参与者×指标」行：有临床意义未关联 / 有临床意义仅关联病史且加重 / 已关联 AE / 无临床意义</span></div><div id="st" class="chart lg"></div></div></div>
+  <div class="note mt">判读：AE/例 低于全体中位数且「有临床意义未关联」或「仅关联病史且加重」行偏多，提示该中心可能以病史或「复查」替代AE记录；「无临床意义」占比显著高于全体时，结合同中心判定一致性页核对判定尺度。跨中心差异只作提示，不以多数中心的判定作为医学标准。</div>`;
   const med=K.median(C.map(c=>c.ae/c.dosed)),medL=K.median(C.map(c=>c.labrows/c.dosed));
-  K.chart('#sc',{grid:{left:50,right:20,top:20,bottom:40},tooltip:{formatter:p=>{const c=p.data.c;return `<b>${c.site} ${c.name}</b><br>给药 ${c.dosed} · AE ${c.ae}（${(c.ae/c.dosed).toFixed(1)}/例）<br>异常行 ${c.labrows}（${(c.labrows/c.dosed).toFixed(1)}/例）<br>CS未关联 ${c.csx} · CS仅MH ${c.mhx}`}},
-   xAxis:{name:'检验异常行 / 给药例',nameLocation:'middle',nameGap:26,...K.axis},yAxis:{name:'AE 例次 / 给药例',...K.axis},
-   series:[{type:'scatter',data:C.map(c=>({value:[c.labrows/c.dosed,c.ae/c.dosed],c,symbolSize:8+Math.sqrt(c.dosed)*6,itemStyle:{color:c.csx?'#8B0000':c.mhx?'#FF9900':'#407AAA',opacity:.75}})),label:{show:true,formatter:p=>p.data.c.site,fontSize:10,color:'#404040'},
+  K.chart('#sc',{grid:{left:50,right:20,top:20,bottom:40},tooltip:{formatter:p=>{const c=p.data.c;return `<b>${c.site} ${c.name}</b><br>给药 ${c.dosed} · AE ${c.ae}（${(c.ae/c.dosed).toFixed(1)}/例）<br>异常行 ${c.labrows}（${(c.labrows/c.dosed).toFixed(1)}/例）<br>有临床意义未关联 ${c.csx} · 仅关联病史 ${c.mhx}`}},
+   xAxis:{name:'检验异常行 / 给药例',nameLocation:'middle',nameGap:26,scale:true,boundaryGap:['8%','8%'],...K.axis,axisLabel:{formatter:v=>v<0?'':K.fmt(v)}},yAxis:{name:'AE 例次 / 给药例',scale:true,boundaryGap:['10%','10%'],...K.axis,axisLabel:{formatter:v=>v<0?'':K.fmt(v)}},
+   series:[{type:'scatter',data:C.map(c=>({value:[c.labrows/c.dosed,c.ae/c.dosed],c,symbolSize:8+Math.sqrt(c.dosed)*6,itemStyle:{color:c.csx?'#8B0000':c.mhx?'#FF9900':'#407AAA',opacity:.75}})),label:{show:true,formatter:p=>p.data.c.site,fontSize:10,color:'#404040',position:'top'},labelLayout:{hideOverlap:true},
      markLine:{symbol:'none',silent:true,lineStyle:{color:'#C9CCD1',type:'dashed'},label:{color:'#9A9DA3',fontSize:10},data:[{xAxis:medL,label:{formatter:'中位'}},{yAxis:med,label:{formatter:'中位'}}]}}]}).on('click',p=>location.href='subjects.html#c='+p.data.c.site);
   const S2=C.slice().sort((a,b)=>(b.csx+b.mhx)-(a.csx+a.mhx)||b.labrows-a.labrows);
   const cnt=(site,r)=>lab.filter(g=>g.site===site&&g.risk===r).length;
   K.chart('#st',{grid:{left:40,right:16,top:28,bottom:40},legend:{top:0,itemWidth:10,itemHeight:10,textStyle:{fontSize:11}},tooltip:{trigger:'axis',axisPointer:{type:'shadow'}},xAxis:{type:'category',data:S2.map(c=>c.site),...K.axis,axisLabel:{fontSize:10,interval:0,rotate:60}},yAxis:{type:'value',...K.axis},
-   series:[['CSX','CS未关联','#8B0000'],['MH','CS仅MH·加重','#FF9900'],['NCS2','NCS≥2级','#E8C300'],['AE','已关联AE','#587B3B'],['NCS','NCS','#D5D8DD']].map(([k,n,c])=>({type:'bar',stack:'a',name:n,data:S2.map(x=>cnt(x.site,k)),itemStyle:{color:c},barWidth:10}))}).on('click',p=>{location.hash='tab=lab&c='+S2[p.dataIndex].site;location.reload()});
+   series:[['CSX','有临床意义·未关联','#8B0000'],['MH','仅关联病史·加重','#FF9900'],['NCS2','无临床意义·≥2级','#E8C300'],['AE','已关联 AE','#587B3B'],['NCS','无临床意义','#D5D8DD']].map(([k,n,c])=>({type:'bar',stack:'a',name:n,data:S2.map(x=>cnt(x.site,k)),itemStyle:{color:c},barWidth:10}))}).on('click',p=>{location.hash='tab=lab&c='+S2[p.dataIndex].site;location.reload()});
 }
 });
