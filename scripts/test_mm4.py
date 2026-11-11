@@ -301,6 +301,23 @@ class DemoBuild(unittest.TestCase):
             self.assertFalse(mm_build._UNS_ANY.search(v), v)
         self.assertTrue(mm_build._ET_ANY.search('提前终止访视'))
 
+    def test_viral_reactivation_hbsag_seroreversion(self):
+        # D001 测试第四轮（2026-11-11）：给药后乙肝表面抗原阴转阳 → 高优先级「乙肝病毒再激活核查」；DNA「<30」两次都未检出不报
+        import mm_build
+        from types import SimpleNamespace as NS
+        def r(v, raw, post, d, vis, t='乙肝表面抗原'):
+            return {'test': t, 'value': v, 'raw': raw, 'hi': 0.08 if t == '乙肝表面抗原' else 30, 'unit': 'IU/ml', 'post': post,
+                    'date': d, 'visit': vis, 'sheet': 'LB', 'row': 1, 'wb': ''}
+        C = NS(F={('S1', 'lab:HBsAg'): [r(0.0, '0.00', False, '2026-06-26', 'SCR'), r(199.68, '199.68', True, '2026-08-24', 'USV')],
+                  ('S1', 'lab:DNA'): [r(None, '<30', False, '2026-06-26', 'SCR', 'HBV-DNA'), r(None, '<30.00', True, '2026-08-26', 'USV', 'HBV-DNA')],
+                  ('S2', 'lab:HBsAg'): [r(0.0, '0.00', False, '2026-06-26', 'SCR'), r(0.01, '0.01', True, '2026-08-24', 'W8')]},
+               pop={'S1', 'S2'}, subj={'S1': {'site': '01'}, 'S2': {'site': '01'}}, others=[], vi=lambda v: 0,
+               mh_by={'S1': [{'t': '乙型肝炎'}]}, sheet_meta={}, src={})
+        mm_build.viral_reactivation(C)
+        self.assertEqual([(o['sid'], o['cat'], o['pr']) for o in C.others], [('S1', '乙肝病毒再激活核查', 4)])
+        self.assertIn('由给药前阴性', C.others[0]['sum'])
+        self.assertIn('乙型肝炎', C.others[0]['sum'])
+
     def test_d1_falls_back_to_first_dose_visit(self):
         # D002/SAR：方案首剂访视代码（V4/V2）只在日记表出现，访视/检验/给药表写 D1 → 取给药记录首剂访视
         import mm_build
@@ -3739,6 +3756,11 @@ class V6Generalization(unittest.TestCase):
         a = threshold_ask({'metric': 'ALT', 'v': 5, 'on': 'uln', 'stop': True, 'acts': ['stop'], 'stopCond': '如果确认…'}, o)
         self.assertIn('确认后停用研究药物', a)
         self.assertIn("Hy's law", a)
+        self.assertIn('核对同期总胆红素', a)
+        # D001 测试第四轮：胆红素行核对同期转氨酶（不再要求「核对同期总胆红素」）
+        b = threshold_ask({'metric': 'TBIL', 'v': 2, 'on': 'uln', 'acts': ['aesi']}, {'cat': '阈值规则核对', 'test': '总胆红素（TBIL）'})
+        self.assertIn('核对同期转氨酶', b)
+        self.assertNotIn('核对同期总胆红素', b)
         self.assertNotIn('更正', a)
         self.assertNotIn('阈值', a)
         a = threshold_ask({'metric': 'ANC', 'v': 1.5, 'acts': ['retest', 'interrupt'], 'retestH': 48}, {'cat': '阈值规则核对', 'test': '中性粒细胞计数'})

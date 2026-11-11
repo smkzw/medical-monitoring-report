@@ -1688,7 +1688,11 @@ def threshold_ask(R, o):
         ask.append('是否已记录 AE')
     if not ask:
         ask.append('复查与评估情况')
-    tail = "，并核对同期总胆红素以评估是否符合 Hy's law" if (R.get('on') == 'uln' and _LIVER_RX.search(str(o.get('test') or ''))) else ''
+    # D001 测试第四轮（2026-11-11）：总胆红素超标时曾要求「核对同期总胆红素」——胆红素行应核对同期转氨酶，转氨酶行才核对总胆红素
+    _tt = str(o.get('test') or '')
+    tail = '' if not (R.get('on') == 'uln' and _LIVER_RX.search(_tt)) else (
+        "，并核对同期转氨酶（ALT/AST）以评估是否符合海氏法则（Hy's law）" if re.search(r'胆红素|TBIL|BIL', _tt, re.I)
+        else "，并核对同期总胆红素以评估是否符合海氏法则（Hy's law）")
     return (f"方案规定此时需{'，并'.join(need)}，" if need else '') + f"请确认{'及'.join(ask)}{tail}。"
 
 
@@ -3176,11 +3180,15 @@ def build_queries(C):
 
     ind_bg = [(re.compile(a), str(b or '')) for a, b in (C.A.get('indicationBackground') or [])]
     preg_rows = getattr(C, '_preg_rows', None) or set()
+    vir_rows = {(o['sid'], o['sh'], o['row']) for o in C.others if (o.get('_rule') or {}).get('id') == 'VIR-REACT'}
+    vir_tests = {(o['sid'], o['test']) for o in C.others if (o.get('_rule') or {}).get('id') == 'VIR-REACT'}
     for g in C.labrows:
         if g['risk'] not in risks:
             continue
         if g['risk'] in ('CSX', 'MH', 'NA') and any((g['sid'], p[7], p[8]) in preg_rows for p in g['pts']):
             continue                     # 妊娠证据（hCG 阳性、超声早孕）统一由「妊娠暴露核查」追踪，不再问「是否记录 AE/病史」
+        if (g['sid'], g['test']) in vir_tests or any((g['sid'], p[7], p[8]) in vir_rows for p in g['pts']):
+            continue                     # 病毒学指标阴转阳由「病毒再激活核查」单独追踪（高优先级），不再并一条「是否记 AE」（D001 05015）
         cat, ft, ask = T[g['risk']]
         cand = [c for c in g['ctx'] if c.startswith('同期 AE')]
         bg = next((b for rx, b in ind_bg if rx.search(g.get('mid') or '') and ext_rules.bg_applies(b, g.get('mid') or '', g.get('grp') or '')), None) if g['risk'] == 'CSX' else None
@@ -3614,6 +3622,52 @@ def eff_num(v):
         return v
     m = re.match(r'\s*(-?\d+(?:\.\d+)?)', str(v or ''))
     return float(m.group(1)) if m else None
+
+
+_VIR_RX = [('乙肝表面抗原', re.compile(r'乙肝表面抗原|乙型肝炎(病毒)?表面抗原|HBsAg(?!.*(抗体|Ab))', re.I), '乙肝病毒再激活'),
+           ('乙肝病毒 DNA', re.compile(r'HBV[\s-]*DNA|乙肝病毒\s*DNA|乙型肝炎病毒\s*DNA', re.I), '乙肝病毒再激活'),
+           ('丙肝病毒 RNA', re.compile(r'HCV[\s-]*RNA|丙肝病毒\s*RNA|丙型肝炎病毒\s*RNA', re.I), '丙肝病毒复制')]
+
+
+def _vir_pos(r):
+    """病毒学指标是否阳性/可检出：数值超出参考上限，或原文写阳性；「<30」「未检出」「阴性」为阴性；无法判断返回 None。"""
+    raw = str(r.get('raw') or '').strip()
+    if re.search(r'阴性|未检出|未测出|^<|^＜|negative|not\s*detected', raw, re.I):
+        return False
+    if re.search(r'阳性|positive|检出', raw, re.I):
+        return True
+    v, hi = r.get('value'), r.get('hi')
+    if v is None or hi is None:
+        return None
+    return v > hi
+
+
+def viral_reactivation(C):
+    """D001 测试第四轮（2026-11-11，05015 乙肝表面抗原 0.00→199.68 IU/mL 只标「仅关联病史·加重」）：给药后乙肝表面抗原
+    由阴转阳、乙肝/丙肝病毒核酸由未检出变为可检出 → 单独列为高优先级专项核查（乙肝再激活的常用判定之一：
+    表面抗原阴性者转阳或病毒 DNA 由不可测变为可测，AASLD 2018 乙肝指南）。一人一指标只报首次。"""
+    seen = set()
+    for (sid, mid), rows in sorted(C.F.items()):
+        if sid not in C.pop:
+            continue
+        hit = next(((lab, kind) for lab, rx, kind in _VIR_RX if rx.search(str((rows[0] if rows else {}).get('test') or ''))), None)
+        if not hit or (sid, hit[0]) in seen:
+            continue
+        rs = sorted(rows, key=lambda r: (r.get('date') or '', C.vi(r.get('visit'))))
+        pre = [r for r in rs if not r.get('post') and _vir_pos(r) is False]
+        pos = next((r for r in rs if r.get('post') and _vir_pos(r) is True), None)
+        if not pre or not pos:
+            continue
+        seen.add((sid, hit[0]))
+        b = pre[-1]
+        fmt_ = lambda r: (str(r.get('raw')) if r.get('raw') not in (None, '') else fmt(r.get('value'))) + (r.get('unit') or '')
+        hx = [m.get('t') for m in C.mh_by.get(sid, []) if re.search(r'乙肝|乙型肝炎|HBV|丙肝|丙型肝炎|HCV|肝炎', str(m.get('t') or ''), re.I)] \
+            if hasattr(C, 'mh_by') else []
+        summ = (f"{pos.get('visit')}（{dshow(pos.get('date'))}）{hit[0]}由给药前阴性（{b.get('visit')} {fmt_(b)}）转为阳性（{fmt_(pos)}，"
+                f"参考范围上限 {fmt(pos.get('hi'))}）" + (f"，病史有「{'、'.join(hx[:2])}」" if hx else '') + f"，提示{hit[1]}可能")
+        add_other(C, sid, f'{hit[1]}核查', 4, summ, pos.get('visit'), pos.get('date'), pos['sheet'], pos['row'], pos.get('test') or hit[0],
+                  rule={'id': 'VIR-REACT', 'ask': '请确认是否已评估为病毒再激活并记录为不良事件，以及是否已按方案处理（如抗病毒治疗、研究药物处理），如需更正请更新。'},
+                  bkey=f"{mid}|vir|{pos.get('visit')}", wb=pos.get('wb') or '')
 
 
 def eff_magnitude(C):
@@ -4147,6 +4201,7 @@ def analyze(C):
     csb_candidates = ext_rules.run(C)                    # M13–M23 确定性＋日期序＋CSB 候选（PR-5）
     C.others.sort(key=lambda o: (-o['pr'], o['cat'], o['sid'], o['d']))
     eff_magnitude(C)
+    viral_reactivation(C)
     build_queries(C)
     build_cons(C)
     build_centers(C)

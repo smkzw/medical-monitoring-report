@@ -36,11 +36,14 @@ const ctrs=Object.entries(bySite).sort((a,b)=>b[1]-a[1]);
 const ch=K.chart('#ctrch',{grid:{left:28,right:8,top:10,bottom:24},tooltip:{trigger:'axis',formatter:p=>`${K.center(p[0].name)}<br>${p[0].value} 条`},xAxis:{type:'category',data:ctrs.map(c=>c[0]),...K.axis,axisLabel:{color:'#64676B',fontSize:10,interval:0,rotate:ctrs.length>18?60:0}},yAxis:{type:'value',...K.axis,minInterval:1},series:[{type:'bar',data:ctrs.map(c=>c[1]),itemStyle:{color:'#FF9900',borderRadius:[3,3,0,0]},barMaxWidth:18}]});
 ch.on('click',p=>{F.site=F.site===p.name?null:p.name;ctrChips.set(F.site);draw()});
 const order=K.DOM.flatMap(d=>d[1]);const oi=c=>{const i=order.indexOf(c);return i<0?99:i};
-const comOf=q=>(D.qcommon||{})[q.cat]||[];
+/* D001 测试第四轮（2026-11-11）：「阈值规则核对」一类下有两种要求（海氏法则只对肝功能适用），被当作整组通用要求挂在贫血行上 →
+ * 只有一种要求时才作为本组通用要求在组标题显示；多种要求时每行显示自己的完整要求 */
+const comG=g=>{const c=(D.qcommon||{})[g]||[];return c.length===1?c:[]};
+const comOf=q=>comG(q.cat);
 // 本组没有通用要求（工作台并入的 AI 质疑组）时，行内显示本条完整请求，不再挂空的「＋通用要求」（审阅 2026-11-10：42 条请求不可见）
 const uniq=q=>q.parts.filter(p=>!p[1]||!comOf(q).length).map(p=>K.hlNum(p[0])).join(' ');
 const tbl=K.table(app.querySelector('#qt'),{rows:[],noPage:true,h:'calc(100vh - 160px)',onRow:r=>K.showQ(r.id),
- group:r=>r.cat,groupHead:(g,r)=>{const n=cur.filter(q=>q.cat===g).length;const com=(D.qcommon[g]||[]);return `<div class="flex wrap"><i class="dot ${domCol(dom(r))}"></i><b>${K.catN(g)}</b>${K.p(n+' 条','line')}${K.p(dom(r),domCol(dom(r)))}<span class="sp"></span>${K.ibTags(g)}</div>${com.length?`<div class="qtpl">通用要求：${com.map(K.esc).join(' ')}</div>`:''}`},
+ group:r=>r.cat,groupHead:(g,r)=>{const n=cur.filter(q=>q.cat===g).length;const com=comG(g);return `<div class="flex wrap"><i class="dot ${domCol(dom(r))}"></i><b>${K.catN(g)}</b>${K.p(n+' 条','line')}${K.p(dom(r),domCol(dom(r)))}<span class="sp"></span>${K.ibTags(g)}</div>${com.length?`<div class="qtpl">通用要求：${com.map(K.esc).join(' ')}</div>`:''}`},
  cols:[{k:'id',t:'编号',f:r=>K.qPill(r.id)+(r.flags||[]).map(fl=>fl==='L3不同意·须人审'?K.p('复核存疑','red','另一模型复核不同意该质疑，请重点判断'):'').join(''),w:'64px'},{k:'sid',t:'参与者',f:r=>K.sid(r.sid)+`<div class="xs faint">${K.esc(K.center(r.site))}</div>`,w:'110px'},
   {k:'sh',t:'数据位置',f:r=>`${K.p(K.shName(r.sh),'sq')}<div class="xs muted" title="导出表第 ${r.row} 行">${K.esc([r.v,r.d].filter(Boolean).join(' · '))||'第 '+r.row+' 行'}${r.ev.length>1?' · 涉及 '+r.ev.length+' 条记录':''}</div>`,w:'120px'},
   {k:'v',t:'访视',f:r=>`${r.v?K.p(r.v,'blu'):''}<div class="xs faint">${K.esc(r.d||'')}</div>`,w:'86px',s:r=>(r.d||'9999')+'|'+String(K.vi(r.v)).padStart(3,'0')},
