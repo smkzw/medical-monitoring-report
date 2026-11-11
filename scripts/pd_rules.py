@@ -37,6 +37,7 @@ TAXONOMY = [
     ('OTH', '其他', '—', '未归入以上类别', ''),
 ]
 TAX = {t[0]: t for t in TAXONOMY}
+ASIDE_RULES = {'SAFE-01', 'SAFE-03'}   # 待质疑确认的「可能需记录 AE」：单列，不计入潜在 PD 合计（用户 2026-11-12）
 # 已记录 PD 的类别归一（PD listing 文本 → 分类码）；顺序即优先级。可由 analysis.pd.catMap 前置覆盖。
 CAT_RE = [
     # V6（PM 审阅 2026-11-02：SAR 151 条超窗记录因描述里写「知情日期 …」被归 ICF）：只认知情本身出问题的措辞，不认背景交代
@@ -885,6 +886,13 @@ def run(C):
     E.rescue()
     conf = E.confirmed()
     order = {g: i for i, g in enumerate(['重要', '待判定', '一般'])}
+    # 用户 2026-11-12（CRA 测试：科学层 89 条中 68 条为「安全性记录与报告」，PD 总数虚高）：「可能需记录 AE」类（SAFE-01/03）
+    # 本身是医学质疑，经中心确认确未记录才构成偏离 → 方案偏离页单列展示，不进潜在 PD 合计、KRI 与中心统计；SAE 报告超时照常计入
+    all_items = list(E.items)
+    aside = sorted([x for x in all_items if x['rule'] in ASIDE_RULES], key=lambda x: (x['sid'], x['date'] or ''))
+    E.items = [x for x in all_items if x['rule'] not in ASIDE_RULES]
+    for n, it in enumerate(aside, 1):
+        it['id'] = f"S{n:04d}"
     E.items.sort(key=lambda x: (order.get(x['grade'], 9), x['cat'], x['sid'], x['date']))
     for n, it in enumerate(E.items, 1):
         it['id'] = f"P{n:04d}"
@@ -896,8 +904,8 @@ def run(C):
         by_site[it['site']][it['cat']] += 1
     rules = [{'id': rid, 'cat': r[0], 'title': r[1], 'grade': (E.P.get('grades') or {}).get(rid) or r[2], 'gradeBasis': (E.P.get('gradeBasis') or {}).get(rid, ''), 'action': r[3], 'dv': RULE_DV.get(rid, ''),
               'logic': re.sub(r'（analysis\.[^）]*）', '', r[4]), 'cfg': '；'.join(re.findall(r'analysis\.[\w.\[\]]+', r[4])), 'data': r[5], 'state': E.ran.get(rid, 'unconfigured'), 'reason': (REASON.get(rid) or {}).get(E.ran.get(rid, 'unconfigured'), ''),
-              'n': sum(1 for x in E.items if x['rule'] == rid)} for rid, r in RULES.items()]
-    C.pdd = {'taxonomy': [list(t) for t in TAXONOMY], 'potential': E.items, 'confirmed': conf, 'rules': rules,
+              'n': sum(1 for x in all_items if x['rule'] == rid), **({'aside': True} if rid in ASIDE_RULES else {})} for rid, r in RULES.items()]
+    C.pdd = {'taxonomy': [list(t) for t in TAXONOMY], 'potential': E.items, 'aside': aside, 'confirmed': conf, 'rules': rules,
              'notDetectable': [list(x) for x in NOT_DETECTABLE], 'cutoff': E.cutoff, 'hasListing': bool(C.pd),
              'sites': {k: dict(v) for k, v in by_site.items()},
              'critical': {'visits': sorted(E.crit_visits), 'items': E.P.get('criticalItems') or ''},

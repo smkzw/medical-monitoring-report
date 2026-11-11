@@ -289,6 +289,12 @@ class DemoBuild(unittest.TestCase):
         for rule in ('ICF-01', 'ICF-02', 'IP-02', 'IP-03', 'IP-04', 'SAMP-01', 'SAMP-02', 'VIS-02', 'ASMT-01', 'ASMT-03', 'CM-02', 'WD-01'):
             self.assertEqual(sum(1 for p in pot if p['rule'] == rule), 1, rule)
 
+    def test_possible_ae_pd_listed_aside(self):
+        # 用户 2026-11-12：「可能需记录 AE」（SAFE-01/03）单列，不进潜在 PD 合计
+        pd = self.KZ['pd']
+        self.assertFalse([p for p in pd['potential'] if p['rule'] in ('SAFE-01', 'SAFE-03')])
+        self.assertTrue(all(p['rule'] in ('SAFE-01', 'SAFE-03') and p['id'].startswith('S') for p in pd.get('aside', [])))
+
     def test_unscheduled_visits_flagged_for_aggregate_views(self):
         # 用户 2026-11-11：中心/全试验汇总不展示计划外访视——配置写回识别结果，前端 K.isAgg 同口径；未规范的写法按名称识别
         vis = self.KZ['cfg']['visits']

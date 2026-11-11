@@ -89,6 +89,11 @@ function rulesPane(){
   {k:'state',t:'本次',f:r=>`${K.p((stl[r.state]||[r.state])[0],(stl[r.state]||['',''])[1])}${r.state==='ran'?`<div class="xs" style="margin-top:2px"><b>${r.n}</b> 条</div>`:''}${r.reason?`<div class="xs muted" style="margin-top:2px;line-height:1.5">${K.esc(r.reason)}</div>`:''}`,w:'170px'}]});
 }
 const tabs=K.tabs(app.querySelector('#tabs'),[['exe','潜在 PD · 执行层面',exe.length],['sci','潜在 PD · 科学层面',sci.length],['conf','已记录 PD',CONF.length],['soa','SoA 完成度',null],['rules','检查规则与覆盖',ran+'/'+RULES.length]],F.tab,v=>{F.tab=v;K.setHash({tab:v});drawPane()});
-function drawPane(){F.tab==='exe'?potList(exe,'执行层面：访视、评估、给药、样本、知情、随机'):F.tab==='sci'?potList(sci,'科学层面：入组资格、合并用药、安全性记录与报告、退出与停药'):F.tab==='conf'?confList():F.tab==='soa'?soaPane():rulesPane()}
+/* 用户 2026-11-12：「可能需记录 AE」（检验异常未关联 AE、达到需记录 AE 的标准未见记录）本身是医学质疑，经中心确认确未记录才构成偏离 →
+ * 单列在科学层下方，不计入潜在 PD 合计、KRI 与中心统计 */
+const ASIDE=P.aside||[];
+function asidePane(){if(!ASIDE.length)return;pane.insertAdjacentHTML('beforeend',`<div class="card mt"><div class="hd"><h2>待质疑确认：可能需记录为 AE</h2><span class="sub">${ASIDE.length} 条 · ${new Set(ASIDE.map(x=>x.sid)).size} 名参与者 · 已作为医学质疑发出；经中心确认确未记录 AE 才构成方案偏离，不计入上方潜在偏离合计</span></div>
+  <div class="tw max" style="max-height:420px"><table class="t"><thead><tr><th>参与者</th><th>中心</th><th>日期</th><th>事实</th></tr></thead><tbody>${ASIDE.map(x=>`<tr><td>${K.sid(x.sid)}</td><td>${K.esc(K.center(x.site)||x.site)}</td><td class="nowrap small">${K.esc(x.date||'')}</td><td class="small">${K.esc(x.fact||'')}</td></tr>`).join('')}</tbody></table></div></div>`)}
+function drawPane(){F.tab==='exe'?potList(exe,'执行层面：访视、评估、给药、样本、知情、随机'):F.tab==='sci'?(potList(sci,'科学层面：入组资格、合并用药、安全性记录（报告超时）、退出与停药'),asidePane()):F.tab==='conf'?confList():F.tab==='soa'?soaPane():rulesPane()}
 if(H.id)setTimeout(()=>K.showPD(H.id),60);
 });
