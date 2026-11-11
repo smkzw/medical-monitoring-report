@@ -20,6 +20,7 @@ K.kriV=(k,nd)=>{const d=K.kriDef(k);if(!d||!nd||nd[0]==null||!nd[1])return null;
 K.kriND=(k,nd)=>{if(!nd||nd[1]==null)return '';const d=K.kriDef(k)||{};return d.u==='/100人月'?`${nd[0]} 例次 / ${(nd[1]/30.4375).toFixed(1)} 人月`:nd[0]+'/'+nd[1]};   /* 分母是随访人日：显示时换成人月（中心页曾写 8/347 像人月） */
 K.kriFmt=(k,v)=>{const d=K.kriDef(k)||{};if(v==null)return '—';const s=d.u==='天'?String(Math.round(v)):v>=100?v.toFixed(0):v>=10?v.toFixed(1):v.toFixed(2).replace(/0$/,'');return s+(d.u==='%'?'%':d.u==='天'?' 天':'')};
 K.qtlLim=k=>{const d=K.kriDef(k);if(!d||!d.qtl)return null;return d.qtl[{strict:0,std:1,loose:2}[K.qtlTier()]??1]};
+K.QTL_MIN_N=10;   /* CRA 测试（2026-11-11）：中心退出 1/5＝20% 被标「超出限度」→ 中心层面判超限的最小分母由 5 提到 10 */
 K.qtlState=(k,nd)=>{const v=K.kriV(k,nd),lim=K.qtlLim(k);if(v==null||lim==null)return {v,lim,st:''};return {v,lim,st:v>lim?'exceed':lim>0&&v>lim*.8?'warn':'ok'}};
 K.QTLC={exceed:['超出限度','solid-red'],warn:['接近限度','org'],ok:['限度内','grn']};
 K.qtlRows=()=>{const k=K.kri();if(!k)return [];return k.defs.filter(d=>d.qtl).map(d=>({...d,nd:k.study[d.k],na:(k.na||{})[d.k],...((k.na||{})[d.k]?{v:null,lim:K.qtlLim(d.k),st:''}:K.qtlState(d.k,k.study[d.k]))}))};
@@ -99,7 +100,7 @@ K.risks=()=>{if(K._risk)return K._risk;const Dd=D(),O=Dd.ops||{},out=[];
         open:()=>K.showSite('ctr',t,`${c.site} ${K.esc(K.center(c.site))} · AE 报告偏少`,`<div class="box small">TEAE 观察 ${x.o}，期望 ${x.e.toFixed(1)}（${K.qTip(x)}），建议核对该中心是否漏报 AE。</div>`)})}});
   K.qtlRows().forEach(r=>{if(r.st!=='exceed'&&r.st!=='warn')return;
     add({kind:'qtl',x:{k:r.k},base:r.st==='exceed'?85:45,roles:['pm','cra','mm'],sid:'',site:'',title:`研究层面「${r.l}」${r.st==='exceed'?'超出':'接近'}容忍限度`,why:`当前 ${K.kriFmt(r.k,r.v)}（${r.nd[0]}/${r.nd[1]}），限度 ≤${r.lim}%（${K.QTLN[K.qtlTier()]}档）`,tag:['容忍限度',r.st==='exceed'?'solid-red':'org'],open:()=>location.href='monitor.html#tab=kri'})});
-  const KR=K.kri();if(KR)Object.entries(KR.sites).forEach(([site,v])=>KR.defs.filter(d=>d.qtl).forEach(d=>{const nd=v[d.k];if(!nd||nd[1]<5||(KR.na||{})[d.k])return;const s=K.qtlState(d.k,nd);if(s.st!=='exceed')return;
+  const KR=K.kri();if(KR)Object.entries(KR.sites).forEach(([site,v])=>KR.defs.filter(d=>d.qtl).forEach(d=>{const nd=v[d.k];if(!nd||nd[1]<K.QTL_MIN_N||(KR.na||{})[d.k])return;const s=K.qtlState(d.k,nd);if(s.st!=='exceed')return;
     add({kind:'kri',x:{site,k:d.k},base:Math.round(38*Math.min(2,Math.max(1,s.lim>0?s.v/s.lim:1))*Math.min(1.5,1+nd[0]/60)),roles:['pm','cra'],sid:'',site,title:`中心 ${site}「${d.l}」超出研究层面限度`,why:`${K.kriFmt(d.k,s.v)}（${nd[0]}/${nd[1]}），限度 ≤${s.lim}%`,tag:['KRI','org'],open:()=>location.href='center.html#c='+site})}));
   if(Dd.cred)Object.entries(Dd.cred.sites).forEach(([site,v])=>K.credFlags(site,v).forEach(f=>{const t={site,k:f.k};
     add({kind:'cred',x:t,base:32,roles:['cra'],sid:'',site,title:`中心 ${site} ${f.l}`,why:f.why,tag:['可信度','yel'],open:()=>K.showSite('cred',t,`${site} ${K.esc(K.center(site))} · ${f.l}`,`<div class="box small">${K.esc(f.why)}</div><div class="note small mt">${K.esc(Dd.cred.note||'')}</div><div class="mt"><a class="small" href="monitor.html#tab=cred">数据可信度 ›</a></div>`)})}));

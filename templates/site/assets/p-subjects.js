@@ -15,7 +15,7 @@ app.innerHTML=`<div class="grid" style="grid-template-columns:270px 1fr;gap:14px
   ${ARMS.length>1?`<div style="padding:0 10px 6px"><select class="s" id="fg" style="width:100%"><option value="">全部分组</option>${ARMS.map(a=>`<option value="${K.esc(a)}">${K.esc(a)}（${subs.filter(s=>s.grp===a&&s.fd).length} 例给药）</option>`).join('')}</select></div>`:''}
   <div style="padding:0 10px 6px" class="chips" id="fs"></div>
   <div style="padding:0 10px 6px" class="flex"><span class="xs muted">排序</span><div class="seg" id="fo"></div></div>
-  <div style="padding:0 10px 6px;line-height:1.9" class="xs muted">${K.p('n','solid-red')} 有临床意义未关联 AE/病史　${K.p('n','red')} 专项核查　${K.p('n','org')} 仅关联病史　${K.p('Q','line')} 质疑条数　AE 不良事件例次　圆点＝参与者状态</div>
+  <div style="padding:0 10px 6px;line-height:1.9;display:flex;flex-wrap:wrap;gap:2px 10px" class="xs muted">${[[K.p('n','solid-red'),'有临床意义未关联 AE/病史'],[K.p('n','red'),'专项核查'],[K.p('n','org'),'仅关联病史'],[K.p('Q','line'),'质疑条数'],['AE','不良事件例次'],['圆点','参与者状态']].map(([a,b])=>`<span class="nowrap">${a} ${b}</span>`).join('')}</div>
   <div class="subj-list" id="sl"></div></div>
  <div id="main"></div></div>`;
 const st={q:'',c:H.c||'',g:'',s:'dosed',o:'id'};   /* 用户 2026-11-11：默认按编号、按中心分组 */
@@ -40,6 +40,7 @@ function list(){
   if(!cur&&r.length)show(r[0].id);
 }
 list();
+window.addEventListener('hashchange',()=>{const h=K.hash();if(h.s&&h.s!==cur&&subs.some(x=>x.id===h.s))show(h.s)});   /* 地址栏/链接切换参与者 */
 if(H.s)show(cur);   /* 无 #s 时 list() 已打开首例；旧版这里再调一次，两次异步载入竞争会丢掉 #t 指定的页签 */
 /* ---------------- profile */
 const SHEET=CF.labGroups||{};

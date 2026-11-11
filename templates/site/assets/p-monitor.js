@@ -17,7 +17,7 @@ const visRows=(O.due||[]).map(d=>({sid:d[0],site:d[1],v:d[2],lo:d[3],due:d[4],go
 const UP=(O.upcoming||[]).map(u=>({sid:u[0],site:u[1],v:u[2],lo:u[3],hi:u[4],tg:u[5]}));
 const KR=D.kri,CRD=D.cred,TL=(window.KZS||{}).timeliness;
 const tabs=[['enr','入组与进度',SU.length],['vis','访视执行',visRows.filter(r=>r.st!=='ok').length],['dose','给药与知情'],['dq','退出与数据质量'],
-  ['kri','KRI 与容忍限度',KR?K.qtlRows().filter(r=>r.st==='exceed').length||null:null],['time','录入及时性'],['cred','数据可信度',CRD?Object.entries(CRD.sites).filter(([s,v])=>K.credFlags(s,v).length).length||null:null],['ent','疑似录入错误',(O.entry||[]).length]];
+  ['kri','KRI 与容忍限度',KR?K.qtlRows().filter(r=>r.st==='exceed').length||null:null],...(TL&&TL.sites?[['time','录入及时性']]:[]),['cred','数据可信度',CRD?Object.entries(CRD.sites).filter(([s,v])=>K.credFlags(s,v).length).length||null:null],['ent','疑似录入错误',(O.entry||[]).length]];
 app.innerHTML=`<div class="flex mb"><h1 style="font-size:18px">临床监查</h1>${daily?'<span class="muted small">日常监查，数据仍在录入</span>':''}<span class="sp"></span><span id="qtlbar"></span></div>
 <div class="tabs" id="tabs"></div><div id="pane"></div>`;
 const pane=document.getElementById('pane');
@@ -74,7 +74,7 @@ function vis(){
     <div class="hd mt"><h2>未来 14 天应到访视</h2><span class="sub">${UP.length} 次</span></div><div id="ut"></div></div></div>`;
   const rowsV=()=>visRows.filter(r=>r.st!=='ok');
   const tb=K.table(document.getElementById('vt'),{rows:rowsV(),sort:'due',dir:1,h:'420px',onRow:r=>{if(r.st==='overdue')K.showVis({sid:r.sid,site:r.site,v:r.v,lo:r.lo,hi:r.due})},cols:[{k:'sid',t:'参与者',f:r=>K.sid(r.sid)},{k:'site',t:'中心',f:r=>K.p(r.site,'sq mono')},{k:'v',t:'访视',f:r=>K.p(r.v,'blu')},
-    {k:'st',t:'情况',f:r=>(r.st==='overdue'?(r.nd?K.p('EDC 记为未进行','red'):K.p(daily?'逾期未见记录（可能未录入）':'逾期未见记录','org')):K.p('超窗','yel'))},{k:'due',t:'方案窗',f:r=>`<span class="nowrap small">${r.lo} ~ ${r.due}</span>`},{k:'got',t:'实际',f:r=>r.got?`${r.got} <span class="xs faint">D${r.sd}</span>`:'—'}]});
+    {k:'st',t:'情况',f:r=>(r.st==='overdue'?(r.nd?K.p('EDC 记为未进行','red'):K.p(daily?'逾期未见记录（可能未录入）':'逾期未见记录','org')):K.p(r.got&&r.lo&&r.got<r.lo?`提前 ${K.dd(r.got,r.lo)} 天`:r.got&&r.due&&r.got>r.due?`延迟 ${K.dd(r.due,r.got)} 天`:'超窗','yel'))},{k:'due',t:'方案窗',f:r=>`<span class="nowrap small">${r.lo} ~ ${r.due}</span>`},{k:'got',t:'实际',f:r=>r.got?`${r.got} <span class="xs faint">D${r.sd}</span>`:'—'}]});
   K.table(document.getElementById('ut'),{rows:UP,sort:'tg',dir:1,h:'260px',cols:[{k:'sid',t:'参与者',f:r=>K.sid(r.sid)},{k:'site',t:'中心',f:r=>K.p(r.site,'sq mono')},{k:'v',t:'访视',f:r=>K.p(r.v,'blu')},{k:'tg',t:'目标日',f:r=>`<span class="nowrap small">${r.tg}</span>`},{k:'lo',t:'方案窗',f:r=>`<span class="nowrap small">${r.lo} ~ ${r.hi}</span>`}]});
   pane.querySelectorAll('tr[data-site]').forEach(tr=>tr.onclick=()=>location.href='center.html#c='+tr.dataset.site);
 }
@@ -120,11 +120,11 @@ function kri(){
     return x.map((o,i)=>o?K.qStyle(pu[i],pl[i]):'')};
   const flags=Object.fromEntries(defs.map(d=>[d.k,colF(d)]));
   pane.innerHTML=`<div class="card"><div class="hd"><h2>研究层面容忍限度</h2><span class="sub">关键质量因素的研究层面指标（ICH E6(R3) §3.10.1.3：申办方预设可接受范围）；默认档为经验值，需研究团队确认</span></div><div id="qtl"></div></div>
-   <div class="card mt"><div class="hd"><h2>各中心 KRI</h2><span class="sub">红框＝超出研究层面限度（分母 ≥5）；底色＝与其他中心相比偏高（橙）或偏低（蓝），校正多重比较；点中心进入画像</span></div>
+   <div class="card mt"><div class="hd"><h2>各中心 KRI</h2><span class="sub">红框＝超出研究层面限度（分母 ≥10；分母不足 10 只显示例数、标「样本小」）；底色＝与其他中心相比偏高（橙）或偏低（蓝），校正多重比较；点中心进入画像</span></div>
     <div style="overflow-x:auto"><table class="t heat"><thead><tr><th>中心</th>${defs.map(d=>`<th class="h" title="${K.esc(d.note)}">${K.esc(d.l)}<div class="xs faint" style="font-weight:400">${d.u}${d.qtl?' · 限 '+K.qtlLim(d.k):''}</div></th>`).join('')}</tr></thead><tbody>
     <tr class="pin" style="background:#FAFAFB"><td><b>研究整体</b></td>${defs.map(d=>`<td class="num"><b>${(KR.na||{})[d.k]?'—':K.kriFmt(d.k,K.kriV(d.k,st[d.k]))}</b></td>`).join('')}</tr>
-    ${sites.map((si,i)=>`<tr class="click" data-site="${si}"><td class="nowrap">${cname(si)}</td>${defs.map(d=>{const nd=(KR.sites[si]||{})[d.k],v=K.kriV(d.k,nd),q=d.qtl&&nd&&nd[1]>=5?K.qtlState(d.k,nd):{};
-      return `<td class="num" style="${flags[d.k][i]}${q.st==='exceed'?';outline:2px solid #8B0000;outline-offset:-2px':''}" title="${nd?K.esc(nd[0]+' / '+nd[1]):''}">${(KR.na||{})[d.k]||v==null?'<span class="faint">·</span>':K.kriFmt(d.k,v)}</td>`}).join('')}</tr>`).join('')}</tbody></table></div>
+    ${sites.map((si,i)=>`<tr class="click" data-site="${si}"><td class="nowrap">${cname(si)}</td>${defs.map(d=>{const nd=(KR.sites[si]||{})[d.k],v=K.kriV(d.k,nd),q=d.qtl&&nd&&nd[1]>=K.QTL_MIN_N?K.qtlState(d.k,nd):{},sm=nd&&nd[1]>0&&nd[1]<K.QTL_MIN_N;
+      return `<td class="num" style="${flags[d.k][i]}${q.st==='exceed'?';outline:2px solid #8B0000;outline-offset:-2px':''}" title="${nd?K.esc(nd[0]+' / '+nd[1]):''}">${(KR.na||{})[d.k]||v==null?'<span class="faint">·</span>':K.kriFmt(d.k,v)+(sm&&nd[0]?`<div class="xs faint">${nd[0]}/${nd[1]} 样本小</div>`:'')}</td>`}).join('')}</tr>`).join('')}</tbody></table></div>
     ${Object.keys(KR.na||{}).length?`<div class="xs muted mt">未计算：${Object.entries(KR.na).map(([k,v])=>`${K.esc((K.kriDef(k)||{}).l||k)}（${K.esc(v)}）`).join('；')}</div>`:''}
     ${KR.pem&&KR.pem.items&&KR.pem.items.length?`<div class="xs muted mt">主要终点缺失：关键访视 ${K.esc(KR.pem.visits.join('、'))}，关键评估按数据中的「${K.esc(KR.pem.items.join('、'))}」判定</div>`:''}</div>
    <div class="card mt" id="kh"></div>`;

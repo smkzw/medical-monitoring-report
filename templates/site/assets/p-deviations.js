@@ -46,7 +46,7 @@ K.table(app.querySelector('#st'),{rows:st,sort:'rate',h:'300px',noPage:true,onRo
 const pane=app.querySelector('#pane');
 function potList(rows,title){
  pane.innerHTML=`<div class="tbar"><div class="chips" id="fg"></div><div class="chips" id="fs"></div><span class="sp"></span><select class="s" id="fc"><option value="">全部类别</option>${cats.filter(c=>rows.some(x=>x.cat===c)).map(c=>`<option value="${c}" ${F.cat===c?'selected':''}>${K.esc((TX[c]||[])[1]||c)}</option>`).join('')}</select><select class="s" id="fsi"><option value="">全部中心</option>${[...sites].sort().map(s=>`<option value="${s}" ${F.site===s?'selected':''}>${s} ${K.esc(K.center(s))}</option>`).join('')}</select><input class="s" id="fq" placeholder="参与者 / 事实关键词" value="${K.esc(F.s)}"></div><div class="tbar" id="chg-pd"></div><div id="tb"></div>
- <div class="note mt xs muted">${title} · 潜在 PD 由数据推断，待核实：「发 query」= 数据层面可澄清；「CRA 核实」= 需源文件；「录入 PD」= 数据已足以确认。确认属实后录入方案偏离记录，按分级报告伦理与申办方（GCP 2026 第二十三条）。</div>`;
+ <div class="note mt xs muted">${title} · 潜在 PD 由数据推断，待核实：「发 query」= 数据层面可澄清；「CRA 核实」= 需源文件；「录入 PD」= 数据已足以确认。确认属实后录入方案偏离记录，按分级报告伦理审查委员会与申办者（《药物临床试验质量管理规范（2026年修订）》第二十三条，2026-09-01 施行）。</div>`;
  K.chips(pane.querySelector('#fg'),G.map(g=>[g,g,rows.filter(x=>x.grade===g).length]),v=>{F.g=v;draw()},{multi:true,value:F.g,all:'全部分级'});
  K.chips(pane.querySelector('#fs'),['未见记录','已记录'].map(s=>[s,s,rows.filter(x=>x.status===s).length]).filter(x=>x[2]),v=>{F.st=v;draw()},{all:'全部比对',value:F.st});
  pane.querySelector('#fc').onchange=e=>{F.cat=e.target.value||null;drawMx();draw()};pane.querySelector('#fsi').onchange=e=>{F.site=e.target.value;draw()};pane.querySelector('#fq').oninput=e=>{F.s=e.target.value.trim();draw()};

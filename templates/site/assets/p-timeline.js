@@ -16,6 +16,8 @@ let mode=H.c&&!H.s?'c':'s';
 const emptyPane=txt=>{pane.innerHTML=`<div class="box yel">${txt}</div>`};
 K.seg(document.getElementById('mode'),[['s','单参与者'],['c','中心概览']],mode,v=>{mode=v;v==='s'?(subs.length?one(H.s||subs[0].id):emptyPane('暂无给药参与者时间线（数据面为空或参与者/暴露表未映射）')):center(H.c||'')});
 mode==='s'&&subs.length?one(H.s||subs[0].id):center(H.c||'');
+/* CRA 测试（2026-11-11）：改地址栏 #s= 或打开别人发来的链接时页面不切换 → 监听 hash 变化 */
+window.addEventListener('hashchange',()=>{const h=K.hash();if(mode==='s'&&h.s&&h.s!==H.s&&subs.some(x=>x.id===h.s))one(h.s);else if(mode==='c'&&h.c&&h.c!==H.c)center(h.c)});
 /* ---------------- single subject */
 async function one(id){
   H.s=id;K.setHash({s:id});

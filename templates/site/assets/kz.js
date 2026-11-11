@@ -25,6 +25,7 @@ K.isAgg=v=>!K.VUNS.includes(v)&&!K.VET.includes(v);
 K.vi=v=>{const i=K.VIS.indexOf(v);return i<0?99:i};
 K.days=(a,b)=>{if(!a||!b||a.length<10||b.length<10)return null;return Math.round((new Date(a)-new Date(b))/864e5)};
 /* V6（用户审阅 RUX 第 19 条）：检验时间字段只接受时:分（此前「页面最近修改时间」被映射成采样时间，拼出非法时间戳，抽屉图整张空白） */
+K.dd=(a,b)=>{const x=Date.parse(String(a).slice(0,10)),y=Date.parse(String(b).slice(0,10));return isNaN(x)||isNaN(y)?'?':Math.round((y-x)/864e5)};   /* 两日期相差天数（b−a） */
 K.hhmm=t=>/^\d{1,2}:\d{2}(:\d{2})?$/.test(String(t||'').trim());
 K.dt=(d,t)=>{d=String(d||'').slice(0,10);return K.hhmm(t)?d+'T'+String(t).trim().replace(/^(\d):/,'0$1:'):d};
 K.studyDay=(d,fd)=>{const x=K.days(d,fd);return x==null?'':(x>=0?'D'+(x+1):'D'+x)};
@@ -159,7 +160,8 @@ K.header=()=>{
   const h=document.createElement('header');h.className='top';
   h.innerHTML=`<div class="bar"><a class="brand" href="index.html" title="智研 METRIC · ${sub[1]}"><img class="logo" src="${K.esc(br.platform||'assets/brand/metric/lockup-3x1-header.svg')}" alt="智研 METRIC"><span class="bsep"></span><img class="logo sub" src="${sub[0]}" alt="${sub[1]}"><img class="logo subi" src="${sub[2]}" alt="${sub[1]}"></a>
   <nav>${K.PAGES.map(([u,t,sp])=>`<a href="${u}" class="${u===cur||(sp&&sp===K.spaceOf(cur))?'on':''}">${t}</a>`).join('')}</nav>
-  <div class="meta">${code?`<span class="proj" title="项目代号">${K.esc(code)}</span>`:''}${/* F12④：CS 待确认移到研究依据页系统提示（kz-sys 写入 #todo），页头不再挂红标 */ ''}${(c.headerTags||[['截止 '+(m.cutoff||''),'line','数据截止日期']]).map(t=>K.p(t[0],t[1]||'line',t[2])).join('')}${c.dataStage?K.p({daily:'日常监查',prelock:'锁库前',cfdi:'锁库后'}[c.dataStage]||'','line',{daily:'日常监查·数据录入中',prelock:'锁库前·全量数据',cfdi:'锁库后·核查前'}[c.dataStage]||''):''}${c.blind&&c.blind.on?K.p(c.blind.tag||'盲态','blu'):''}</div></div>${(()=>{const sp=K.spaceOf(cur);return sp?`<div class="subnav"><div class="in">${K.SPACES[sp].map(([u,t])=>`<a href="${u}" class="${u===cur?'on':''}">${t}</a>`).join('')}</div></div>`:''})()}`;
+  <div class="meta">${code?`<span class="proj" title="项目代号">${K.esc(code)}</span>`:''}${/* F12④：CS 待确认移到研究依据页系统提示（kz-sys 写入 #todo），页头不再挂红标 */ ''}${(c.headerTags||[['截止 '+(m.cutoff||''),'line','数据截止日期']]).map(t=>K.p(t[0],t[1]||'line',t[2])).join('')}${c.dataStage?K.p({daily:'日常监查',prelock:'锁库前',cfdi:'锁库后'}[c.dataStage]||'','line',{daily:'日常监查·数据录入中',prelock:'锁库前·全量数据',cfdi:'锁库后·核查前'}[c.dataStage]||''):''}${(()=>{/* CRA 测试（2026-11-11）：日常监查数据截止距今 >30 天要醒目提示，避免按旧数据安排访视 */
+      const d=K.dd(m.cutoff,new Date().toISOString().slice(0,10));return c.dataStage==='daily'&&typeof d==='number'&&d>30?K.p(`数据已 ${d} 天未更新`,'org','数据截止 '+(m.cutoff||'')+'；访视、逾期与新鲜度均按截止日计算，请上传最新数据'):''})()}${c.blind&&c.blind.on?K.p(c.blind.tag||'盲态','blu'):''}</div></div>${(()=>{const sp=K.spaceOf(cur);return sp?`<div class="subnav"><div class="in">${K.SPACES[sp].map(([u,t])=>`<a href="${u}" class="${u===cur?'on':''}">${t}</a>`).join('')}</div></div>`:''})()}`;
   document.body.prepend(h);
   const f=document.createElement('div');f.className='foot';const ft=c.footer||{};f.innerHTML=`<span>${K.esc(ft.left||'产品中心-医学部')}</span><span>${K.esc(ft.right||((m.sources||[]).length?'数据来源：'+m.sources.join(' · '):'数据截止 '+(m.cutoff||'')))}</span>`;document.body.append(f);
   const mk=document.createElement('div');mk.className='dr-mask';const dr=document.createElement('aside');dr.className='dr';dr.innerHTML='<div class="dh"><h2></h2><span class="dsub"></span><button class="x" title="关闭">×</button></div><div class="db"></div>';
@@ -264,9 +266,19 @@ K.enhance=root=>{(root||document).querySelectorAll('table.t:not([data-kz])').for
     const pin=units.filter(u=>u[0].classList.contains('pin')),rest=units.filter(u=>!u[0].classList.contains('pin'));
     rest.sort((a,b)=>K.cmpTxt((a[0].cells[i]||{}).textContent?.trim()||'',(b[0].cells[i]||{}).textContent?.trim()||'')*dir);[...pin,...rest].flat().forEach(r=>tb.appendChild(r));
     hs.forEach(x=>{const ar=x.querySelector('.ar');if(ar)ar.remove()});h.insertAdjacentHTML('beforeend',`<span class="ar">${dir>0?'▲':'▼'}</span>`)}});
-  if(tb.rows.length>=8){const box=document.createElement('div');box.className='tflt';box.innerHTML='<input class="s" placeholder="在表内搜索">';
-    const host=t.closest('.tw')||t;host.parentNode.insertBefore(box,host);
-    box.firstChild.oninput=e=>{const q=e.target.value.trim().toLowerCase();let show=true;[...tb.rows].forEach(r=>{if(r.classList.contains('dx')){r.style.display=show?'':'none';return}show=!q||r.classList.contains('pin')||r.textContent.toLowerCase().includes(q);r.style.display=show?'':'none'})}}})};
+  if(tb.rows.length>=8)K._tbar(t,tb,hs)})};
+/* 表内搜索＋取值少的列下拉筛选（用户 2026-11-11：各处表格要能筛选）；tr.pin 常显，tr.dx 明细行跟随主行 */
+K._tbar=(t,tb,hs)=>{const main=[...tb.rows].filter(r=>!r.classList.contains('dx')),txt=(r,i)=>(r.cells[i]&&r.cells[i].innerText||'').trim();
+  const fc=[];hs.forEach((h,i)=>{if(fc.length>=3)return;const m=new Map();for(const r of main){const v=txt(r,i);if(v.length>24){m.clear();break}if(v)m.set(v,(m.get(v)||0)+1);if(m.size>20)break}
+    if(m.size>=2&&m.size<=20&&[...m.values()].some(n=>n>1))fc.push([i,[...m.entries()].sort((a,b)=>K.cmpTxt(a[0],b[0]))])});
+  const host=t.closest('.tw,.listing')||t,bar=document.createElement('div');bar.className='tflt';
+  bar.innerHTML=`<input class="s" placeholder="在表内搜索">${fc.map(([i,vs])=>`<select class="s" data-i="${i}"><option value="">${K.esc(hs[i].innerText.replace(/[▲▼]/g,'').trim())}：全部</option>${vs.map(([v,n])=>`<option value="${K.esc(v)}">${K.esc(v)}（${n}）</option>`).join('')}</select>`).join('')}<span class="xs muted kzn"></span>`;
+  host.parentNode.insertBefore(bar,host);
+  const apply=()=>{const q=bar.querySelector('input').value.trim().toLowerCase(),fs=[...bar.querySelectorAll('select')].filter(x=>x.value).map(x=>[+x.dataset.i,x.value]);let show=true,n=0;
+    [...tb.rows].forEach(r=>{if(r.classList.contains('dx')){r.style.display=show?'':'none';return}
+      show=r.classList.contains('pin')||(fs.every(([i,v])=>txt(r,i)===v)&&(!q||r.innerText.toLowerCase().includes(q)));r.style.display=show?'':'none';if(show)n++});
+    bar.querySelector('.kzn').textContent=q||fs.length?`${n} / ${main.length} 行`:''};
+  bar.querySelector('input').addEventListener('input',apply);bar.querySelectorAll('select').forEach(x=>x.addEventListener('change',apply))};
 if(typeof MutationObserver==='function'&&typeof document.body!=='undefined'){let tm=null;const mo=new MutationObserver(()=>{clearTimeout(tm);tm=setTimeout(()=>K.enhance(document),80)});
   document.addEventListener('DOMContentLoaded',()=>{mo.observe(document.body,{childList:true,subtree:true});K.enhance(document)})}
 /* chips filter: opts [[value,label,count]] multi=false */
@@ -634,8 +646,8 @@ K.ybOpt=R=>{if(!R)return {};const br=R.breaks||[],o={};if(R.hi!=null)o.max=R.hi;
 })();
 /* 用户 2026-11-11：各处手写表格与原始数据表补排序、筛选（K.table 已有的不重复处理）。
  * 规则：单行表头、≥6 行的表——点表头升/降序；≥8 行时表上方加表内搜索，取值 2–20 种的列（最多 3 列）加下拉筛选。
- * 跳过：K.table 生成的（data-kz）、热力矩阵（.heat）、多级表头、含展开明细/分组行的、无表头的键值表。 */
-K.enhanceTable=tb=>{if(!tb||tb.dataset.kz||tb.dataset.kze||tb.classList.contains('heat'))return;tb.dataset.kze='1';
+ * 跳过：K.table 生成的（data-kz）、K.enhance 负责的 table.t、热力矩阵（.heat）、多级表头、含展开明细/分组行的、无表头的键值表。 */
+K.enhanceTable=tb=>{if(!tb||tb.dataset.kz||tb.dataset.kze||tb.classList.contains('heat')||tb.classList.contains('t'))return;tb.dataset.kze='1';   /* table.t 由 K.enhance 负责（排序＋搜索），这里只管原始数据/原始行等其余表，避免同一张表两个搜索框 */
   const th=tb.tHead&&tb.tHead.rows.length===1?[...tb.tHead.rows[0].cells]:null,body=tb.tBodies[0];
   if(!th||!body||th.some(c=>c.colSpan>1||c.rowSpan>1))return;
   const rows=[...body.rows];if(rows.length<6||rows.some(r=>r.classList.contains('grp')||r.classList.contains('dx')||[...r.cells].some(c=>c.colSpan>1)))return;
@@ -644,16 +656,7 @@ K.enhanceTable=tb=>{if(!tb||tb.dataset.kz||tb.dataset.kze||tb.classList.contains
   th.forEach((h,i)=>{h.style.cursor='pointer';h.title=(h.title?h.title+'；':'')+'点击排序';h.addEventListener('click',()=>{dir=sc===i?-dir:1;sc=i;
     const rs=[...body.rows].sort((a,b)=>{const x=txt(a,i),y=txt(b,i);if(!x&&!y)return 0;if(!x)return 1;if(!y)return -1;return K.cmpTxt(x,y)*dir});
     rs.forEach(r=>body.appendChild(r));th.forEach((c,j)=>{const m=c.querySelector('.kzs');if(m)m.remove();if(j===i)c.insertAdjacentHTML('beforeend',`<span class="kzs" style="color:var(--brand-d)"> ${dir>0?'▲':'▼'}</span>`)})})});
-  if(rows.length<8)return;
-  const fc=[];th.forEach((h,i)=>{if(fc.length>=3)return;const m=new Map();for(const r of rows){const v=txt(r,i);if(v.length>24){m.clear();break}if(v)m.set(v,(m.get(v)||0)+1);if(m.size>20)break}
-    if(m.size>=2&&m.size<=20&&[...m.values()].some(n=>n>1))fc.push([i,[...m.entries()].sort((a,b)=>K.cmpTxt(a[0],b[0]))])});
-  const host=tb.closest('.tw,.listing')||tb,bar=document.createElement('div');bar.className='tflt';
-  bar.innerHTML=`<input class="s" placeholder="在表内搜索"><span class="xs muted kzn"></span>${fc.map(([i,vs])=>`<select class="s" data-i="${i}"><option value="">${K.esc(th[i].innerText.replace(/[▲▼]/g,'').trim())}：全部</option>${vs.map(([v,n])=>`<option value="${K.esc(v)}">${K.esc(v)}（${n}）</option>`).join('')}</select>`).join('')}`;
-  host.parentNode.insertBefore(bar,host);
-  const apply=()=>{const q=bar.querySelector('input').value.trim().toLowerCase(),fs=[...bar.querySelectorAll('select')].filter(s=>s.value).map(s=>[+s.dataset.i,s.value]);let n=0;
-    [...body.rows].forEach(r=>{const ok=fs.every(([i,v])=>txt(r,i)===v)&&(!q||r.innerText.toLowerCase().includes(q));r.style.display=ok?'':'none';if(ok)n++});
-    bar.querySelector('.kzn').textContent=q||fs.length?`${n} / ${rows.length} 行`:''};
-  bar.querySelector('input').addEventListener('input',apply);bar.querySelectorAll('select').forEach(s=>s.addEventListener('change',apply))};
+  if(rows.length>=8)K._tbar(tb,body,th)};
 K._enhQ=null;K.enhanceAll=()=>{K._enhQ=null;document.querySelectorAll('table').forEach(K.enhanceTable)};
 if(typeof MutationObserver==='function'&&typeof document!=='undefined')document.addEventListener('DOMContentLoaded',()=>{K.enhanceAll();
   new MutationObserver(()=>{if(!K._enhQ)K._enhQ=setTimeout(K.enhanceAll,60)}).observe(document.body,{childList:true,subtree:true})});
