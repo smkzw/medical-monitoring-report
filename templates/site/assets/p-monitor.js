@@ -81,7 +81,11 @@ function vis(){
 /* ---------- 给药依从与知情 ---------- */
 function dose(){
   const ds=SU.filter(s=>s.fd),EX=O.ex||{},sumEx=(ss,k)=>ss.reduce((a,s)=>a+((EX[s.id]||{})[k]||0),0),nEx=ss=>sumEx(ss,'n');
-  const icfLate=ds.filter(s=>s.icf&&s.first&&s.first<s.icf);
+  /* CRA 测试第四轮（2026-11-11）：本页只比访视日期（0 例）、KRI 计已成立的（2 例）、方案偏离页列 3 例（含 1 例待判定），三处口径不一 →
+   * 统一取方案偏离规则「研究程序早于知情同意」（ICF-01，访视/检查/给药/采样任一早于知情）的结果；待判定单列 */
+  const icfP=((D.pd||{}).potential||[]).filter(p=>p.rule==='ICF-01'),pend=p=>/待判定/.test(p.grade||'');
+  const icfLate=[...new Map(icfP.filter(p=>!pend(p)).map(p=>[p.sid,{id:p.sid,site:p.site}])).values()];
+  const icfPend=[...new Set(icfP.filter(pend).map(p=>p.sid))].filter(x=>!icfLate.some(s=>s.id===x));
   const IV=O.icf||{},vers=[...new Set(Object.values(IV).flat().map(x=>x[0]).filter(Boolean))].sort();
   const lastV=vers[vers.length-1];const reNeed=ds.filter(s=>!end(s)||end(s)>=cut),reDone=reNeed.filter(s=>(IV[s.id]||[]).some(x=>x[0]===lastV));
   const samp=PDP.filter(x=>/样本/.test(x.title||''));
@@ -89,11 +93,11 @@ function dose(){
   const ss_=sites.map(si=>ds.filter(s=>s.site===si)).filter(x=>x.length);
   const col=Object.fromEntries(['miss','pause','devi','fast'].map(k=>[k,colCells(ss_.map(ss=>[sumEx(ss,k),nEx(ss)]),all[k])]));
   pane.innerHTML=`<div class="kpis mb">${[['给药记录',nEx(ds)+'<small>条</small>',''],['漏服/0 剂量',sumEx(ds,'miss')+'<small>条</small>',''],['给药中断',sumEx(ds,'pause')+'<small>条</small>',''],['剂量偏离',sumEx(ds,'devi')+'<small>条</small>','实际与计划剂量不同'],['未按要求空腹',sumEx(ds,'fast')+'<small>条</small>',''],
-    ['知情晚于首个研究程序',icfLate.length+'<small>例</small>','首个访视日期早于知情日期'],...(vers.length>1?[['最新版本再知情',reDone.length+'<small>/ '+reNeed.length+' 例</small>','版本 '+K.esc(lastV)+'（在研参与者）']]:[]),['样本采集超窗',samp.length+'<small>条</small>','潜在 PD']].map(([l,v,s])=>`<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="s xs muted">${s}</div></div>`).join('')}</div>
+    ['研究程序早于知情同意',icfLate.length+'<small>例</small>'+(icfPend.length?`<small>（另 ${icfPend.length} 例待判定）</small>`:''),'访视/检查/给药/采样任一早于知情日期 · 与方案偏离页、KRI 同源'],...(vers.length>1?[['最新版本再知情',reDone.length+'<small>/ '+reNeed.length+' 例</small>','版本 '+K.esc(lastV)+'（在研参与者）']]:[]),['样本采集超窗',samp.length+'<small>条</small>','潜在 PD']].map(([l,v,s])=>`<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="s xs muted">${s}</div></div>`).join('')}</div>
   <div class="card"><div class="hd"><h2>各中心给药依从与知情</h2><span class="sub">给药类为条数（占该中心给药记录%）；着色＝高于整体且校正多重比较后仍显著</span></div><div style="overflow-x:auto"><table class="t heat"><thead><tr><th>中心</th><th class="num">给药</th><th class="num">给药记录</th><th class="num">漏服/0剂量</th><th class="num">中断</th><th class="num">剂量偏离</th><th class="num">未空腹</th><th class="num">知情晚于程序</th>${vers.length>1?'<th class="num">最新版再知情</th>':''}<th class="num">样本超窗</th></tr></thead><tbody>
    ${ss_.map((ss,i)=>{const si=ss[0].site,n=nEx(ss),rn=reNeed.filter(s=>s.site===si);
      return `<tr><td class="nowrap">${cname(si)}</td><td class="num">${ss.length}</td><td class="num">${n}</td>${['miss','pause','devi','fast'].map(k=>`<td class="num">${n?col[k][i]:'·'}</td>`).join('')}<td class="num">${icfLate.filter(s=>s.site===si).length||'·'}</td>${vers.length>1?`<td class="num">${reDone.filter(s=>s.site===si).length}/${rn.length}</td>`:''}<td class="num">${samp.filter(x=>x.site===si).length||'·'}</td></tr>`}).join('')}</tbody></table></div>
-   ${icfLate.length?`<div class="sec-t"><h2>知情晚于首个研究程序</h2></div><table class="t"><tbody>${icfLate.map(s=>`<tr><td>${K.sid(s.id)}</td><td>${cname(s.site)}</td><td class="small">首个访视 ${s.first} · 知情 ${s.icf}</td></tr>`).join('')}</tbody></table>`:''}</div>`;
+   ${icfP.length?`<div class="sec-t"><h2>研究程序早于知情同意</h2><span class="muted small">与方案偏离页同一清单 · <a href="deviations.html">去方案偏离页处理 ›</a></span></div><table class="t"><tbody>${icfP.map(p=>`<tr><td>${K.sid(p.sid)}</td><td>${cname(p.site)}</td><td class="small">${K.esc(p.fact||"")}</td><td>${K.p(p.grade||'',pend(p)?'line':'red')}</td></tr>`).join('')}</tbody></table>`:''}</div>`;
 }
 /* ---------- 退出与数据质量 ---------- */
 function dq(){
