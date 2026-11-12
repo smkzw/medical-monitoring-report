@@ -2155,7 +2155,7 @@ def build_ops(C):
                      s['fd'] or '', s['ld'] or '', s.get('eot_d') or '', s.get('eot_why') or '', s.get('eos_d') or '', s.get('eos_why') or '',
                      1 if str(s.get('rescreen') or '').strip() in ('是', 'Y', '1', 'True', 'true') else 0, s.get('prev_sid') or '',
                      sfw.get(sid, '') or (sf_fallback(C, sid, s) if s['status'] == '筛选失败' else '')])
-    alld = [d for d in (f.get('date') for f in C.findings) if is_full_date(d)]
+    alld = [d for d in (f.get('date') for f in list(C.findings) + list(C.visits)) if is_full_date(d)]   # 回测第六轮：访视日期晚于截止日（07016 10-25）→ 截止日也取访视记录
     C.ops = {'subs': subs, 'vis': dict(vis), 'win': C.A.get('visitWindows') or {}, 'planned': (C.S.get('study') or {}).get('planned'),
              'cutoff': C.cfg.get('study', {}).get('cutoff') or (max(alld) if alld else ''), 'stage': C.cfg.get('dataStage') or '',
              'ex': {k: v for k, v in ex.items()}, 'icf': dict(icf), 'entry': C.entry,
@@ -4282,7 +4282,7 @@ def analyze(C):
         subs.append([sid, s['site'], s['status'], s.get('rand') or '', s['fd'] or '', s.get('age'), s.get('bmi'), len(ae), max([grade_int(x['g']) or 0 for x in ae] + [0]),
                      sum(x['sae'] for x in ae), sum(x['aesi'] for x in ae), sum(x['_rel'] for x in ae), len(C.mh_by[sid]), len(C.cm_by[sid]),
                      sum(q['sid'] == sid for q in C.queries), sum(x.get('sid') == sid for x in C.extq), s.get('icf') or '', s['lo'] or '', s.get('strat') or '', s['ld'] or '', s.get('grp')])
-    alld = [d for d in (f.get('date') for f in C.findings) if is_full_date(d)]
+    alld = [d for d in (f.get('date') for f in list(C.findings) + list(C.visits)) if is_full_date(d)]   # 回测第六轮：访视日期晚于截止日（07016 10-25）→ 截止日也取访视记录
     cutoff = C.cfg.get('study', {}).get('cutoff') or (max(alld) if alld else '')
     ibtag = C.S.get('ibtag') or {}
     sn = dict(C.A.get('formNames') or {})

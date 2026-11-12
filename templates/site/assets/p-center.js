@@ -20,7 +20,7 @@ function draw(site){
   const CR=K.centerRisk(),cats=CR.cats;
   const risks=K.riskFor('all',site);
   el.innerHTML=`<div class="kpis mb">
-   ${kpi('筛选 / 给药',`${ss.length}<small>/ ${ds.length} 例</small>`,`筛败 ${stc('筛选失败')} · 在组 ${stc('已入组')} · 完成 ${stc('完成试验')} · 提前终止治疗 ${stc('提前终止治疗')} · 提前退出 ${stc('提前退出')}`)}
+   ${kpi('筛选 / 给药',`${ss.length}<small>/ ${ds.length} 例</small>`,`筛败 ${stc('筛选失败')} · 在组 ${stc('已入组')} · 完成 ${stc('完成试验')} · 提前退出/终止治疗 ${(((D.ops||{}).wdSids)||[]).length?ds.filter(s=>(D.ops.wdSids||[]).includes(s.id)).length:stc('提前退出')+stc('提前终止治疗')}（与 KRI 同口径）`)}
    ${kpi('随访人月',pm.toFixed(0),'首剂至研究结束或数据截止')}
    ${kpi('数据新鲜度',fr?`${fr[1]}<small>天</small>`:'—',fr?`最近记录 ${fr[0]} · 在研 ${fr[2]} 例`:'')}
    ${kpi('访视',`${due.length}<small>次应完成</small>`,`逾期 ${due.filter(d=>d[6]==='overdue').length} · 超窗 ${due.filter(d=>d[6]==='out').length} · 未来 14 天 ${(O.upcoming||[]).filter(u=>u[1]===site).length}`)}
@@ -54,7 +54,7 @@ function draw(site){
   /* 数据质量 */
   const cf=CRD?K.credFlags(site,CRD.sites[site]):[],tl=TL&&TL.sites?TL.sites[site]:null;
   document.getElementById('cq').innerHTML=`<div class="grid g2"><div><div class="xs muted mb">数据可信度</div>${cf.length?cf.map(f=>`<div class="box small mb">${K.p(f.l,'yel')} ${K.esc(f.why)}</div>`).join(''):'<div class="small muted">未见中心层面的异常模式</div>'}</div>
-   <div><div class="xs muted mb">录入及时性</div>${tl?`<div class="kv"><dt>新增访视记录</dt><dd>${tl.n??'—'}</dd><dt>延迟中位数 / P90</dt><dd>${tl.med??'—'} / ${tl.p90??'—'} 天</dd><dt>修改/删除率</dt><dd>${tl.mod&&tl.mod[1]?(tl.mod[0]/tl.mod[1]*100).toFixed(1)+'%':'—'}</dd><dt>最近一次有新数据</dt><dd>${K.esc(tl.lastNew||'—')}</dd></div>`:'<div class="small muted">需至少两次数据更新后才能计算</div>'}</div></div>`;
+   <div><div class="xs muted mb">录入及时性</div>${tl?`<div class="kv"><dt>新增访视记录</dt><dd>${tl.n??'—'}</dd><dt>延迟中位数 / P90</dt><dd>${tl.med??'—'} / ${tl.p90??'—'} 天</dd><dt>修改/删除率</dt><dd>${tl.mod&&tl.mod[1]?(tl.mod[0]/tl.mod[1]*100).toFixed(1)+'%':'—'}</dd><dt>最近带来新增记录的上传</dt><dd>${K.esc(tl.lastNew||'—')}</dd></div>`:'<div class="small muted">需至少两次数据更新后才能计算</div>'}</div></div>`;
 }
 if(sel.value)go();
 });

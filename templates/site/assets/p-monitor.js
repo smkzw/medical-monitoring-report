@@ -50,7 +50,7 @@ function enr(){
   if(proj)series.push({type:'line',name:'预测',data:[[cut,dosed.length],[proj,pl]],symbol:'none',lineStyle:{color:'#FF9900',type:'dashed',width:1.5}});
   K.chart('#enrc',{grid:{left:36,right:12,top:12,bottom:24},tooltip:{trigger:'axis'},xAxis:{type:'time',...K.axis},yAxis:{type:'value',...K.axis},series});
   /* 筛败原因：EDC 多选分隔符「$」、重复前缀「入选标准 入选标准5」清洗；编号配上标准原文（审阅 2026-11-11） */
-const CRI=((D.study||{}).criteria||[]),criTxt=(k,n)=>{const c=CRI.find(c=>c.no===(k==='入选'?'I':'E')+n);return c?`${k}标准 ${n}：${String(c.text).replace(/^[\s\d.、]+/,'').slice(0,18)}${String(c.text).length>18?'…':''}`:`${k}标准 ${n}`};
+const CRI=((D.study||{}).criteria||[]),criTxt=(k,n)=>{n=String(parseInt(n,10));const c=CRI.find(c=>c.no===(k==='入选'?'I':'E')+n);return c?`${k}标准 ${n}：${String(c.text).replace(/^[\s\d.、]+/,'').slice(0,18)}${String(c.text).length>18?'…':''}`:`${k}标准 ${n}`};
 const sfClean=t=>String(t||'未注明').split(/\s*\$\s*|；|;/).map(x=>x.replace(/^(入选|排除)标准\s+(?=(入选|排除)标准)/,'').trim()).filter(Boolean)
   .map(x=>{const m=x.match(/^(入选|排除)标准\s*(\d+)$/);return m?criTxt(m[1],m[2]):x.slice(0,30)}).filter((x,i,a)=>a.indexOf(x)===i).join('、');
 const why=by(SU.filter(s=>s.status==='筛选失败'),s=>sfClean(s.sf_why||s.eos_why||s.eot_why));   /* V6：入排标准页不满足的标准优先 */
@@ -129,7 +129,7 @@ function kri(){
    <div class="card mt"><div class="hd"><h2>各中心 KRI</h2><span class="sub">红框＝超出研究层面限度（分母 ≥10；分母不足 10 只显示例数、标「样本小」）；底色＝与其他中心相比偏高（橙）或偏低（蓝），校正多重比较；点中心进入画像</span></div>
     <div style="overflow-x:auto"><table class="t heat"><thead><tr><th>中心</th>${defs.map(d=>`<th class="h" title="${K.esc(d.note)}">${K.esc(d.l)}<div class="xs faint" style="font-weight:400">${d.u}${d.qtl?' · 限 '+K.qtlLim(d.k):''}</div></th>`).join('')}</tr></thead><tbody>
     <tr class="pin" style="background:#FAFAFB"><td><b>研究整体</b></td>${defs.map(d=>`<td class="num"><b>${(KR.na||{})[d.k]?'—':K.kriFmt(d.k,K.kriV(d.k,st[d.k]))}</b></td>`).join('')}</tr>
-    ${sites.map((si,i)=>`<tr class="click" data-site="${si}"><td class="nowrap">${cname(si)}</td>${defs.map(d=>{const nd=(KR.sites[si]||{})[d.k],v=K.kriV(d.k,nd),q=d.qtl&&nd&&nd[1]>=K.QTL_MIN_N?K.qtlState(d.k,nd):{},sm=nd&&nd[1]>0&&nd[1]<K.QTL_MIN_N;
+    ${sites.map((si,i)=>`<tr class="click" data-site="${si}"><td class="nowrap">${cname(si)}</td>${defs.map(d=>{const nd=(KR.sites[si]||{})[d.k],v=K.kriV(d.k,nd),q=d.qtl&&nd&&nd[1]>=K.QTL_MIN_N?K.qtlState(d.k,nd):{},sm=d.u==='%'&&nd&&nd[1]>0&&nd[1]<K.QTL_MIN_N;   /* 回测第六轮：「样本小」只对比率类指标（数据新鲜度天数、质疑数不适用） */
       return `<td class="num" style="${flags[d.k][i]}${q.st==='exceed'?';outline:2px solid #8B0000;outline-offset:-2px':''}" title="${nd?K.esc(nd[0]+' / '+nd[1]):''}">${(KR.na||{})[d.k]||v==null?'<span class="faint">·</span>':K.kriFmt(d.k,v)+(sm&&nd[0]?`<div class="xs faint">${nd[0]}/${nd[1]} 样本小</div>`:'')}</td>`}).join('')}</tr>`).join('')}</tbody></table></div>
     ${Object.keys(KR.na||{}).length?`<div class="xs muted mt">未计算：${Object.entries(KR.na).map(([k,v])=>`${K.esc((K.kriDef(k)||{}).l||k)}（${K.esc(v)}）`).join('；')}</div>`:''}
     ${KR.pem&&KR.pem.items&&KR.pem.items.length?`<div class="xs muted mt">主要终点缺失：关键访视 ${K.esc(KR.pem.visits.join('、'))}，关键评估按数据中的「${K.esc(KR.pem.items.join('、'))}」判定</div>`:''}</div>
