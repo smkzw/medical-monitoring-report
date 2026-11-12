@@ -49,8 +49,8 @@ const uniq=q=>q.parts.filter(p=>!p[1]||!comOf(q).length).map(p=>K.hlNum(p[0])).j
 const tbl=K.table(app.querySelector('#qt'),{rows:[],noPage:true,filter:false,   /* 页面上方已有完整筛选区，表格不再另带搜索框（回测第五轮：三个搜索框） */h:'calc(100vh - 160px)',onRow:r=>K.showQ(r.id),
  group:r=>r.cat,groupHead:(g,r)=>{const n=cur.filter(q=>q.cat===g).length;const com=comG(g);return `<div class="flex wrap"><i class="dot ${domCol(dom(r))}"></i><b>${K.catN(g)}</b>${K.p(n+' 条','line')}${K.p(dom(r),domCol(dom(r)))}<span class="sp"></span>${K.ibTags(g)}</div>${com.length?`<div class="qtpl">通用要求：${com.map(K.esc).join(' ')}</div>`:''}`},
  cols:[{k:'id',t:'编号',f:r=>K.qPill(r.id)+(r.source?K.p('AI','blu',SRC(r)):'')+(r.flags||[]).map(fl=>fl==='L3不同意·须人审'?K.p('复核存疑','red','另一模型复核不同意该质疑，请重点判断'):'').join(''),w:'64px'},{k:'sid',t:'参与者',f:r=>K.sid(r.sid)+`<div class="xs faint">${K.esc(K.center(r.site))}</div>`,w:'110px'},
-  {k:'sh',t:'数据位置',f:r=>`${K.p(K.shName(r.sh),'sq')}<div class="xs muted" title="导出表第 ${r.row} 行">${K.esc([r.v,r.d].filter(Boolean).join(' · '))||'第 '+r.row+' 行'}${r.ev.length>1?' · 涉及 '+r.ev.length+' 条记录':''}</div>`,w:'120px'},
-  {k:'v',t:'访视',f:r=>`${r.v?K.p(r.v,'blu'):''}<div class="xs faint">${K.esc(r.d||'')}</div>`,w:'86px',s:r=>(r.d||'9999')+'|'+String(K.vi(r.v)).padStart(3,'0')},
+  {k:'sh',t:'数据位置',f:r=>`${K.p(K.shName(r.sh),'sq')}<div class="xs muted" title="导出表第 ${r.row} 行">${K.esc([K.vname(r.v||''),K.ukd(r.d||'')].filter(Boolean).join(' · '))||'第 '+r.row+' 行'}${r.ev.length>1?' · 涉及 '+r.ev.length+' 条记录':''}</div>`,w:'120px'},
+  {k:'v',t:'访视',f:r=>`${r.v?K.p(r.v,'blu'):''}<div class="xs faint">${K.esc(K.ukd(r.d||''))}</div>`,w:'86px',s:r=>(r.d||'9999')+'|'+String(K.vi(r.v)).padStart(3,'0')},
   {k:'test',t:'对象',f:r=>`<span class="small">${K.esc(r.test||'—')}</span>`,w:'150px'},
   {k:'text',t:'个案事实与请求',f:r=>`<div class="small" style="line-height:1.6">${uniq(r)}${r.parts.some(p=>p[1])&&comOf(r).length?` ${K.p('＋本组通用要求','line')}`:''}</div>`},
   {k:'cro',t:'与'+((K.cfg().query||{}).extShort||'外部')+'质疑对照',f:r=>K.p(CRON[r.cro]||r.cro,CROC[r.cro]),w:'110px'}]});

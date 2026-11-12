@@ -61,7 +61,7 @@ ${sec('三','风险排名','按职能分列：医学监查侧重检验与安全�
  if(proj)ser.push({type:'line',data:[[cut,dosed.length],[proj,planned]],symbol:'none',lineStyle:{color:'#FF9900',type:'dashed',width:1.5},tooltip:{show:false}});
  K.chart('#enr',{grid:{left:36,right:12,top:10,bottom:24},tooltip:{trigger:'axis'},xAxis:{type:'time',...K.axis},yAxis:{type:'value',...K.axis,max:planned?Math.ceil(Math.max(planned,dosed.length)*1.08):null},series:ser})}
 {const H=K.hist(),el=document.getElementById('hist');
- if(H.length>=2){const met=[['lab','检验风险项'],['oth','专项信号'],['pd','潜在方案偏离'],['ent','疑似录入错误'],['q','申办方质疑']];
+ if(H.length>=2){const met=[['lab','检验风险项'],['oth','专项信号'],['pd','潜在方案偏离'],['ent','疑似录入错误'],['q','医学质疑']];
   el.innerHTML=`<div class="hd"><h2>跨上传趋势</h2><span class="sub">最近 ${H.length} 次上传 · 数据截止 ${K.esc(H[0].cutoff||'')} → ${K.esc(H[H.length-1].cutoff||'')}</span></div>
    <table class="t"><tbody>${met.map(([k,l],i)=>`<tr><td class="nowrap small">${l}</td><td style="width:46%"><div id="sk${i}" style="height:26px"></div></td><td class="num"><b>${(H[H.length-1].n||{})[k]??'—'}</b></td></tr>`).join('')}</tbody></table>
    <div class="xs muted mt">每次上传的风险项变化（新增 / 已解决）</div><div id="burn" style="height:96px"></div>`;

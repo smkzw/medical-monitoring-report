@@ -28,7 +28,7 @@ async function one(id){
   document.getElementById('sp').onchange=e=>one(e.target.value);
   const d=await K.sub(id);if(!d)return;
   const s=K.subBy(id),lr=LR[id]||[],ot=OT[id]||[],qs=QS[id]||[];
-  document.getElementById('hd').innerHTML=`${K.status(d.status)}${K.p('D1 '+d.fd,'blu')}${d.ld?K.p('末次给药 '+d.ld,'line'):''}${d.eot?K.p(d.eot.why?'治疗结束：'+d.eot.why:'治疗结束'+(d.eot.date||d.eot.d?' '+(d.eot.date||d.eot.d):''),'brn'):''}${lr.filter(g=>g.risk==='CSX').length?K.p('CS未关联 '+lr.filter(g=>g.risk==='CSX').length,'solid-red'):''}${qs.length?K.p('质疑 '+qs.length,'org'):''}`;
+  document.getElementById('hd').innerHTML=`${K.status(d.status)}${K.p('D1 '+d.fd,'blu')}${d.ld?K.p('末次给药 '+d.ld,'line'):''}${d.eot?K.p('治疗结束'+(d.eot.date||d.eot.d?' '+(d.eot.date||d.eot.d):'')+(d.eot.why?'：'+d.eot.why:''),'brn'):''}${lr.filter(g=>g.risk==='CSX').length?K.p('CS未关联 '+lr.filter(g=>g.risk==='CSX').length,'solid-red'):''}${qs.length?K.p('质疑 '+qs.length,'org'):''}`;
   const lanes=[],bars=[],pts=[];
   const lane=(name,grp)=>{lanes.push({name,grp});return lanes.length-1};
   // visits
@@ -62,7 +62,7 @@ async function one(id){
     yAxis:{type:'category',inverse:true,data:lanes.map(l=>l.name),...K.axis,axisLabel:{fontSize:11,width:162,overflow:'truncate',color:p=>'#404040',formatter:(v,i)=>`{${lanes[i].grp}|${v}}`,rich:Object.fromEntries(Object.entries(GCOL).map(([k,c])=>[k,{color:c,fontSize:11}]))},splitLine:{show:true,lineStyle:{color:'#F5F6F8'}}},
     series:[
      {type:'custom',renderItem:(params,api)=>{const y=api.value(0),a=api.coord([api.value(1),y]),b=api.coord([api.value(2),y]);const hh=api.size([0,1])[1]*.56;const it=bars[params.dataIndex];return {type:'group',children:[{type:'rect',shape:{x:a[0],y:a[1]-hh/2,width:Math.max(b[0]-a[0],3),height:hh,r:2},style:{fill:it.c,opacity:it.op||1}},...(it.aesi?[{type:'text',style:{text:'◆',x:a[0]-9,y:a[1]-6,fill:'#8B0000',font:'10px sans-serif'}}]:[]),...(it.open?[{type:'text',style:{text:'›',x:b[0]+1,y:a[1]-8,fill:it.c,font:'bold 13px sans-serif'}}]:[])]}},encode:{x:[1,2],y:0},data:bars.map(b=>({value:[b.y,b.a,b.b],tip:b.tip}))},
-     {type:'scatter',data:pts.filter(p=>p.t).map(p=>({value:[p.t,p.y],symbol:p.sym,symbolSize:p.size,itemStyle:{color:p.c},tip:p.tip,label:p.lab?{show:true,formatter:p.lab,fontSize:9,color:p.q?'#fff':'#64676B',position:p.q?'inside':'top'}:undefined,q:p.q,test:p.test})),z:5,
+     {type:'scatter',data:pts.filter(p=>p.t).map(p=>({value:[p.t,p.y],symbol:p.sym,symbolSize:p.size,itemStyle:{color:p.c},tip:p.tip,label:p.lab?{show:true,formatter:p.lab,fontSize:9,color:p.q?'#fff':'#64676B',position:p.q?'inside':'top'}:undefined,q:p.q,test:p.test})),z:5,labelLayout:{hideOverlap:true},
       markLine:{symbol:'none',silent:true,label:{fontSize:10,color:'#407AAA',position:'end'},lineStyle:{color:'#407AAA',type:'solid',width:1},data:[{xAxis:fd,label:{formatter:'D1'}},...(ld?[{xAxis:ld,label:{formatter:'末次'},lineStyle:{type:'dashed'}}]:[])]}}]});
   /* V6（用户审阅 RUX 第 18 条）：每个事件都可点——给药/AE/合并用药/病史/访视看原始行（含前后行），检验异常看图＋表＋原始行，质疑/专项看详情 */
   const PV=pts.filter(p=>p.t);ch.off('click');ch.on('click',p=>{const it=p.seriesIndex===0?bars[p.dataIndex]:p.seriesIndex===1?PV[p.dataIndex]:null;if(!it)return;

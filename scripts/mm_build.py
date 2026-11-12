@@ -2097,6 +2097,15 @@ def entry_errors(C):
                                f"仅为本人其余结果中位数（{fmt(med)}）的 1/{fmt(1 / ratio, 0)}") + "，疑似录入或单位错误"
             if why and '单位' not in why and _corroborated(C, sid, r):
                 why = ''                                 # V6（MM 审阅：CK 14.5×ULN 同日 AST 升高、同期 AE → 更像真实损伤，不当录入错误）
+            if why and '单位' not in why and len(num) >= 4:
+                # 回测第六轮（05015 血细胞比容：16.7% 被标错，实则其余 0.230、0.156 是把小数录进了「%」字段）：
+                # 这一次与参考范围同一数量级、本人其余结果却与参考范围差 ≥10 倍 → 不指认这一次，提示「格式不统一」
+                lo_, hi_ = r.get('lo'), r.get('hi')
+                ref = hi_ if isinstance(hi_, (int, float)) and hi_ > 0 else (lo_ if isinstance(lo_, (int, float)) and lo_ > 0 else None)
+                med_o = statistics.median([x['value'] for j, x in enumerate(num) if j != i])
+                if ref and 0.1 <= r['value'] / ref <= 10 and not 0.1 <= med_o / ref <= 10:
+                    why = (f"本人该指标各次记录数量级不一致：本次 {fmt(r['value'])} 与参考范围同一数量级，其余多次（中位数 {fmt(med_o)}）"
+                           f"与参考范围相差 10 倍以上，可能以小数录入了「{r.get('unit') or ''}」字段，请核对各次记录的单位与数值")
             if not why and mn >= 3 and ucanon(r.get('unit')) and ucanon(r['unit']) != mu:
                 mu_raw = next((str(x.get('unit')) for x in num if ucanon(x.get('unit')) == mu), mu)
                 why = f"单位「{r['unit']}」与本人其余记录（「{mu_raw}」）不同，请核对单位与数值"

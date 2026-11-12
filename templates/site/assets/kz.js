@@ -316,6 +316,7 @@ K.TIMEFMT={year:'{yyyy}年',month:'{M}月',day:'{M}/{d}',hour:'{HH}:{mm}',minute
 K.VCODE=/^(SCR|USV|UNS|ET|EOT|EOS|FU)(?=$|[\s\d])/;
 K.VNAME={SCR:'筛选期',USV:'计划外',UNS:'计划外',ET:'提前退出',EOT:'治疗结束',EOS:'研究结束',FU:'随访'};
 K.sup=t=>String(t).replace(/10\^(-?\d+)/g,(_,e)=>'10'+[...e].map(c=>'⁰¹²³⁴⁵⁶⁷⁸⁹'['0123456789'.indexOf(c)]||'⁻').join(''));   /* ×10^9/L → ×10⁹/L */
+K.ukd=d=>String(d??'').replace(/(\d{4})-(?:uk|UK|UN|un)-(?:uk|UK|UN|un)/g,'$1年（月日不详）').replace(/(\d{4})-(\d{2})-(?:uk|UK|UN|un)/g,'$1年$2月（日不详）');   /* 不完整日期写中文 */
 K.vname=v=>String(v??'').replace(K.VCODE,m=>K.VNAME[m]||m);
 K.axisGuard=opt=>{if(!opt)return opt;const ax=k=>[].concat(opt[k]||[]).filter(a=>a&&typeof a==='object');
   [...ax('xAxis'),...ax('yAxis')].forEach(a=>{const L=a.axisLabel=Object.assign({},a.axisLabel||{});if(typeof a.name==='string')a.name=K.sup(a.name);
