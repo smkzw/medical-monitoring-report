@@ -81,6 +81,7 @@ K.deltaCard=()=>{const S=window.KZS||{},DL=S.delta,R=K.RD();if(!DL)return '';
    ${aeN?`<div class="xs muted mt">新增 AE${(DL.aeNew||[]).length>6?'（前 6 条）':''}</div>${aeN}`:''}${(DL.aeWorse||[]).length?`<div class="xs muted mt">等级升高或转为 SAE 的 AE ${(DL.aeWorse||[]).length} 条</div>`:''}
    <div class="mt"><a class="small" href="subjects.html">本次有新数据的参与者 ›</a></div></div>
    <div><div class="xs muted mb">风险变化（各页可勾选「只看本次新增/加重」）</div>${rc||'<div class="small muted">本次与上次之间没有可比的风险数据</div>'}</div></div></div>`};
+K.shCN=sh=>{const s=String(sh||'').replace(/^[^:]*:/,'');return ((C0().sheetNames)||{})[s]||s};   /* 只要中文表单名（有中文名时不带数据集代码） */
 K.shName=sh=>{const s=String(sh||'').replace(/^[^:]*:/,''),n=((C0().sheetNames)||{})[s];return n?`${n}（${s}）`:s};
 K.loc=(sh,row)=>`${K.shName(sh)}${row!=null&&row!==''?' 第'+row+'行':''}`;
 /* ---- 知识层状态（study analysis.knowledge 经构建透出为 KZ.knowledge；键缺失＝旧构建，不渲染）----

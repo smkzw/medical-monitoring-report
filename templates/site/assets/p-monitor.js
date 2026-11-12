@@ -169,11 +169,17 @@ function cred(){
 /* ---------- 疑似录入错误 ---------- */
 function ent(){
   const E=O.entry||[];
+  /* CRA 测试第四轮：03003、03009 同中心同为血小板 ~4.2 未归并 → 同中心同指标 ≥2 例标「疑似系统性录入问题」 */
+  const SYS={};E.forEach(e=>{const k=e.site+'|'+e.test;SYS[k]=(SYS[k]||0)+1});
   pane.innerHTML=`<div class="note small mb">同一参与者同一指标，某次结果为本人其余结果的约 10 的整数次幂倍（疑似小数点错位）或 ≥20 倍且为孤立尖峰（前后两次都正常范围波动），或单位与本人其余记录不同。只作数据质量提示（请 CRA 核对源数据），不发医学质疑；若该点同时进了医学风险层，风险行已标注「可能为录入错误，请先核对源数据」。</div>
   <div class="card"><div id="et"></div></div>`;
   K.table(document.getElementById('et'),{rows:E,sort:'site',dir:1,h:'620px',onRow:r=>K.showEnt(r),
     cols:[{k:'sid',t:'参与者',f:r=>K.sid(r.sid)},{k:'site',t:'中心',f:r=>cname(r.site)},{k:'test',t:'指标',f:r=>`<b>${K.esc(r.test)}</b>${r.ctq?K.p('关键','solid-red',r.ctq):''}`},{k:'visit',t:'访视',f:r=>K.p(r.visit,'blu')+` <span class="xs faint">${K.esc(r.date)}</span>`},
-      {k:'raw',t:'录入值',f:r=>`<b>${K.esc(r.raw)}</b> <span class="xs muted">${K.esc(r.unit)}</span>`},{k:'why',t:'判断',f:r=>`<span class="small">${K.esc(r.why)}</span>`},{k:'row',t:'来源',f:r=>`<span class="xs faint">${K.esc(K.loc(r.sh,r.row))}</span>`}]});
+      {k:'raw',t:'录入值',nf:true,f:r=>`<b>${K.esc(r.raw)}</b> <span class="xs muted">${K.esc(K.sup(r.unit||''))}</span>`},
+      {k:'lo',t:'参考范围',nf:true,f:r=>r.lo!=null||r.hi!=null?`<span class="small nowrap">${K.rng(r.lo,r.hi)}</span>`:'<span class="xs faint">未填</span>',s:r=>r.lo??r.hi??''},
+      {k:'prev',t:'前后两次',nf:true,f:r=>[r.prev?`前 ${K.esc(r.prev.visit)} <b>${K.esc(r.prev.raw)}</b>`:'',r.next?`后 ${K.esc(r.next.visit)} <b>${K.esc(r.next.raw)}</b>`:''].filter(Boolean).join('<br>')||'<span class="xs faint">—</span>',s:r=>''},
+      {k:'why',t:'判断',f:r=>`<span class="small">${K.esc(r.why)}</span>${(SYS[r.site+'|'+r.test]||0)>1?`<div>${K.p('同中心同指标 '+SYS[r.site+'|'+r.test]+' 例·疑似系统性录入问题','org')}</div>`:''}`},
+      {k:'row',t:'EDC 位置',f:r=>`<span class="xs">${K.esc(K.shCN(r.sh))}</span><div class="xs faint">${K.esc(r.visit||'')} · 第 ${K.esc(r.row)} 行</div>`}]});
 }
 K.qtlBar(document.getElementById('qtlbar'));
 K.tabs(document.getElementById('tabs'),tabs,H.tab&&R[H.tab]?H.tab:'enr',v=>{K.setHash({tab:v});R[v]()});   /* 放在末尾：tabs 会立即渲染默认页签，所用的函数与常量须已定义 */

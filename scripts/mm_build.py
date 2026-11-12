@@ -2101,9 +2101,13 @@ def entry_errors(C):
                 why = f"单位「{r['unit']}」与本人其余记录（「{mu_raw}」）不同，请核对单位与数值"
             if why:
                 r['_entry'] = why
+                # CRA 测试第四轮（2026-11-11）：发 EDC 质疑还要参考范围与前后两次的值——一并带出，不必回 EDC 自己查
+                nb_ = lambda x: x and {'visit': x.get('visit') or '', 'date': x.get('date') or '', 'raw': x.get('raw'), 'unit': x.get('unit') or ''}
                 C.entry.append({'sid': sid, 'site': C.subj[sid]['site'], 'test': C.metric[mid]['label'], 'visit': r.get('visit') or '',
                                 'date': r.get('date') or '', 'raw': r.get('raw'), 'unit': r.get('unit') or '', 'why': why,
-                                'sh': ev_sh(C, r.get('sheet'), r.get('wb') or ''), 'row': r.get('row')})
+                                'sh': ev_sh(C, r.get('sheet'), r.get('wb') or ''), 'row': r.get('row'),
+                                'lo': r.get('lo'), 'hi': r.get('hi'),
+                                'prev': nb_(num[i - 1]) if i > 0 else None, 'next': nb_(num[i + 1]) if i + 1 < len(num) else None})
     for g in C.labrows:                                  # 同一点也在医学风险层：先核对源数据，避免对录入错误发医学质疑
         hit = [x for x in C.F.get((g['sid'], g.get('mid')), []) if x.get('_entry') and any(p[7] == x.get('sheet') and p[8] == x.get('row') for p in g['pts'])]
         if hit:
