@@ -3,7 +3,8 @@
 const K=window.K={};
 const D=()=>window.KZ;
 K.esc=s=>s==null?'':String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-K.p=(t,c='',tip)=>`<span class="p ${c}"${tip?` title="${K.esc(tip)}"`:''}>${t}</span>`;
+K.p=(t,c='',tip)=>{if(/^blu\b/.test(c)&&typeof t==='string'&&K.VCODE&&K.VCODE.test(t)){tip=tip||'EDC 访视代码 '+t;t=K.vname(t)}   /* 蓝色访视标签：SCR/USV/ET/EOT 显示中文名，悬停给原代码（测试第四/五轮） */
+  return `<span class="p ${c}"${tip?` title="${K.esc(tip)}"`:''}>${t}</span>`};
 K.fmt=(v,d)=>{if(v==null||v===''||isNaN(v))return '—';const n=+v;if(d!=null)return n.toFixed(d);return Math.abs(n)>=100?n.toFixed(0):Math.abs(n)>=10?(+n.toFixed(1)).toString():(+n.toFixed(2)).toString();};
 K.rng=(lo,hi)=>lo!=null&&hi!=null?`${K.fmt(lo)}–${K.fmt(hi)}`:hi!=null?`≤${K.fmt(hi)}`:lo!=null?`≥${K.fmt(lo)}`:'—';
 K.pct=v=>v==null||isNaN(v)?'—':(v>0?'+':'')+(+v).toFixed(1)+'%';

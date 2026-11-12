@@ -45,7 +45,7 @@ K.journey=(el,d,{lr=[],ot=[],qs=[]}={})=>{if(!el||!window.echarts)return;
   const end=d.lo||d.ld||d.fd,clip=x=>x&&String(x).slice(0,10),isD=x=>/^\d{4}-\d{2}-\d{2}/.test(String(x||''));
   const bars=[],pts=[];
   (d.ec||[]).forEach(e=>{if(isD(e.s))bars.push({lane:0,s:clip(e.s),e:clip(isD(e.e)?e.e:e.s),c:'#587B3B',t:`给药 ${clip(e.s)}${isD(e.e)?' → '+clip(e.e):''}${e.n?' · '+e.n:''}${e.pause?' · '+e.pause:''}`,go:()=>K.evDrawer(`${d.id} · 研究药物给药`,d.id,[[K.evKey(e.wb,e.sh),e.row]])})});
-  (d.visits||[]).forEach(v=>{if(isD(v[2]))pts.push({lane:1,d:clip(v[2]),c:'#407AAA',sym:'rect',sz:7,t:`${v[0]} 访视 ${clip(v[2])}`,lab:v[0],go:()=>K.evDrawer(`${d.id} · ${K.esc(v[0])} 访视`,d.id,[[K.evKey(v[5],v[4]),v[3]]])})});
+  (d.visits||[]).forEach(v=>{if(isD(v[2]))pts.push({lane:1,d:clip(v[2]),c:'#407AAA',sym:'rect',sz:7,t:`${K.vname(v[0])} 访视 ${clip(v[2])}`,lab:K.vname(v[0]),go:()=>K.evDrawer(`${d.id} · ${K.esc(v[0])} 访视`,d.id,[[K.evKey(v[5],v[4]),v[3]]])})});
   const gc=g=>{const n=parseInt(g)||0;return n>=3?'#8B0000':n===2?'#E67E00':'#E8C300'};
   (d.ae||[]).forEach((a,i)=>{if(!isD(a.s))return;bars.push({lane:2,sub:i%4,s:clip(a.s),e:clip(isD(a.e)?a.e:end),open:!isD(a.e),c:gc(a.g),bd:a.sae?'#000':null,
     t:`AE“${a.t}”${a.g||''}${a.sae?' · SAE':''}${a.aesi?' · AESI':''}<br>${clip(a.s)} → ${isD(a.e)?clip(a.e):'持续'}${a.rel?'<br>相关性：'+a.rel:''}`,go:()=>K.evDrawer(`${d.id} · AE ${K.esc(a.t)}`,d.id,[[K.evKey(a.wb,a.sh),a.row]],K.aeBox(a))})});

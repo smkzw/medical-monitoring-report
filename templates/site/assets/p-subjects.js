@@ -112,7 +112,7 @@ async function show(id){
   function tn(t){const m=t.match(/^(.*?)（(.*)）$/);return m?`${K.esc(m[1])} <span class="faint xs">${K.esc(m[2])}</span>`:K.esc(t)}
   function mx(el,groups,obj,{abn=false,bfn=null}={}){
     const C=cols(obj);const fl=new Set(lr.map(g=>g.test));
-    const hd=`<tr><th>项目</th><th class="xs">单位/范围</th>${C.map(c=>`<th class="v">${c.v}${c.tp?`<div class="xs faint">${K.esc(c.tp.replace(/给药后/,'后').replace(/给药前/,'前').replace(/±.*$/,''))}</div>`:''}<div class="xs faint" style="font-weight:400">${(c.d||'').slice(5)}</div></th>`).join('')}</tr>`;
+    const hd=`<tr><th>项目</th><th class="xs">单位/范围</th>${C.map(c=>`<th class="v" title="${K.esc(c.v)}">${K.esc(K.vname(c.v))}${c.tp?`<div class="xs faint">${K.esc(c.tp.replace(/给药后/,'后').replace(/给药前/,'前').replace(/±.*$/,''))}</div>`:''}<div class="xs faint" style="font-weight:400">${(c.d||'').slice(5)}</div></th>`).join('')}</tr>`;
     let body='';
     groups.forEach(([g,tests])=>{
       const show=tests.filter(t=>!abn||obj[t].some(r=>r[7]>0));if(!show.length)return;
