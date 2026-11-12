@@ -406,6 +406,8 @@ def kri(C):
     S = C.subj
     sites = sorted({s['site'] for s in S.values()})
     dosed = [sid for sid in sorted(C.pop) if S[sid].get('fd')]
+    # 回测第五轮：提前退出总览卡片 11、退出清单 12、KRI 14 三处口径不一 → 同一份名单（状态提前退出/终止，或治疗提前结束且非完成治疗）
+    C.ops['wdSids'] = [x for x in dosed if _early_wd(S[x])]
     pd = (C.pdd or {}).get('potential') or []
     ran = {r['id']: r.get('state') for r in (C.pdd or {}).get('rules') or []}
     # V6（PM 审阅 2026-11-02）：容忍限度分子只计「事实已成立」的潜在偏离；文案本身写着请核实/待判定/需经治疗后仍超标

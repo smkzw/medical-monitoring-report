@@ -29,19 +29,21 @@ const colCells=(rows,all,per)=>{const f=K.colFlags(rows,all),fm=x=>per?`每例 $
 /* ---------- 入组与进度（含入组预测） ---------- */
 function enr(){
   const st=k=>SU.filter(s=>s.status===k).length,n=SU.length,dosed=SU.filter(s=>s.fd);
-  const sfAll=st('筛选失败')/(n||1),wdAll=st('提前退出')/(dosed.length||1);
+  const WD=O.wdSids?new Set(O.wdSids):null,isWd=s=>WD?WD.has(s.id):s.status==='提前退出';   /* 与 KRI、退出清单同一名单 */
+  const nWd=SU.filter(isWd).length,nWdTx=SU.filter(s=>isWd(s)&&s.status!=='提前退出').length;
+  const sfAll=st('筛选失败')/(n||1),wdAll=nWd/(dosed.length||1);
   const icf2fd=dosed.map(s=>s.icf&&dd(s.fd,s.icf)).filter(x=>x!=null&&x>=0);
   const fds=dosed.map(s=>s.fd).sort(),n90=cut?fds.filter(d=>dd(cut,d)>=0&&dd(cut,d)<90).length:0,pl=O.planned;
   const proj=pl&&cut&&dosed.length<pl&&n90>=3?addD(cut,(pl-dosed.length)/(n90/90)):null;
   pane.innerHTML=`<div class="kpis mb">${[['知情 / 筛选',n+'<small>例</small>',SU.filter(s=>s.rescreen).length?'重复筛选 '+SU.filter(s=>s.rescreen).length+' 例':''],['筛选失败',st('筛选失败')+`<small>例 · ${(sfAll*100).toFixed(0)}%</small>`,''],
     ['随机 / 给药',SU.filter(s=>s.rand).length+'<small>/ '+dosed.length+' 例</small>',pl?'计划 '+pl+' 例 · 已完成 '+(dosed.length/pl*100).toFixed(0)+'%':''],
     ['入组预测',pl?(dosed.length>=pl?'已达成':proj||'—'):'—',pl?(dosed.length>=pl?'已达计划例数':proj?`近 90 天给药 ${n90} 例（${(n90/90*30).toFixed(1)} 例/月）外推`:'近 90 天给药不足 3 例，无法外推'):'方案未给计划例数'],
-    ['完成 / 在组',st('完成试验')+'<small>/ '+st('已入组')+' 例</small>','提前终止治疗（随访中） '+st('提前终止治疗')+' 例'],['提前退出',st('提前退出')+`<small>例 · ${(wdAll*100).toFixed(0)}%</small>`,''],
+    ['完成 / 在组',st('完成试验')+'<small>/ '+st('已入组')+' 例</small>','提前终止治疗（随访中） '+st('提前终止治疗')+' 例'],['提前退出 / 提前终止治疗',nWd+`<small>例 · ${(wdAll*100).toFixed(0)}%</small>`,nWdTx?`其中 ${nWdTx} 例随访继续、仅提前终止治疗 · 与 KRI、退出清单同一口径`:'与 KRI、退出清单同一口径'],
     ['知情 → 首剂（中位）',(med(icf2fd)??'—')+'<small>天</small>',icf2fd.length?'范围 '+Math.min(...icf2fd)+'–'+Math.max(...icf2fd)+' 天':'']].map(([l,v,s])=>`<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="s xs muted">${s}</div></div>`).join('')}</div>
   <div class="grid g21"><div class="card"><div class="hd"><h2>各中心入组与进度</h2><span class="sub">比率着色：高于整体且校正多重比较后仍显著；点行进入中心画像</span></div><div style="overflow-x:auto"><table class="t heat"><thead><tr><th>中心</th><th class="num">筛选</th><th class="num">筛败</th><th class="num">随机</th><th class="num">给药</th><th class="num">完成</th><th class="num">在组</th><th class="num">治疗结束</th><th class="num">提前退出</th><th class="num">重复筛选</th><th class="num">知情→首剂</th><th>首例给药</th><th>最近给药</th></tr></thead><tbody id="enrb"></tbody></table></div></div>
    <div class="card"><div class="hd"><h2>累计入组</h2><span class="sub">首次给药累计${pl?' · 灰线为计划例数':''}${proj?' · 虚线为预测':''}</span></div><div class="chart" id="enrc" style="height:300px"></div><div class="hd mt"><h2>筛选失败原因</h2></div><div id="sfr"></div></div></div>`;
   const rows=sites.map(si=>{const ss=SU.filter(s=>s.site===si),ds=ss.filter(s=>s.fd);return {si,ss,ds}});
-  const sfC=colCells(rows.map(r=>[r.ss.filter(s=>s.status==='筛选失败').length,r.ss.length]),sfAll),wdC=colCells(rows.map(r=>[r.ss.filter(s=>s.status==='提前退出').length,r.ds.length]),wdAll);
+  const sfC=colCells(rows.map(r=>[r.ss.filter(s=>s.status==='筛选失败').length,r.ss.length]),sfAll),wdC=colCells(rows.map(r=>[r.ss.filter(isWd).length,r.ds.length]),wdAll);
   document.getElementById('enrb').innerHTML=rows.map(({si,ss,ds},i)=>{const c=k=>ss.filter(s=>s.status===k).length,i2=ds.map(s=>s.icf&&dd(s.fd,s.icf)).filter(x=>x!=null&&x>=0),fd=ds.map(s=>s.fd).sort();
      return `<tr class="click" data-site="${si}"><td class="nowrap">${cname(si)}</td><td class="num">${ss.length}</td><td class="num">${sfC[i]}</td><td class="num">${ss.filter(s=>s.rand).length}</td><td class="num"><b>${ds.length}</b></td><td class="num">${c('完成试验')||'·'}</td><td class="num">${c('已入组')||'·'}</td><td class="num">${(c('治疗结束')+c('提前终止治疗'))||'·'}</td><td class="num">${ds.length?wdC[i]:'·'}</td><td class="num">${ss.filter(s=>s.rescreen).length||'·'}</td><td class="num">${med(i2)??'—'}</td><td class="nowrap small">${fd[0]||'—'}</td><td class="nowrap small">${fd[fd.length-1]||'—'}</td></tr>`}).join('');
   const series=[{type:'line',name:'全部',step:'end',data:fds.map((d,i)=>[d,i+1]),symbol:'none',lineStyle:{color:'#FF9900',width:2},areaStyle:{color:'rgba(255,153,0,.10)'},markLine:pl?{symbol:'none',data:[{yAxis:pl,label:{formatter:'计划 '+pl}}],lineStyle:{type:'dashed',color:'#C9CCD1'}}:undefined}];
@@ -101,13 +103,13 @@ function dose(){
 }
 /* ---------- 退出与数据质量 ---------- */
 function dq(){
-  const ds=SU.filter(s=>s.fd),wd=SU.filter(s=>s.status==='提前退出'||(s.eot_d&&s.status!=='完成试验'&&s.eot_why));
-  const why=by(wd,s=>(s.eos_why||s.eot_why||'未注明').slice(0,30));
+  const ds=SU.filter(s=>s.fd),wd=SU.filter(s=>O.wdSids?O.wdSids.includes(s.id):(s.status==='提前退出'||(s.eot_d&&s.status!=='完成试验'&&s.eot_why)));
+  const why=by(wd,s=>(s.eos_why||s.eot_why||'未注明').slice(0,80));   /* 回测第五轮：截到 30 字丢了右括号 */
   const QS=by(D.queries,q=>q.site),SUB=Object.fromEntries(SU.map(s=>[s.id,s.site])),CRO=by(D.cro,c=>SUB[c[2]]||'');
   const oc=cat=>by(D.others.filter(o=>o.cat===cat),o=>o.site),date=oc('日期完整性核对'),rng=oc('参考范围缺失核对'),ENT=by(O.entry||[],e=>e.site);
   const qAll=D.queries.length/(ds.length||1),FR=O.fresh||{};
   const sq=sites.filter(si=>ds.some(s=>s.site===si)||(QS[si]||[]).length),qC=colCells(sq.map(si=>[(QS[si]||[]).length,ds.filter(s=>s.site===si).length]),qAll,true);
-  pane.innerHTML=`<div class="grid g12"><div class="card"><div class="hd"><h2>提前退出 / 终止治疗原因</h2><span class="sub">${wd.length} 例</span></div><table class="t"><tbody>${Object.entries(why).sort((a,b)=>b[1].length-a[1].length).map(([k,v])=>`<tr><td class="small">${K.esc(k)}</td><td class="num">${v.length}</td><td class="small">${v.slice(0,6).map(s=>K.sid(s.id)+(s.fd&&end(s)?` <span class="xs faint">D${dd(end(s),s.fd)+1}</span>`:'')).join('　')}</td></tr>`).join('')||'<tr><td class="empty">无</td></tr>'}</tbody></table></div>
+  pane.innerHTML=`<div class="grid g12"><div class="card"><div class="hd"><h2>提前退出 / 终止治疗原因</h2><span class="sub">${wd.length} 例</span></div><table class="t"><tbody>${Object.entries(why).sort((a,b)=>b[1].length-a[1].length).map(([k,v])=>`<tr><td class="small">${K.esc(k)}</td><td class="num">${v.length}</td><td class="small">${v.map(s=>K.sid(s.id)+(s.fd&&end(s)?` <span class="xs faint">D${dd(end(s),s.fd)+1}</span>`:'')).join('　')}</td></tr>`).join('')||'<tr><td class="empty">无</td></tr>'}</tbody></table></div>
    <div class="card"><div class="hd"><h2>各中心数据质量</h2><span class="sub">申办方质疑按给药人数校正着色 · 数据新鲜度＝数据截止 − 最近一条记录</span></div><div style="overflow-x:auto"><table class="t heat"><thead><tr><th>中心</th><th class="num">给药</th><th class="num">申办方质疑</th><th class="num">CRO 质疑</th><th class="num">日期完整性</th><th class="num">参考范围缺失</th><th class="num">疑似录入错误</th><th class="num">最近记录</th></tr></thead><tbody>
     ${sq.map((si,i)=>{const n=ds.filter(s=>s.site===si).length,f=FR[si];
       return `<tr class="click" data-site="${si}"><td class="nowrap">${cname(si)}</td><td class="num">${n}</td><td class="num">${(QS[si]||[]).length?qC[i]:'·'}</td><td class="num">${(CRO[si]||[]).length||'·'}</td><td class="num">${(date[si]||[]).length||'·'}</td><td class="num">${(rng[si]||[]).length||'·'}</td><td class="num">${(ENT[si]||[]).length||'·'}</td><td class="num nowrap">${f?`${f[0]} ${f[2]&&f[1]>30?K.p(f[1]+' 天','yel'):`<span class="xs faint">${f[1]} 天</span>`}`:'—'}</td></tr>`}).join('')}</tbody></table></div></div></div>`;

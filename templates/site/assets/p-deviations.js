@@ -10,7 +10,7 @@ const ran=RULES.filter(r=>r.state==='ran').length;
 app.innerHTML=`
 <div class="flex mb"><h1 style="font-size:18px">方案偏离</h1><span class="muted small">已记录 PD（方案偏离记录表）· 潜在 PD（数据推断，待 CRA/研究者核实，不计入 PD 率）· 分级：重要 / 待判定 / 一般</span><span class="sp"></span>${(K.cfg().blind||{}).on?K.p('盲态','blu'):''}</div>
 <div class="kpis">
- <div class="kpi risk"><div class="l">已记录 PD</div><div class="v">${CONF.length}<small>条</small></div><div class="s">${P.hasListing?K.p('重要 '+imp(CONF),'solid-red')+K.p('待判定 '+CONF.filter(x=>x.grade==='待判定').length,'yel')+K.p('一般 '+CONF.filter(x=>x.grade==='一般').length,'line'):K.p('未提供方案偏离记录表','line')}</div></div>
+ <div class="kpi risk"><div class="l">已记录 PD</div><div class="v">${P.hasListing===false?'—':CONF.length+'<small>条</small>'}</div><div class="s">${P.hasListing?K.p('重要 '+imp(CONF),'solid-red')+K.p('待判定 '+CONF.filter(x=>x.grade==='待判定').length,'yel')+K.p('一般 '+CONF.filter(x=>x.grade==='一般').length,'line'):K.p('未提供方案偏离记录表（不代表没有偏离）','line')}</div></div>
  <div class="kpi"><div class="l">潜在 PD · 执行层面</div><div class="v">${exe.length}<small>条</small></div><div class="s">${K.p('重要 '+imp(exe),'solid-red')}${K.p('待判定 '+exe.filter(x=>x.grade==='待判定').length,'yel')}</div></div>
  <div class="kpi"><div class="l">潜在 PD · 科学层面</div><div class="v">${sci.length}<small>条</small></div><div class="s">${K.p('重要 '+imp(sci),'solid-red')}${K.p('待判定 '+sci.filter(x=>x.grade==='待判定').length,'yel')}</div></div>
  <div class="kpi"><div class="l">潜在 PD 未见记录</div><div class="v">${P.hasListing===false?'—':POT.filter(x=>x.status==='未见记录').length}<small>/ ${POT.length}</small></div><div class="s">${K.p('已记录 '+POT.filter(x=>x.status==='已记录').length,'grn')}${P.hasListing?'':K.p('无方案偏离记录表可比对','line')}</div></div>
