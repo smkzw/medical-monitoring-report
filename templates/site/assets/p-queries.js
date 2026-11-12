@@ -43,10 +43,10 @@ const order=K.DOM.flatMap(d=>d[1]);const oi=c=>{const i=order.indexOf(c);return 
 /* D001 测试第四轮（2026-11-11）：「阈值规则核对」一类下有两种要求（海氏法则只对肝功能适用），被当作整组通用要求挂在贫血行上 →
  * 只有一种要求时才作为本组通用要求在组标题显示；多种要求时每行显示自己的完整要求 */
 const comG=g=>{const c=(D.qcommon||{})[g]||[];return c.length===1?c:[]};
-const comOf=q=>comG(q.cat);
+const comOf=q=>q.source?[]:comG(q.cat);   /* AI 质疑的要求是逐条写的，与本组通用要求不一定相同 → 行内始终给完整要求（回测第五轮 Q178–Q215） */
 // 本组没有通用要求（工作台并入的 AI 质疑组）时，行内显示本条完整请求，不再挂空的「＋通用要求」（审阅 2026-11-10：42 条请求不可见）
 const uniq=q=>q.parts.filter(p=>!p[1]||!comOf(q).length).map(p=>K.hlNum(p[0])).join(' ');
-const tbl=K.table(app.querySelector('#qt'),{rows:[],noPage:true,h:'calc(100vh - 160px)',onRow:r=>K.showQ(r.id),
+const tbl=K.table(app.querySelector('#qt'),{rows:[],noPage:true,filter:false,   /* 页面上方已有完整筛选区，表格不再另带搜索框（回测第五轮：三个搜索框） */h:'calc(100vh - 160px)',onRow:r=>K.showQ(r.id),
  group:r=>r.cat,groupHead:(g,r)=>{const n=cur.filter(q=>q.cat===g).length;const com=comG(g);return `<div class="flex wrap"><i class="dot ${domCol(dom(r))}"></i><b>${K.catN(g)}</b>${K.p(n+' 条','line')}${K.p(dom(r),domCol(dom(r)))}<span class="sp"></span>${K.ibTags(g)}</div>${com.length?`<div class="qtpl">通用要求：${com.map(K.esc).join(' ')}</div>`:''}`},
  cols:[{k:'id',t:'编号',f:r=>K.qPill(r.id)+(r.source?K.p('AI','blu',SRC(r)):'')+(r.flags||[]).map(fl=>fl==='L3不同意·须人审'?K.p('复核存疑','red','另一模型复核不同意该质疑，请重点判断'):'').join(''),w:'64px'},{k:'sid',t:'参与者',f:r=>K.sid(r.sid)+`<div class="xs faint">${K.esc(K.center(r.site))}</div>`,w:'110px'},
   {k:'sh',t:'数据位置',f:r=>`${K.p(K.shName(r.sh),'sq')}<div class="xs muted" title="导出表第 ${r.row} 行">${K.esc([r.v,r.d].filter(Boolean).join(' · '))||'第 '+r.row+' 行'}${r.ev.length>1?' · 涉及 '+r.ev.length+' 条记录':''}</div>`,w:'120px'},

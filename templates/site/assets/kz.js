@@ -235,7 +235,7 @@ K.table=(el,cfg)=>{
     if(st.sort){const c=cfg.cols.find(c=>c.k===st.sort);if(c)rows.sort((a,b)=>{const x=sv(c,a),y=sv(c,b);if((x==null||x==='')&&(y==null||y===''))return 0;if(x==null||x==='')return 1;if(y==null||y==='')return -1;
       return (typeof x==='number'&&typeof y==='number'?x-y:K.cmpTxt(String(x),String(y)))*st.dir})}
     return rows}
-  function bar(){if(!fcols.length&&cfg.rows.length<=8&&!st.q)return '';
+  function bar(){if(cfg.filter===false||(!fcols.length&&cfg.rows.length<=8&&!st.q))return '';
     return `<div class="tflt"><input class="s" data-tq placeholder="在表内搜索" value="${K.esc(st.q)}">${fcols.map(([i,vs])=>`<select class="s" data-tf="${i}"><option value="">${K.esc(K.cellTxt(cfg.cols[i].t))}：全部</option>${vs.map(([v,n])=>`<option value="${K.esc(v)}"${st.f[i]===v?' selected':''}>${K.esc(v)}（${n}）</option>`).join('')}</select>`).join('')}${st.q||Object.values(st.f).some(Boolean)?'<a class="small" data-tc href="javascript:void 0">清除筛选</a>':''}</div>`}
   function draw(){
     const rows=view();
@@ -274,7 +274,8 @@ K._tbar=(t,tb,hs)=>{const main=[...tb.rows].filter(r=>!r.classList.contains('dx'
   const fc=[];hs.forEach((h,i)=>{if(fc.length>=3)return;const m=new Map();for(const r of main){const v=txt(r,i);if(v.length>24){m.clear();break}if(v)m.set(v,(m.get(v)||0)+1);if(m.size>20)break}
     if(m.size>=2&&m.size<=20&&[...m.values()].some(n=>n>1))fc.push([i,[...m.entries()].sort((a,b)=>K.cmpTxt(a[0],b[0]))])});
   const host=t.closest('.tw,.listing')||t,bar=document.createElement('div');bar.className='tflt';
-  bar.innerHTML=`<input class="s" placeholder="在表内搜索">${fc.map(([i,vs])=>`<select class="s" data-i="${i}"><option value="">${K.esc(hs[i].innerText.replace(/[▲▼]/g,'').trim())}：全部</option>${vs.map(([v,n])=>`<option value="${K.esc(v)}">${K.esc(v)}（${n}）</option>`).join('')}</select>`).join('')}<span class="xs muted kzn"></span>`;
+  const own=t.dataset.ownsearch;   /* 页面自带关键词搜索（原始数据页）：只加列筛选，不再加搜索框 */
+  bar.innerHTML=`${own?'<input class="s" style="display:none">':'<input class="s" placeholder="在表内搜索">'}${fc.map(([i,vs])=>`<select class="s" data-i="${i}"><option value="">${K.esc(hs[i].innerText.replace(/[▲▼]/g,'').trim())}：全部</option>${vs.map(([v,n])=>`<option value="${K.esc(v)}">${K.esc(v)}（${n}）</option>`).join('')}</select>`).join('')}<span class="xs muted kzn"></span>`;
   host.parentNode.insertBefore(bar,host);
   const apply=()=>{const q=bar.querySelector('input').value.trim().toLowerCase(),fs=[...bar.querySelectorAll('select')].filter(x=>x.value).map(x=>[+x.dataset.i,x.value]);let show=true,n=0;
     [...tb.rows].forEach(r=>{if(r.classList.contains('dx')){r.style.display=show?'':'none';return}
@@ -323,7 +324,10 @@ K.axisGuard=opt=>{if(!opt)return opt;const ax=k=>[].concat(opt[k]||[]).filter(a=
     if(a.type==='category'&&L.formatter==null&&Array.isArray(a.data)&&a.data.some(v=>K.VCODE.test(String(v))))L.formatter=v=>K.vname(v)});
   /* 柱图纵轴从 0 起（自动范围从 2 起时值 3 的柱像满格）；自动范围的数值轴上下留白，落在边上的点和标签不被轴线/边框遮一半 */
   const hasBar=(opt.series||[]).some(s=>s&&s.type==='bar');
-  ax('yAxis').forEach(a=>{if(a.type!=='value'||a.min!=null||a.max!=null)return;if(hasBar&&a.scale)a.scale=false;else if(a.scale&&a.boundaryGap==null)a.boundaryGap=['6%','10%']});
+  /* 回测第五轮：对称留白让非负指标的纵轴出现负刻度（乙肝表面抗原到 −50、CK 到 −300）→ 按数据算上下界，非负数据下界不低于 0 */
+  ax('yAxis').forEach(a=>{if(a.type!=='value'||a.min!=null||a.max!=null)return;if(hasBar&&a.scale){a.scale=false;return}
+    if(a.scale&&a.boundaryGap==null){a.min=v=>{const r=(v.max-v.min)||Math.abs(v.max)||1,m=v.min-r*.06;return v.min>=0?Math.max(0,+m.toPrecision(3)):+m.toPrecision(3)};
+      a.max=v=>{const r=(v.max-v.min)||Math.abs(v.max)||1;return +(v.max+r*.1).toPrecision(3)}}});
   const vert=new Set(ax('xAxis').length?['xAxis']:[]);
   (opt.series||[]).forEach(s=>{if(!s)return;const m=s.markLine;
     if(m&&Array.isArray(m.data))m.data.forEach(d=>{if(!d||Array.isArray(d))return;const lb=d.label=Object.assign({},m.label||{},d.label||{});if(lb.position)return;

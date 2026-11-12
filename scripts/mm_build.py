@@ -159,9 +159,10 @@ def load(study_p, norm_p):
                 'icf', 'sample', 'dispense', 'ie'):   # mm4：知情同意记录 / 样本采集 / 发药回收（可选域）；V6：入排标准页
         setattr(C, dom, load_json(N / f'{dom}.json', []) or [])
     for f in C.findings:   # EDC 分组名「LB_VIR--实验室检查-传染病筛查」「PT--肺功能测定」：去掉表单代码前缀，页面只显示中文名（审阅 2026-11-11）
-        g0 = f.get('group')
-        if isinstance(g0, str) and re.match(r'^[A-Za-z][A-Za-z0-9_]*--+', g0):
-            f['group'] = re.sub(r'^[A-Za-z][A-Za-z0-9_]*--+', '', g0) or g0
+        for k_ in ('group', 'test'):   # 回测第五轮：单项检查表把表单名当检查名（「LBTUB--γ-干扰素释放试验」进了质疑正文）
+            g0 = f.get(k_)
+            if isinstance(g0, str) and re.match(r'^[A-Za-z][A-Za-z0-9_]*--+', g0):
+                f[k_] = re.sub(r'^[A-Za-z][A-Za-z0-9_]*--+', '', g0) or g0
     # V6 运营审阅（RUX S10001 W8 等 5 个访视 SV「访视是否发生=否」被当成已完成，生成 45 条「已完成访视但缺少评估」）：
     # 访视页记录为未发生的访视不算已完成访视——不进访视完成/超窗/SoA 完成度，按缺失访视处理（留在 C.visits_missed 供展示）
     C.visits_missed = [v for v in C.visits if not_done(v.get('done'))]
@@ -2585,6 +2586,8 @@ def cm_checks(C):
             d0 = str(pr_.get('date') or pr_.get('start') or '')
             if not (s['fd'] and pre.search(str(pr_.get('term') or ''))):
                 continue
+            if systemic_only and re.search(_TOPICAL.pattern + r'|熏洗|熏蒸|泡洗|外洗|浴', str(pr_.get('term') or ''), re.I):
+                continue                      # 回测第五轮：「中药敷贴」被判「方案禁止的口服中草药」——限全身用药的规则不管外用操作
             pd0 = partial_date(d0) if d0 else ''
             if is_full_date(d0):
                 in_study = d0 >= s['fd']
@@ -3186,12 +3189,15 @@ def build_queries(C):
     preg_rows = getattr(C, '_preg_rows', None) or set()
     vir_rows = {(o['sid'], o['sh'], o['row']) for o in C.others if (o.get('_rule') or {}).get('id') == 'VIR-REACT'}
     vir_tests = {(o['sid'], o['test']) for o in C.others if (o.get('_rule') or {}).get('id') == 'VIR-REACT'}
+    vir_days = {(o['sid'], str(o.get('d') or '')[:10]) for o in C.others if (o.get('_rule') or {}).get('id') == 'VIR-REACT'}
+    _hbv_fam = re.compile(r'乙肝|乙型肝炎|HBV|HBs|HBe|HBc', re.I)
     for g in C.labrows:
         if g['risk'] not in risks:
             continue
         if g['risk'] in ('CSX', 'MH', 'NA') and any((g['sid'], p[7], p[8]) in preg_rows for p in g['pts']):
             continue                     # 妊娠证据（hCG 阳性、超声早孕）统一由「妊娠暴露核查」追踪，不再问「是否记录 AE/病史」
-        if (g['sid'], g['test']) in vir_tests or any((g['sid'], p[7], p[8]) in vir_rows for p in g['pts']):
+        if (g['sid'], g['test']) in vir_tests or any((g['sid'], p[7], p[8]) in vir_rows for p in g['pts']) or \
+                (_hbv_fam.search(str(g['test'])) and any((g['sid'], str(p[1] or '')[:10]) in vir_days for p in g['pts'])):
             continue                     # 病毒学指标阴转阳由「病毒再激活核查」单独追踪（高优先级），不再并一条「是否记 AE」（D001 05015）
         cat, ft, ask = T[g['risk']]
         cand = [c for c in g['ctx'] if c.startswith('同期 AE')]
@@ -3291,17 +3297,35 @@ def build_queries(C):
             k = (o['sid'], o['sh'], o['row'])
             if k not in top_thr or thr_level(o['_rule']) > thr_level(top_thr[k]['_rule']):
                 top_thr[k] = o
+    # 回测第五轮（05015 贫血同一阈值档 6 个访视各一条）：同一参与者、同一指标、同一档阈值的多次命中合并为一条，首条为主、其余列出访视
+    thr_grp = defaultdict(list)
+    for o in C.others:
+        R = o['_rule']
+        if o['cat'] == '阈值规则核对' and R.get('metric') and top_thr.get((o['sid'], o['sh'], o['row'])) is o and o['pr'] >= C.A.get('queryMinPr', 3):
+            thr_grp[(o['sid'], R.get('metric'), o.get('test'), thr_level(R))].append(o)
+    thr_more = {}
+    for k_, os_ in thr_grp.items():
+        os_.sort(key=lambda x: (x.get('d') or '', x.get('v') or ''))
+        if len(os_) > 1:
+            thr_more[id(os_[0])] = os_[1:]
+            for x in os_[1:]:
+                thr_more[id(x)] = None
     for o in C.others:
         R = o['_rule']
         if o['pr'] < C.A.get('queryMinPr', 3) or R.get('query') is False:
             continue
         if o['cat'] == '阈值规则核对' and R.get('metric') and top_thr.get((o['sid'], o['sh'], o['row'])) is not o:
             continue
+        if thr_more.get(id(o), 0) is None:
+            continue                                     # 已并入同组首条
+        more = thr_more.get(id(o)) or []
+        if more:
+            o = dict(o, sum=o['sum'].rstrip('。；，') + '；同样达到该标准的还有：' + '、'.join(f"{x.get('v') or ''}（{x.get('d') or ''}）" for x in more))
         thr = threshold_ask(R, o) if not R.get('ask') else ''
         ask = R.get('ask') or thr or C.A.get('askByCat', {}).get(o['cat']) or '请核实并更正，或提供医学说明。'
         n0 = len(Q)
         qq = new_q(o['sid'], o['cat'], o['sh'], o['row'], o['v'], o['d'], o['test'], o['sum'].rstrip('。；，') + '。' if thr else o['sum'].rstrip('。；，') + '，',
-                   ask, [[o['sh'], o['row'], o['v'], o['test']]], o, o.get('qkey', ''),
+                   ask, [[o['sh'], o['row'], o['v'], o['test']]] + [[x['sh'], x['row'], x['v'], x['test']] for x in more], o, o.get('qkey', ''),
                    {'问题': thr_label(R) if thr else o['cat'], '事实': o['sum'].rstrip('。；，'), **({'指标': o['test']} if o.get('test') else {}),
                     **({'访视': o['v']} if o.get('v') else {}), '建议动作': ask})
         if thr and qq and len(Q) > n0:
@@ -3672,6 +3696,29 @@ def viral_reactivation(C):
         add_other(C, sid, f'{hit[1]}核查', 4, summ, pos.get('visit'), pos.get('date'), pos['sheet'], pos['row'], pos.get('test') or hit[0],
                   rule={'id': 'VIR-REACT', 'ask': '请确认是否已评估为病毒再激活并记录为不良事件，以及是否已按方案处理（如抗病毒治疗、研究药物处理），如需更正请更新。'},
                   bkey=f"{mid}|vir|{pos.get('visit')}", wb=pos.get('wb') or '')
+
+
+_UK_RX = re.compile(r'(\d{4})-(?:uk|UK|UN|un|xx|XX)-(?:uk|UK|UN|un|xx|XX)|(\d{4})-(\d{2})-(?:uk|UK|UN|un|xx|XX)')
+
+
+def uk_text(t):
+    """「2016-uk-uk」→「2016年（月日不详）」、「2025-03-uk」→「2025年03月（日不详）」（回测第五轮：质疑与偏离描述里看不懂）。"""
+    if not isinstance(t, str) or 'k' not in t.lower() and 'x' not in t.lower() and 'n' not in t.lower():
+        return t
+    return _UK_RX.sub(lambda m: f"{m.group(1)}年（月日不详）" if m.group(1) else f"{m.group(2)}年{m.group(3)}月（日不详）", t)
+
+
+def uk_dates_text(C):
+    for q in C.queries:
+        q['text'] = uk_text(q.get('text'))
+        q['parts'] = [[uk_text(x[0])] + list(x[1:]) if isinstance(x, list) and x else x for x in q.get('parts') or []]
+    for o in C.others:
+        o['sum'] = uk_text(o.get('sum'))
+    for key in ('potential', 'aside', 'confirmed'):
+        for p in (getattr(C, 'pdd', None) or {}).get(key) or []:
+            for f_ in ('fact', 'desc'):
+                if isinstance(p.get(f_), str):
+                    p[f_] = uk_text(p[f_])
 
 
 def eff_magnitude(C):
@@ -4212,6 +4259,7 @@ def analyze(C):
     build_soa(C)
     calibers(C)
     pd_rules.run(C)                                      # mm4：方案偏离（已记录 PD 归一＋潜在 PD＋分级＋比对）→ KZ.pd
+    uk_dates_text(C)                                     # 面向监查员的文字里不完整日期写中文（数据原值不变）
     build_ops(C)                                         # mm5 临床监察数据块 → KZ.ops
     monitor_v5.finalize(C)                               # V5 访视推算/新鲜度/随访人日/KRI/CtQ/数据可信度
     build_trend(C)
