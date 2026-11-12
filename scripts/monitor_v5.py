@@ -147,6 +147,22 @@ def visit_alias(C, W):
     return alias, unmapped
 
 
+def odd_visit_targets(W) -> dict:
+    """方案访视窗目标日与其余周访视规律不一致者 {访视键: (原文目标日, 按规律目标日)}。
+    用户 2026-11-12（D001 W12 写 D84，其余 W2/W4/W8/W16＝周数×7+1）：按方案原文判定，规律不一致处给提示，不替方案改口径。"""
+    rows = []
+    for k, spec in (W or {}).items():
+        t = spec.get('target') if isinstance(spec, dict) else (spec[0] if isinstance(spec, (list, tuple)) and spec else None)
+        anc = spec.get('anchor', 'fd') if isinstance(spec, dict) else 'fd'
+        m = re.search(r'W\s*(\d+)', str(k))
+        if m and isinstance(t, (int, float)) and anc == 'fd' and int(m.group(1)) > 0:
+            rows.append((k, int(m.group(1)), int(t)))
+    plus1 = [r for r in rows if r[2] == r[1] * 7 + 1]
+    if len(plus1) < 2 or len(plus1) <= len(rows) / 2:
+        return {}
+    return {k: (t, w * 7 + 1) for k, w, t in rows if t == w * 7}
+
+
 def visit_due(C, cutoff):
     """→ (due, upcoming)。due 行 [sid, site, 访视, 窗起, 窗止, 实际日期, 状态 overdue|out|ok, 实际研究日, 目标日, −窗, +窗]；
     upcoming 行 [sid, site, 访视, 窗起, 窗止, 目标日期]（未来 14 天内窗口开启或在窗、参与者未结束）。
@@ -155,6 +171,7 @@ def visit_due(C, cutoff):
     W = C.A.get('visitWindows') or {}
     alias, unmapped = visit_alias(C, W)
     C._visit_alias, C._visit_unmapped = alias, unmapped
+    odd = odd_visit_targets(W)
     rec = defaultdict(lambda: defaultdict(list))
     syswin = {}
     for v in C.visits:
@@ -211,7 +228,9 @@ def visit_due(C, cutoff):
                 lo, hi = sw
                 st = 'ok' if lo <= got <= hi else 'out'
             # 第 12 列：逾期且 EDC 已记为未进行（不是「没录入」，是「确认没做」——CRA 不用再追录入，转方案偏离/缺失核实）
-            due.append([sid, s['site'], v, lo, hi, got, st, sd, t, mi, pl, 1 if not got and ((sid, v) in missed or (sid, code) in missed) else 0])
+            alt = odd.get(v)
+            alt_ok = 1 if st == 'out' and alt and sd is not None and alt[1] - mi <= sd <= alt[1] + pl and not sw else 0
+            due.append([sid, s['site'], v, lo, hi, got, st, sd, t, mi, pl, 1 if not got and ((sid, v) in missed or (sid, code) in missed) else 0, alt_ok])
     return due, up
 
 
@@ -377,7 +396,7 @@ KRI_DEFS = [
     ('csm', '轻微超限判 CS', '安全', '%', 'high', None, '给药后轻微超出参考范围（超限 <10%、≤1 级）且已评价的检验值中判有临床意义的比例（偏高提示判定偏严、易多报 AE）'),
     ('rel', 'AE 判相关比例', '安全', '%', 'both', None, 'TEAE 中研究者判与研究药物相关的比例（显著偏高或偏低都提示相关性判定习惯偏倚）'),
     ('relx', '极端相关性判定', '安全', '%', 'high', None, '判「肯定相关」或「肯定无关」的 TEAE 比例（极端判定通常需去激发/再激发等证据）'),
-    ('q', '申办方质疑', '数据', '/例', 'high', None, '申办方医学质疑 / 给药'),
+    ('q', '医学质疑', '数据', '/例', 'high', None, '医学质疑 / 给药'),
     ('ent', '疑似录入错误', '数据', '/千条', 'high', None, '疑似录入错误 / 数值型检验检查记录 ×1000'),
     ('fresh', '数据新鲜度', '数据', '天', 'high', None, '数据截止 − 最近一条记录日期（研究层面取各中心中位数）'),
 ]

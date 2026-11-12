@@ -3016,6 +3016,7 @@ def visit_window_checks(C):
     W = C.A.get('visitWindows', {})  # {"W2": [15, 3, 3]}  target study day, minus, plus
     # V6（CRA 审阅：D002 别名对齐后的 17 条超窗没进信号层）：数据访视代码经 visit_alias 唯一对应到方案键时按方案窗判
     alias, _um = monitor_v5.visit_alias(C, W) if W else ({}, [])
+    odd = monitor_v5.odd_visit_targets(W)
     inv = defaultdict(list)
     for k_, c_ in alias.items():
         inv[c_].append(k_)
@@ -3049,7 +3050,10 @@ def visit_window_checks(C):
                 at, win = f"D{sd}", f"D{t}{'−%d' % mi}/+{pl}"
             else:   # V6 审阅：「末次给药后第12」缺「天」
                 at, win = f"{lab} {sd} 天", f"{lab} {t} 天（−{mi}/+{pl} 天）"
-            add_other(C, sid, '访视超窗核对', 2, f"{v['visit']} 实际 {v['date']}（{at}），方案窗 {win}", v['visit'], v['date'], v['sheet'], v['row'], wb=v.get('wb') or '')
+            alt = odd.get(key)
+            note = (f"；方案原文写 D{alt[0]}，其余访视为周数×7+1，按 D{alt[1]} 计则在窗内，请核对方案原文"
+                    if alt and lab == 'D' and alt[1] - mi <= sd <= alt[1] + pl else '')
+            add_other(C, sid, '访视超窗核对', 2, f"{v['visit']} 实际 {v['date']}（{at}），方案窗 {win}{note}", v['visit'], v['date'], v['sheet'], v['row'], wb=v.get('wb') or '')
 
 
 def pd_reconcile(C):
@@ -4156,6 +4160,9 @@ def defaults(C):
                            f"{'…' if len(miss_eff) > 3 else ''}（核查量表映射/指标名）", 'efficacy.html'])
     else:
         C.todo = C.S['todo']
+    for k_, (t_, a_) in monitor_v5.odd_visit_targets(C.A.get('visitWindows') or {}).items():   # 用户 2026-11-12（D001 W12）
+        C.todo.append(['访视窗', 'yel', f"方案 {k_} 目标日写 D{t_}，其余周访视均为周数×7+1（照此应为 D{a_}）；系统按方案原文 D{t_} 判定，"
+                                        f"按 D{a_} 计在窗内的超窗已逐条注明，请核对方案原文", 'monitor.html#tab=vis'])
     if getattr(C, 'todo_hint', ''):                 # 扩展规则词表缺失 → 待办区提示（D-P5-2 fail-visible，不覆盖默认）
         C.todo.append(['词表', 'yel', C.todo_hint, 'study.html'])
 

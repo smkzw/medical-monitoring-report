@@ -13,7 +13,7 @@ const by=(arr,f)=>arr.reduce((m,x)=>{const k=f(x);(m[k]=m[k]||[]).push(x);return
 const PDP=((D.pd||{}).potential)||[];
 const end=s=>[s.eos_d,s.eot_d].filter(d=>d&&d.length>=10).sort()[0]||'';
 /* 访视推算在后端（ops.due）：[sid, site, 访视, 窗起, 窗止, 实际, 状态, 研究日, 目标日, −窗, +窗] */
-const visRows=(O.due||[]).map(d=>({sid:d[0],site:d[1],v:d[2],lo:d[3],due:d[4],got:d[5],st:d[6],sd:d[7],t:d[8],mi:d[9],pl:d[10],nd:d[11]}));
+const visRows=(O.due||[]).map(d=>({sid:d[0],site:d[1],v:d[2],lo:d[3],due:d[4],got:d[5],st:d[6],sd:d[7],t:d[8],mi:d[9],pl:d[10],nd:d[11],alt:d[12]}));
 const UP=(O.upcoming||[]).map(u=>({sid:u[0],site:u[1],v:u[2],lo:u[3],hi:u[4],tg:u[5]}));
 const KR=D.kri,CRD=D.cred,TL=(window.KZS||{}).timeliness;
 const tabs=[['enr','入组与进度',SU.length],['vis','访视执行',visRows.filter(r=>r.st!=='ok').length],['dose','给药与知情'],['dq','退出与数据质量'],
@@ -76,7 +76,7 @@ function vis(){
     <div class="hd mt"><h2>未来 14 天应到访视</h2><span class="sub">${UP.length} 次</span></div><div id="ut"></div></div></div>`;
   const rowsV=()=>visRows.filter(r=>r.st!=='ok');
   const tb=K.table(document.getElementById('vt'),{rows:rowsV(),sort:'due',dir:1,h:'420px',onRow:r=>{if(r.st==='overdue')K.showVis({sid:r.sid,site:r.site,v:r.v,lo:r.lo,hi:r.due})},cols:[{k:'sid',t:'参与者',f:r=>K.sid(r.sid)},{k:'site',t:'中心',f:r=>K.p(r.site,'sq mono')},{k:'v',t:'访视',f:r=>K.p(r.v,'blu')},
-    {k:'st',t:'情况',f:r=>(r.st==='overdue'?(r.nd?K.p('EDC 记为未进行','red'):K.p(daily?'逾期未见记录（可能未录入）':'逾期未见记录','org')):K.p(r.got&&r.lo&&r.got<r.lo?`提前 ${K.dd(r.got,r.lo)} 天`:r.got&&r.due&&r.got>r.due?`延迟 ${K.dd(r.due,r.got)} 天`:'超窗','yel'))},{k:'due',t:'方案窗',f:r=>`<span class="nowrap small">${r.lo} ~ ${r.due}</span>`},{k:'got',t:'实际',f:r=>r.got?`${r.got} <span class="xs faint">D${r.sd}</span>`:'—'}]});
+    {k:'st',t:'情况',f:r=>(r.st==='overdue'?(r.nd?K.p('EDC 记为未进行','red'):K.p(daily?'逾期未见记录（可能未录入）':'逾期未见记录','org')):K.p(r.got&&r.lo&&r.got<r.lo?`提前 ${K.dd(r.got,r.lo)} 天`:r.got&&r.due&&r.got>r.due?`延迟 ${K.dd(r.due,r.got)} 天`:'超窗','yel')+(r.alt?`<div class="xs muted" title="方案原文目标日与其余访视的周数×7+1 规律不一致">按方案原文判超窗；按其余访视规律（+1 天）计在窗内</div>`:''))},{k:'due',t:'方案窗',f:r=>`<span class="nowrap small">${r.lo} ~ ${r.due}</span>`},{k:'got',t:'实际',f:r=>r.got?`${r.got} <span class="xs faint">D${r.sd}</span>`:'—'}]});
   K.table(document.getElementById('ut'),{rows:UP,sort:'tg',dir:1,h:'260px',cols:[{k:'sid',t:'参与者',f:r=>K.sid(r.sid)},{k:'site',t:'中心',f:r=>K.p(r.site,'sq mono')},{k:'v',t:'访视',f:r=>K.p(r.v,'blu')},{k:'tg',t:'目标日',f:r=>`<span class="nowrap small">${r.tg}</span>`},{k:'lo',t:'方案窗',f:r=>`<span class="nowrap small">${r.lo} ~ ${r.hi}</span>`}]});
   pane.querySelectorAll('tr[data-site]').forEach(tr=>tr.onclick=()=>location.href='center.html#c='+tr.dataset.site);
 }
@@ -110,7 +110,7 @@ function dq(){
   const qAll=D.queries.length/(ds.length||1),FR=O.fresh||{};
   const sq=sites.filter(si=>ds.some(s=>s.site===si)||(QS[si]||[]).length),qC=colCells(sq.map(si=>[(QS[si]||[]).length,ds.filter(s=>s.site===si).length]),qAll,true);
   pane.innerHTML=`<div class="grid g12"><div class="card"><div class="hd"><h2>提前退出 / 终止治疗原因</h2><span class="sub">${wd.length} 例</span></div><table class="t"><tbody>${Object.entries(why).sort((a,b)=>b[1].length-a[1].length).map(([k,v])=>`<tr><td class="small">${K.esc(k)}</td><td class="num">${v.length}</td><td class="small">${v.map(s=>K.sid(s.id)+(s.fd&&end(s)?` <span class="xs faint">D${dd(end(s),s.fd)+1}</span>`:'')).join('　')}</td></tr>`).join('')||'<tr><td class="empty">无</td></tr>'}</tbody></table></div>
-   <div class="card"><div class="hd"><h2>各中心数据质量</h2><span class="sub">申办方质疑按给药人数校正着色 · 数据新鲜度＝数据截止 − 最近一条记录</span></div><div style="overflow-x:auto"><table class="t heat"><thead><tr><th>中心</th><th class="num">给药</th><th class="num">申办方质疑</th><th class="num">CRO 质疑</th><th class="num">日期完整性</th><th class="num">参考范围缺失</th><th class="num">疑似录入错误</th><th class="num">最近记录</th></tr></thead><tbody>
+   <div class="card"><div class="hd"><h2>各中心数据质量</h2><span class="sub">医学质疑按给药人数校正着色 · 数据新鲜度＝数据截止 − 最近一条记录</span></div><div style="overflow-x:auto"><table class="t heat"><thead><tr><th>中心</th><th class="num">给药</th><th class="num">医学质疑</th><th class="num">CRO 质疑</th><th class="num">日期完整性</th><th class="num">参考范围缺失</th><th class="num">疑似录入错误</th><th class="num">最近记录</th></tr></thead><tbody>
     ${sq.map((si,i)=>{const n=ds.filter(s=>s.site===si).length,f=FR[si];
       return `<tr class="click" data-site="${si}"><td class="nowrap">${cname(si)}</td><td class="num">${n}</td><td class="num">${(QS[si]||[]).length?qC[i]:'·'}</td><td class="num">${(CRO[si]||[]).length||'·'}</td><td class="num">${(date[si]||[]).length||'·'}</td><td class="num">${(rng[si]||[]).length||'·'}</td><td class="num">${(ENT[si]||[]).length||'·'}</td><td class="num nowrap">${f?`${f[0]} ${f[2]&&f[1]>30?K.p(f[1]+' 天','yel'):`<span class="xs faint">${f[1]} 天</span>`}`:'—'}</td></tr>`}).join('')}</tbody></table></div></div></div>`;
   pane.querySelectorAll('tr[data-site]').forEach(tr=>tr.onclick=()=>location.href='center.html#c='+tr.dataset.site);

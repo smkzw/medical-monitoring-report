@@ -25,7 +25,7 @@ function draw(site){
    ${kpi('数据新鲜度',fr?`${fr[1]}<small>天</small>`:'—',fr?`最近记录 ${fr[0]} · 在研 ${fr[2]} 例`:'')}
    ${kpi('访视',`${due.length}<small>次应完成</small>`,`逾期 ${due.filter(d=>d[6]==='overdue').length} · 超窗 ${due.filter(d=>d[6]==='out').length} · 未来 14 天 ${(O.upcoming||[]).filter(u=>u[1]===site).length}`)}
    ${kpi('潜在方案偏离',`${POT.length}<small>条</small>`,`重要 ${POT.filter(p=>p.grade==='重要').length}`)}
-   ${kpi('申办方质疑',`${q.length}<small>条</small>`,`疑似录入错误 ${ent.length}`)}</div>
+   ${kpi('医学质疑',`${q.length}<small>条</small>`,`疑似录入错误 ${ent.length}`)}</div>
   <div class="flex wrap mb small" style="gap:12px"><a href="profile.html#c=${site}">安全性概览 · 本中心 ›</a><a href="safety.html#tab=lab&c=${site}">本中心检验风险 ›</a><a href="deviations.html">方案偏离 ›</a><a href="subjects.html#c=${site}">本中心参与者 ›</a><a href="raw.html#c=${site}">本中心原始数据 ›</a></div>
   <div class="grid g12"><div class="card"><div class="hd"><h2>KRI</h2><span class="sub">本中心 · 研究整体 · 研究层面限度（${K.QTLN[K.qtlTier()]}档）</span><span class="sp"></span><a class="small" href="monitor.html#tab=kri">全部中心 ›</a></div><div id="ck"></div></div>
    <div class="card"><div class="hd"><h2>风险类别</h2><span class="sub">观察数与按${K.esc(CR.unit)}推算的期望；着色＝校正多重比较后偏高/偏少</span><span class="sp"></span><a class="small" href="safety.html#tab=ov">热力图 ›</a></div><div id="cr"></div></div></div>

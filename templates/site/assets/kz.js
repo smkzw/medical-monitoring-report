@@ -452,7 +452,7 @@ K.centerRisk=()=>{if(K._cr)return K._cr;const D=window.KZ,lab=K.lab,oth=D.others
     ['aesi','AE','AESI',()=>aes.filter(a=>a.aesi),'特别关注不良事件'],
     ['pd','方案偏离','潜在PD',()=>pd,'数据推断的潜在方案偏离'],
     ['pdi','方案偏离','重要PD',()=>pd.filter(x=>x.grade==='重要'),'潜在 PD 中分级为重要的'],
-    ['q','质疑','申办方',()=>D.queries,'申办方医学质疑'],
+    ['q','质疑','医学质疑',()=>D.queries,'医学质疑'],
     ['cro','质疑','CRO',()=>D.cro.map(c=>({sid:c[2],site:subSite[c[2]],c})),'CRO/外部已发质疑'],
     ['ent','数据质量','疑似录入错误',()=>entry,'小数点/单位疑似录错（临床监查页）']];
   const siteOf=x=>x.site||subSite[x.sid]||'';

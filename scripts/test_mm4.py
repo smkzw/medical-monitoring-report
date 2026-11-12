@@ -324,6 +324,13 @@ class DemoBuild(unittest.TestCase):
         self.assertIn('由给药前阴性', C.others[0]['sum'])
         self.assertIn('乙型肝炎', C.others[0]['sum'])
 
+    def test_odd_visit_target_flagged_not_changed(self):
+        # 用户 2026-11-12：D001 方案 W12 写 D84，其余周访视为周数×7+1 → 按原文判定、给出规律目标日供提示
+        import monitor_v5
+        W = {'W2': [15, 3, 3], 'W4': [29, 3, 3], 'W8': [57, 3, 3], 'W12': [84, 3, 3], 'W16': [113, 3, 3]}
+        self.assertEqual(monitor_v5.odd_visit_targets(W), {'W12': (84, 85)})
+        self.assertEqual(monitor_v5.odd_visit_targets({'W2': [14, 3, 3], 'W4': [28, 3, 3], 'W8': [56, 3, 3]}), {})   # 统一按周数×7 的方案不提示
+
     def test_d1_falls_back_to_first_dose_visit(self):
         # D002/SAR：方案首剂访视代码（V4/V2）只在日记表出现，访视/检验/给药表写 D1 → 取给药记录首剂访视
         import mm_build

@@ -264,7 +264,7 @@ def def_grades(table):
                 continue
             r = rows[row]
             used.add(row)
-            ref = f"申办方界定表 {str(r.get('cat') or '').split('.')[0]}.{r.get('no') or ''} {str(r.get('text') or '')[:40]}（{r.get('sev')}）"
+            ref = f"方案偏离界定表 {str(r.get('cat') or '').split('.')[0]}.{r.get('no') or ''} {str(r.get('text') or '')[:40]}（{r.get('sev')}）"
             if big:
                 hi.setdefault(rule, (_def_sev(r.get('sev')), ref))
             elif rule not in g:
@@ -305,12 +305,12 @@ class _PD:
         g = grade or pg or g0
         if not grade and pg:
             b0 = (self.P.get('gradeBasis') or {}).get(rule) or pg
-            basis = b0 if b0.startswith('申办方界定表') else '本研究 PD 界定表：' + b0
+            basis = b0 if b0.startswith('方案偏离界定表') else '本研究 PD 界定表：' + b0
             why = f'{why}；{basis}' if why and not why.startswith('规则默认') else basis
         elif grade == '重要' and rule in self.def_hi:          # 个案升级（关键访视/关键评估）→ 引用界定表的影响较大档
             why = f"{why}；{self.def_hi[rule][1]}" if why else self.def_hi[rule][1]
         elif not grade and self.P.get('defTable') and rule not in self.def_src:
-            why = (why + '；' if why and not why.startswith('规则默认') else '') + f'申办方界定表未列明此类，按系统规则：{g0}'
+            why = (why + '；' if why and not why.startswith('规则默认') else '') + f'方案偏离界定表未列明此类，按系统规则：{g0}'
         s = self.C.subj.get(sid) or {}
         it = {'id': '', 'sid': sid, 'site': s.get('site', ''), 'cat': cat, 'layer': TAX[cat][2], 'rule': rule, 'title': title,
               'dv': RULE_DV.get(rule, ''),

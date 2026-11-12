@@ -10,7 +10,7 @@ const bySrc=cnt(Q,SRC);
 const byDom=cnt(Q,dom),bySite=cnt(Q,q=>q.site),byCro=cnt(Q,q=>q.cro),bySh=cnt(Q,q=>K.shName(q.sh));   /* 按显示名归并（「edc:LB1」与「LB1」是同一数据页，运营复审：筛选项重复） */
 app.innerHTML=`
 <div class="kpis">
- <div class="kpi"><div class="l">申办方医学质疑</div><div class="v">${Q.length}<small>条</small></div><div class="s" title="按条目计：同一记录行多条合并为一条编号（合并行不计）；与页头、清单、质疑工作簿三处同一数字">${K.p(subjN+' 例','line')}${K.p(ctrN+' 中心','line')}${D.meta.qsMerged?K.p(`另有 ${D.meta.qsMerged} 条同一数据点的问题已合并（见正文「另：」）`,'yel'):''}</div></div>
+ <div class="kpi"><div class="l">医学质疑</div><div class="v">${Q.length}<small>条</small></div><div class="s" title="按条目计：同一记录行多条合并为一条编号（合并行不计）；与页头、清单、质疑工作簿三处同一数字">${K.p(subjN+' 例','line')}${K.p(ctrN+' 中心','line')}${D.meta.qsMerged?K.p(`另有 ${D.meta.qsMerged} 条同一数据点的问题已合并（见正文「另：」）`,'yel'):''}</div></div>
  ${K.DOM.map(([d,cats,c])=>byDom[d]?`<div class="kpi ${c==='red'?'risk':c==='blu'?'blu':c==='grn'?'grn':''}"><div class="l">${d}</div><div class="v">${byDom[d]}<small>条</small></div><div class="s">${cats.filter(x=>Q.some(q=>q.cat===x)).length} 个主题</div></div>`:'').join('')}${byDom['其他']&&!K.DOM.some(d=>d[0]==='其他')?`<div class="kpi"><div class="l">其他</div><div class="v">${byDom['其他']}<small>条</small></div><div class="s">${new Set(Q.filter(q=>dom(q)==='其他').map(q=>q.cat)).size} 个主题</div></div>`:''}
 </div>
 ${K.knHint(D.knowledge)}
