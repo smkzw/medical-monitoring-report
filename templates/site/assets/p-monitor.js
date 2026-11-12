@@ -146,9 +146,9 @@ function kri(){
 function time(){
   if(!TL||!TL.sites){pane.innerHTML=`<div class="card"><div class="hd"><h2>录入及时性</h2></div><div class="note">暂无录入时间信息：多次上传数据后，这里显示各中心的录入延迟和记录修改比例。</div></div>`;return}
   const S=TL.sites;
-  pane.innerHTML=`<div class="note small mb">录入延迟按记录首次出现的上传批次估算（为上限）；修改率＝被修改或删除的记录占比。共 ${TL.snaps||'—'} 次上传。</div>
-  <div class="card"><table class="t heat"><thead><tr><th>中心</th><th class="num">新增访视记录</th><th class="num">延迟中位数（天）</th><th class="num">P90（天）</th><th class="num">>14 天占比</th><th class="num">修改/删除率</th><th>最近一次有新数据</th></tr></thead><tbody>
-   ${Object.keys(S).sort().map(si=>{const x=S[si];return `<tr class="click" data-site="${si}"><td class="nowrap">${cname(si)}</td><td class="num">${x.n??'—'}</td><td class="num" style="${x.med>14?'background:rgba(230,126,0,.30)':''}">${x.med??'—'}</td><td class="num">${x.p90??'—'}</td><td class="num">${x.n?(x.gt14/x.n*100).toFixed(0)+'%':'—'}</td><td class="num">${x.mod&&x.mod[1]?(x.mod[0]/x.mod[1]*100).toFixed(1)+'%':'—'}</td><td class="nowrap small">${K.esc(x.lastNew||'—')}</td></tr>`}).join('')}</tbody></table></div>`;
+  pane.innerHTML=`<div class="note small mb">录入延迟按记录首次出现的上传批次估算（为上限，受两次上传间隔限制：只有两批数据时多数记录都会显示为「间隔天数以内」，不着色）；修改率＝被修改或删除的记录占比。共 ${TL.snaps||'—'} 次上传。</div>
+  <div class="card"><table class="t heat"><thead><tr><th>中心</th><th class="num">新增访视记录</th><th class="num">延迟中位数（天）</th><th class="num">P90（天）</th><th class="num">>14 天占比</th><th class="num">修改/删除率</th><th title="哪一次上传带来了该中心的新增记录（按数据截止日）；与 KRI「数据新鲜度」（中心最后一条记录距今天数）口径不同">最近带来新增记录的上传</th></tr></thead><tbody>
+   ${Object.keys(S).sort().map(si=>{const x=S[si];return `<tr class="click" data-site="${si}"><td class="nowrap">${cname(si)}</td><td class="num">${x.n??'—'}</td><td class="num" style="${x.med>14&&(TL.snaps||0)>=3?'background:rgba(230,126,0,.30)':''}">${x.med??'—'}</td><td class="num">${x.p90??'—'}</td><td class="num">${x.n?(x.gt14/x.n*100).toFixed(0)+'%':'—'}</td><td class="num">${x.mod&&x.mod[1]?(x.mod[0]/x.mod[1]*100).toFixed(1)+'%':'—'}</td><td class="nowrap small">${K.esc(x.lastNew||'—')}</td></tr>`}).join('')}</tbody></table></div>`;
   pane.querySelectorAll('tr[data-site]').forEach(tr=>tr.onclick=()=>location.href='center.html#c='+tr.dataset.site);
 }
 /* ---------- 数据可信度（中心层面，建议核对） ---------- */

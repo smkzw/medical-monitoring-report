@@ -20,6 +20,8 @@ app.innerHTML=`<div class="grid" style="grid-template-columns:270px 1fr;gap:14px
  <div id="main"></div></div>`;
 const st={q:'',c:H.c||'',g:'',s:'dosed',o:'id'};   /* 用户 2026-11-11：默认按编号、按中心分组 */
 const DS=((window.KZS||{}).delta||{}).subjects||null;   /* 较上次：有新增/修改/删除记录的参与者 */
+/* 回测第五轮：本次 167 人都有新数据，「新」标签失去区分作用 → 超过六成参与者有新数据时不逐个打标（筛选项「本次有新数据」仍可用） */
+const DS_TAG=DS&&Object.keys(DS).length<=subs.length*.6;
 document.getElementById('fc').value=st.c;
 K.chips(document.getElementById('fs'),[['dosed','已给药',subs.filter(s=>s.fd).length],['risk','有风险提示',subs.filter(s=>s.fd&&(s.sc.csx||s.sc.mh||s.sc.ot)).length],['q','有质疑',subs.filter(s=>s.sc.q).length],['sf','筛选失败',subs.filter(s=>s.status==='筛选失败').length],...(DS?[['chg','本次有新数据',subs.filter(s=>DS[s.id]).length]]:[])],v=>{st.s=v;list()},{all:'全部',value:'dosed'});
 K.seg(document.getElementById('fo'),[['id','编号'],['risk','风险'],['ae','AE数']],'id',v=>{st.o=v;list()});
@@ -35,7 +37,7 @@ function list(){
   r.sort((a,b)=>String(a.site).localeCompare(String(b.site),undefined,{numeric:true})||ord(a,b));   /* 按中心分簇，簇内按所选排序 */
   const el=document.getElementById('sl');
   const nOf={};r.forEach(s=>nOf[s.site]=(nOf[s.site]||0)+1);
-  el.innerHTML=r.map((s,i)=>(i===0||r[i-1].site!==s.site?`<div class="xs muted" style="padding:6px 10px 2px;font-weight:600;border-top:${i?'1px solid var(--line)':'0'}">中心 ${K.esc(s.site)} ${K.esc(K.center(s.site)||'')} · ${nOf[s.site]} 人</div>`:'')+`<div class="it ${s.id===cur?'on':''}" data-id="${s.id}"><b style="width:44px;color:var(--ink)">${s.id}</b><span class="dot ${K.STC[s.status]||''}" title="${s.status}"></span>${DS&&DS[s.id]?'<span class="p red sq" title="较上次有新增/修改的记录">新</span>':''}<span class="sp"></span>${s.sc.csx?`<span class="p solid-red sq" title="有临床意义但未关联 AE/病史">${s.sc.csx}</span>`:''}${s.sc.ot?`<span class="p red sq" title="专项核查（需核实及以上）">${s.sc.ot}</span>`:''}${s.sc.mh?`<span class="p org sq" title="有临床意义、仅关联病史">${s.sc.mh}</span>`:''}${s.sc.q?`<span class="p line sq" title="质疑条数">Q${s.sc.q}</span>`:''}<span class="xs faint" style="width:30px;text-align:right">${s.nae?'AE'+s.nae:''}</span></div>`).join('')||'<div class="empty">无</div>';
+  el.innerHTML=r.map((s,i)=>(i===0||r[i-1].site!==s.site?`<div class="xs muted" style="padding:6px 10px 2px;font-weight:600;border-top:${i?'1px solid var(--line)':'0'}">中心 ${K.esc(s.site)} ${K.esc(K.center(s.site)||'')} · ${nOf[s.site]} 人</div>`:'')+`<div class="it ${s.id===cur?'on':''}" data-id="${s.id}"><b style="width:44px;color:var(--ink)">${s.id}</b><span class="dot ${K.STC[s.status]||''}" title="${s.status}"></span>${DS_TAG&&DS[s.id]?'<span class="p red sq" title="较上次有新增/修改的记录">新</span>':''}<span class="sp"></span>${s.sc.csx?`<span class="p solid-red sq" title="有临床意义但未关联 AE/病史">${s.sc.csx}</span>`:''}${s.sc.ot?`<span class="p red sq" title="专项核查（需核实及以上）">${s.sc.ot}</span>`:''}${s.sc.mh?`<span class="p org sq" title="有临床意义、仅关联病史">${s.sc.mh}</span>`:''}${s.sc.q?`<span class="p line sq" title="质疑条数">Q${s.sc.q}</span>`:''}<span class="xs faint" style="width:30px;text-align:right">${s.nae?'AE'+s.nae:''}</span></div>`).join('')||'<div class="empty">无</div>';
   el.querySelectorAll('.it').forEach(it=>it.onclick=()=>show(it.dataset.id));
   if(!cur&&r.length)show(r[0].id);
 }
