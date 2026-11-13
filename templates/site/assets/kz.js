@@ -596,7 +596,9 @@ K.jit=s=>{let h=0;for(const ch of String(s))h=(h*31+ch.charCodeAt(0))%997;return
 K.distLine=(el,o)=>{const V=o.V,YR=o.yr||null,clip=o.clip,fm=o.fmt||(v=>K.fmt(v));
   const st=a=>{const x=a.map(p=>p.v);return x.length?{n:x.length,q1:K.q(x,.25),md:K.q(x,.5),q3:K.q(x,.75)}:null};
   const cy=v=>{v=clip!=null?Math.min(v,clip):v;return K.ycl(YR,v)};
-  const SA=o.all.map(st),SS=o.sel?o.sel.map(st):null,on=!!o.sel;
+  /* 用户 2026-11-13（RUX「EOT」6 人夹在 W12/W16 之间）：人数不到最多节点 20%（且 <10）的访视不画中位线/四分位带，只留散点 */
+  const nMx=Math.max(0,...o.all.map(a=>a.length)),thin=a=>a.length<Math.min(10,Math.max(3,nMx*.2));
+  const SA=o.all.map(a=>thin(a)?null:st(a)),SS=o.sel?o.sel.map((a,i)=>SA[i]?st(a):null):null,on=!!o.sel;
   const band=(S,fill,z)=>({type:'custom',silent:true,z,data:(()=>{const i=S.findIndex(x=>x);return i<0?[]:[[i,cy(S[i].md)]]})(),renderItem:(p,api)=>{const ix=S.map((s,i)=>s?i:null).filter(i=>i!=null);if(ix.length<2)return;
      const pts=ix.map(i=>api.coord([i,cy(S[i].q3)])).concat(ix.slice().reverse().map(i=>api.coord([i,cy(S[i].q1)])));return {type:'polygon',shape:{points:pts},style:{fill}}}});
   const med=(S,name,c,w,z,dash)=>({type:'line',name,z,data:S.map((s,i)=>s?{value:[i,cy(s.md)],st:s,lab:name}:null).filter(Boolean),symbol:'circle',symbolSize:w>2?7:5,lineStyle:{color:c,width:w,type:dash||'solid'},itemStyle:{color:c}});

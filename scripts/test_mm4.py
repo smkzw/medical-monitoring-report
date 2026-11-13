@@ -324,6 +324,21 @@ class DemoBuild(unittest.TestCase):
         self.assertIn('由给药前阴性', C.others[0]['sum'])
         self.assertIn('乙型肝炎', C.others[0]['sum'])
 
+    def test_event_driven_visit_not_aggregated(self):
+        # 用户 2026-11-13（RUX EOT 6 人、D68–D161 夹在 W12/W16 之间）：事件触发型访视并入提前退出类，不进汇总
+        import mm_build
+        from types import SimpleNamespace as NS
+        subj = {f'S{i}': {'fd': '2026-01-01'} for i in range(20)}
+        vis = [{'sid': f'S{i}', 'visit': v, 'date': d} for i in range(20) for v, d in (('W4', '2026-01-29'), ('W12', '2026-03-26'))]
+        vis += [{'sid': 'S1', 'visit': 'EOT', 'date': '2026-03-10'}, {'sid': 'S2', 'visit': 'EOT', 'date': '2026-05-20'}]
+        vis += [{'sid': f'S{i}', 'visit': 'EOS', 'date': '2026-06-01'} for i in range(20)]       # 人人都做的研究结束访视不受影响
+        C = NS(A={'visitWindows': {'W4': [29, 3, 3], 'W12': [85, 3, 3]}}, cfg={'visits': {}}, pop=set(subj), subj=subj,
+               visits=vis, findings=[], UNS={'USV'}, ET={'ET'}, VIS=['W4', 'EOT', 'W12', 'EOS'])
+        mm_build.event_visits(C)
+        self.assertIn('EOT', C.ET)
+        self.assertNotIn('EOS', C.ET)
+        self.assertEqual(C.VIS[-1], 'EOT')
+
     def test_odd_visit_target_flagged_not_changed(self):
         # 用户 2026-11-12：D001 方案 W12 写 D84，其余周访视为周数×7+1 → 按原文判定、给出规律目标日供提示
         import monitor_v5

@@ -125,10 +125,10 @@ function draw(){
    series:Object.entries(ser).map(([i,a])=>{const h=hc&&SJ[i][1]===hc,o=oS.has(+i),dim=hc&&!h;const col=h?'#FF9900':o?'#8B0000':dim?'#D5D8DD':'#E6C9A0';a.sort((x,y)=>x[2]-y[2]);return {type:'line',name:SJ[i][0],data:a.map(r=>({value:[r[2]+(r[16]===1&&r[5]===3?.3:0),K.ycl(BRo,vfn(r))],raw:vfn(r),...K.ysym(BRo,vfn(r))})),symbolSize:h?5:o&&!dim?4:0,lineStyle:{width:h?2.4:o&&!dim?1.3:1,color:col,opacity:h?.95:dim?(o?.45:.3):o?.9:.35},itemStyle:{color:col},z:h?4:o?3:1,emphasis:{focus:'series'}}}).concat([{type:'line',data:[],markLine:{symbol:'none',silent:true,lineStyle:{color:'#9A9DA3',type:'dashed'},label:{fontSize:10},data:[...ml,{xAxis:0,lineStyle:{color:'#407AAA',type:'solid'},label:{formatter:'D1'}}]}}])}).off('click');
   echarts.getInstanceByDom(document.getElementById('b2')).on('click',p=>{if(p.seriesName&&/^\d{5}$/.test(p.seriesName))go(p.seriesName)});
   // b3: % abnormal by visit（折线；选中中心实线，整体虚线）
-  const pr=(a,k)=>a.length?+(a.filter(r=>cls(r)===k).length/a.length*100).toFixed(1):null;
+  const nMxB=Math.max(0,...by.map(a=>a.length)),pr=(a,k,all)=>a.length&&(all||a).length>=Math.min(10,Math.max(3,nMxB*.2))?+(a.filter(r=>cls(r)===k).length/a.length*100).toFixed(1):null;   /* 人数过少的访视不画比例（同 distLine） */
   const b3s=[];[['H','>ULN','#8B0000'],['L','<LLN','#407AAA']].forEach(([k,n,c])=>{
     b3s.push({type:'line',name:(hc?'整体 ':'')+n,data:by.map(a=>pr(a,k)),symbol:'circle',symbolSize:hc?3:5,connectNulls:true,lineStyle:{color:c,width:hc?1.2:2,type:hc?'dashed':'solid',opacity:hc?.55:1},itemStyle:{color:c,opacity:hc?.55:1}});
-    if(hc)b3s.push({type:'line',name:hc+' '+n,data:by.map(a=>pr(a.filter(r=>SJ[r[0]][1]===hc),k)),symbol:'circle',symbolSize:6,connectNulls:true,lineStyle:{color:c,width:2.6},itemStyle:{color:c}})});
+    if(hc)b3s.push({type:'line',name:hc+' '+n,data:by.map(a=>pr(a.filter(r=>SJ[r[0]][1]===hc),k,a)),symbol:'circle',symbolSize:6,connectNulls:true,lineStyle:{color:c,width:2.6},itemStyle:{color:c}})});
   K.chart('#b3',{grid:{left:36,right:10,top:20,bottom:22},tooltip:{trigger:'axis',valueFormatter:v=>v==null?'—':v+'%'},legend:{top:0,itemWidth:12,itemHeight:6,textStyle:{fontSize:9}},xAxis:{type:'category',data:cats,...K.axis,axisLabel:{fontSize:9,color:'#64676B'}},yAxis:{type:'value',min:0,...K.axis,axisLabel:{formatter:'{value}%',color:'#64676B'}},series:b3s});
   // funnels
   K.funnelChart('#f1',FM,{hc,names:CN,onPick:pick,left:52});

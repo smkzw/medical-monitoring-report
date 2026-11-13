@@ -226,6 +226,49 @@ _VCLASS = [re.compile(r'筛选|screen|^SCR$|^[WD]\s*-\s*\d', re.I), re.compile(r
            re.compile(r'计划外|^USV$|unsched', re.I)]
 
 
+_EVT_RX = re.compile(r'^EOT|^EOS|^ET\b|^ED\b|^DISC|治疗结束|终止治疗|提前终止|提前退出|退出研究|早期退出|中止', re.I)
+
+
+def event_visits(C):
+    """用户 2026-11-13（RUX 历时图 W12 与 W16 之间夹着「EOT」，人数明显少）：EOT 是提前终止治疗者才做的治疗结束访视，
+    只有 6 人（3%）、发生在 D68–D161，按中位时间插进访视轴后，汇总的中位数/四分位带既不稳定也无时间意义。
+    判定事件触发型访视（并入 C.ET：中心/试验汇总不展示，个例页照常按日期）：不在方案访视窗里，且
+    ①名称是治疗结束/提前退出类，做过的人不到计划访视最多人数的 40%；或 ②做过的人不到 20%、研究日四分位间距 >28 天（时点分散）。
+    方案里有固定时点的「治疗结束访视」（人人都做、时点集中）不受影响。"""
+    W = set((C.A.get('visitWindows') or {}).keys()) | set((C.cfg.get('visits') or {}).get('order') or [])
+    proto = set((C.A.get('visitWindows') or {}).keys())
+    sids = defaultdict(set)
+    sdays = defaultdict(list)
+    for dom in ('visits', 'findings'):
+        for r in getattr(C, dom, []) or []:
+            sid, v = r.get('sid'), r.get('visit')
+            if not v or sid not in C.pop:
+                continue
+            sids[v].add(sid)
+            fd = (C.subj.get(sid) or {}).get('fd')
+            if is_full_date(r.get('date')) and is_full_date(fd):
+                sdays[v].append(days(r['date'], fd))
+    sched = [len(sids[v]) for v in sids if v in proto and v not in C.UNS]
+    mx = max(sched or [len(x) for x in sids.values()] or [1])
+    found = []
+    for v, ss in sids.items():
+        if v in C.UNS or v in C.ET or v in proto:
+            continue
+        cov = len(ss) / mx if mx else 0
+        ds = sorted(sdays[v])
+        iqr = (ds[(3 * len(ds)) // 4] - ds[len(ds) // 4]) if len(ds) >= 4 else 0
+        if (_EVT_RX.search(str(v)) and cov < 0.4) or (cov < 0.2 and iqr > 28):
+            found.append(v)
+    if found:
+        C.ET |= set(found)
+        vis = C.cfg.setdefault('visits', {})
+        vis['early'] = sorted(C.ET)
+        C.VIS = [v for v in C.VIS if v not in found] + [v for v in C.VIS if v in found]   # 访视轴上排到最后（个例页按日期排）
+        vis['order'] = C.VIS
+        C.vi = lambda v: C.VIS.index(v) if v in C.VIS else len(C.VIS)
+    C.evt_visits = found
+
+
 def complete_visit_order(C, order):
     """数据里出现、配置访视顺序里没有的访视名补进顺序（MY008：配置 V1–V17、数据 D84…；不在顺序里的访视全部落到同一个
     「未知」序号，检验趋势/安全性概览/有效性图整片空白）。补入的按典型研究日（相对参与者最早记录日的中位天数）排序；
@@ -244,7 +287,7 @@ def complete_visit_order(C, order):
     offs = defaultdict(list)
     for r in recs:
         offs[r['visit']].append(days(r['date'], first[r['sid']]) or 0)
-    tail_rx = re.compile(r'计划外|^USV|unsched|提前|退出|^ET$|early', re.I)
+    tail_rx = re.compile(r'计划外|^USV|unsched|提前|退出|^ET$|^EOT|治疗结束|终止治疗|early', re.I)
     keyed = [v for v in list(order) + extra if v in data_vis and offs.get(v) and not tail_rx.search(v)]
     keyed.sort(key=lambda v: statistics.median(offs[v]))
     tail = [v for v in list(order) + extra if v in data_vis and v not in keyed]
@@ -4163,6 +4206,9 @@ def defaults(C):
     for k_, (t_, a_) in monitor_v5.odd_visit_targets(C.A.get('visitWindows') or {}).items():   # 用户 2026-11-12（D001 W12）
         C.todo.append(['访视窗', 'yel', f"方案 {k_} 目标日写 D{t_}，其余周访视均为周数×7+1（照此应为 D{a_}）；系统按方案原文 D{t_} 判定，"
                                         f"按 D{a_} 计在窗内的超窗已逐条注明，请核对方案原文", 'monitor.html#tab=vis'])
+    if getattr(C, 'evt_visits', None):
+        C.todo.append(['访视', 'line', f"{'、'.join(map(str, C.evt_visits))} 是事件触发型访视（治疗结束/提前退出等，做过的人少、时点因人而异），"
+                                       f"不进中心/试验层面的历时汇总图；参与者页按日期照常显示", 'objective.html'])
     if getattr(C, 'todo_hint', ''):                 # 扩展规则词表缺失 → 待办区提示（D-P5-2 fail-visible，不覆盖默认）
         C.todo.append(['词表', 'yel', C.todo_hint, 'study.html'])
 
@@ -4240,6 +4286,7 @@ def analyze(C):
                     e['base'] = min(e.get('base', 1), float(T['base']))
     C.cfg['metricTight'] = mt
     build_subjects(C)
+    event_visits(C)                                      # 事件触发型访视（治疗结束/提前退出等）不进中心/试验汇总
     build_events(C)
     ae_summary(C)
     micro_panel_mark(C)                                  # F-C＋第三轮：微生物培养/药敏先分域（build_findings 不收入 C.F）
