@@ -95,7 +95,10 @@ def catalog_map(sheet_rows, names):
         for j in range(ncol):
             vals = [str(r[j]).strip() if j < len(r) and r[j] not in (None, '') else '' for r in body]
             hit = [v for v in vals if v in names and v != n]
-            if len(hit) < need or len(hit) < 0.5 * len([v for v in vals if v]) or len(set(hit)) < 0.8 * len(hit):
+            # MGK：目录页按 CRF 版本重复列出（V3.0/V3.1 各一遍）——同代码同名称的重复行只算一次
+            hs = set(hit)
+            rows_u = {(str(r[j]).strip(), tuple(r[j + 1:])) for r in body if j < len(r) and str(r[j]).strip() in hs}
+            if len(hit) < need or len(hit) < 0.5 * len([v for v in vals if v]) or len(hs) < 0.8 * len(rows_u):
                 continue                                 # 目录里每张表只出现一次（代码表/字典逐选项重复出现，不是目录）
             m = {}
             for r in body:

@@ -4187,6 +4187,9 @@ class Eng2Tests(unittest.TestCase):
         self.assertEqual(catalog_map({'SAE': sae}, names), {})          # 单行 SAE 报告不是目录
         toc = [('代码', '名称'), ('AE', '不良事件')]
         self.assertEqual(catalog_map({'TOC': toc}, names), {'AE': '不良事件'})
+        dn = [('Database_Version', 'SAS_Dataset_Name', 'Form_OID', 'Form_Name')] + \
+            [(v, c, c, n) for v in ('V3.1', 'V3.0') for c, n in (('AE', '不良事件'), ('LB1', '血常规'))]
+        self.assertEqual(catalog_map({'DOMAIN_NAME': dn}, names | {'DOMAIN_NAME'}), {'AE': '不良事件', 'LB1': '血常规'})   # MGK：按 CRF 版本重复列出
 
 
 class DiseaseDirectionFromExtraction(unittest.TestCase):
