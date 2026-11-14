@@ -3838,6 +3838,81 @@ def eff_magnitude(C):
                               bkey=f"{m['src']}|mag|{v}", wb=r.get('wb') or '')
 
 
+def _diary_week(d, fd):
+    k = days(d, fd) if is_full_date(d) and is_full_date(fd) else None
+    if k is None or k < -7:
+        return None
+    return '基线' if k < 0 else f'第{k // 7 + 1}周'
+
+
+def _wk_key(v):
+    return -1 if v == '基线' else int(re.sub(r'\D', '', v) or 0)
+
+
+def _diary_metrics(C, M, data):
+    """日记卡指标（每人逐日记录、访视是占位）：按研究周（首剂起第 N 周，首剂前 7 天为基线周）取周均值；早/晚等时间点各占
+    ≥20% 时分开成两个指标；日记完成率（研究期间有记录的天数/应记录天数）中位写进说明。原先这类指标被整体放弃（MGK PEF/NRS）。"""
+    out = []
+    for m in M:
+        if not m.get('diary'):
+            out.append(m)
+            continue
+        src, metric = m['src'], m['src'][4:] if m['src'].startswith('eff:') else None
+        rows = defaultdict(list)                      # sid -> [(date, value, tpt)]
+        if metric is not None:
+            for e in C.efficacy:
+                if str(e.get('metric')) == metric and e['sid'] in C.pop:
+                    v = eff_num(e.get('value') if e.get('value') not in (None, '') else e.get('raw'))
+                    if v is not None:
+                        rows[e['sid']].append((e.get('date'), v, str(e.get('tpt') or '')))
+        else:
+            for (sid, mid), rs in C.F.items():
+                if mid == src and sid in C.pop:
+                    rows[sid] += [(r.get('date'), r.get('value'), str(r.get('tpt') or '')) for r in rs if r.get('value') is not None]
+        tp = Counter(t for rs in rows.values() for _, _, t in rs)
+        tot = sum(tp.values()) or 1
+        main = [t for t, n in tp.most_common() if t and n >= .2 * tot]
+        variants = [(t, f"{m['label']}（{t}）", f"{m['id']}_{i}") for i, t in enumerate(main)] if len(main) >= 2 else [(None, m['label'], m['id'])]
+        comp = []
+        for sid, rs in rows.items():
+            fd = C.subj[sid].get('fd')
+            ds = sorted({d for d, _, _ in rs if is_full_date(d) and is_full_date(fd) and d >= fd})
+            if ds:
+                comp.append(len(ds) / max(1, (days(ds[-1], fd) or 0) + 1))
+        for t, label, mid in variants:
+            mm = {**m, 'id': mid, 'label': label, 'pending': False}   # 关键访视未录入核查不适用于日记周
+            wk_sub = Counter()
+            for sid, rs in rows.items():
+                fd = C.subj[sid].get('fd')
+                buck = defaultdict(list)
+                for d, v, tt in rs:
+                    w = _diary_week(d, fd)
+                    if w and (t is None or tt == t):
+                        buck[w].append(v)
+                if not buck:
+                    continue
+                mean = {w: sum(v) / len(v) for w, v in buck.items()}
+                bv = mean.get('基线')
+                vals = {w: (round(x - bv, 3) if bv is not None and w != '基线' else None) if m.get('derive') == 'chg' else round(x, 3)
+                        for w, x in mean.items()}
+                vals = {w: x for w, x in vals.items() if x is not None}
+                if not vals:
+                    continue
+                for w in vals:
+                    wk_sub[w] += 1
+                data.setdefault(sid, {'sid': sid, 'site': C.subj[sid]['site'], 'v': {}})['v'][mid] = vals
+                C.effsub[sid][mid] = [[w, '', vals[w], ''] for w in sorted(vals, key=_wk_key)]
+            nmin = max(1, int(.1 * len(rows)))          # 至少 10% 有记录的周才画（零星补录的远端周不画）
+            mm['visits'] = sorted([w for w, n in wk_sub.items() if n >= nmin], key=_wk_key)
+            if mm.get('keyVisit') not in mm['visits']:
+                mm['keyVisit'] = mm['visits'][-1] if mm['visits'] else None
+            if comp:
+                cs = sorted(comp)
+                mm['note'] = f"{m.get('note') or ''}；日记完成率中位 {cs[len(cs) // 2] * 100:.0f}%（{len(cs)} 人，研究期间有记录天数/应记录天数）"
+            out.append(mm)
+    return out
+
+
 def build_eff(C):
     M = C.A.get('efficacy', [])
     data = {}
@@ -3849,7 +3924,11 @@ def build_eff(C):
         for r in rs:
             by[(sid, mid)].append((r.get('visit'), r.get('date'), r.get('value'), r.get('raw')))
     C.effsub = defaultdict(dict)
+    M = _diary_metrics(C, M, data)                     # 日记型指标（逐日记录）按研究周汇总（PLAN §17.20 E4）；返回展开后的指标表
+    C.A['efficacy'] = M
     for m in M:
+        if m.get('diary'):
+            continue
         src = m['src']
         for sid in sorted(C.pop):  # deterministic eff.data order (set iteration varies per process)
             rs = [x for x in by.get((sid, src), []) if x[2] is not None]

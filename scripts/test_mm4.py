@@ -4895,6 +4895,28 @@ class ReviewerFix20261109(unittest.TestCase):
         self.assertTrue(t['endpoints'])                          # 对上主要终点
         self.assertEqual([m[1] for m in out['missing']], ['治疗期间疾病复发事件的发生率'])
 
+    def test_diary_metric_weekly_and_tpt_split(self):
+        """日记型指标（PEF 早/晚逐日记录）按研究周汇总、早晚分开，基线＝首剂前 7 天均值（PLAN §17.20 E4）。"""
+        from types import SimpleNamespace
+        from collections import defaultdict
+        import datetime as _dt
+        import mm_build as MB
+        fd = '2026-01-08'
+        rows = []
+        for k in range(-7, 21):
+            d = (_dt.date(2026, 1, 8) + _dt.timedelta(days=k)).isoformat()
+            rows += [{'date': d, 'value': 300 + max(k, 0), 'tpt': '早'}, {'date': d, 'value': 350 + max(k, 0), 'tpt': '晚'}]
+        C = SimpleNamespace(pop={'S1'}, subj={'S1': {'site': '01', 'fd': fd}}, efficacy=[], F={('S1', 'exam:PEF'): rows},
+                            effsub=defaultdict(dict))
+        data = {}
+        M = MB._diary_metrics(C, [{'id': 'pef', 'label': 'PEF', 'src': 'exam:PEF', 'diary': True, 'keyVisit': '第3周'}], data)
+        self.assertEqual([m['label'] for m in M], ['PEF（早）', 'PEF（晚）'])
+        am = data['S1']['v'][M[0]['id']]
+        self.assertEqual(am['基线'], 300)
+        self.assertAlmostEqual(am['第1周'], 303)                       # 第 0–6 天均值
+        self.assertEqual(M[0]['visits'][:2], ['基线', '第1周'])
+        self.assertIn('日记完成率中位 100%', M[0]['note'])
+
     def test_latest_possible_partial_date(self):
         """部分停药日期按最晚可能日判洗脱：2022-10-uk 早于窗口即满足，不追问。"""
         from mm_build import _latest_date
