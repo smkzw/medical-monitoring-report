@@ -765,6 +765,22 @@ class MissingDateRenderingK95(unittest.TestCase):
         self.assertEqual(len(hit), 1)
         self._assert_nodate(self, hit[0]['sum'])
 
+    def test_eff_magnitude_only_outlier_and_decimal_shift(self):
+        """MGK：三次记录 2.68/2.67/266 只报 266（参照含本次的全部中位）；FeNO 28→1.7（16 倍，非 10 的整数次幂）不按录入问题问。"""
+        from mm_build import eff_magnitude
+
+        def mk(v, visit, mid):
+            return {'sid': 'S1', 'mid': mid, 'value': v, 'raw': str(v), 'unit': '', 'visit': visit, 'date': '2026-05-01',
+                    'sheet': '肺功能', 'row': len(visit), 'wb': 'edc'}
+        C = self._ns(A={'efficacy': [{'id': 'pv', 'label': 'FEV1预计值', 'src': 'exam:FEV1预计值'}, {'id': 'fe', 'label': 'FeNO', 'src': 'exam:FeNO'}]},
+                     pop={'S1'}, subj={'S1': {'site': '01'}}, others=[], src={'sheets': {}}, vi=lambda v: 0,
+                     F={('S1', 'exam:FEV1预计值'): [mk(2.68, 'V2', 'exam:FEV1预计值'), mk(2.67, 'V5', 'exam:FEV1预计值'), mk(266, 'V8', 'exam:FEV1预计值')],
+                        ('S1', 'exam:FeNO'): [mk(28, 'V2', 'exam:FeNO'), mk(30, 'V3', 'exam:FeNO'), mk(25, 'V4', 'exam:FeNO'), mk(1.7, 'V5', 'exam:FeNO')]})
+        eff_magnitude(C)
+        hit = [o for o in C.others if o['cat'] == '有效性数据量级异常']
+        self.assertEqual([(o['test'], o['v']) for o in hit], [('FEV1预计值', 'V8')])
+        self.assertNotIn('错误', hit[0]['sum'])
+
     def test_pd_icf02_signature_without_date(self):
         from pd_rules import _PD
         C = self._ns(A={'pd': {'icfVersions': [{'ver': 'v2.0', 'reconsent': True, 'effective': '2026-06-01'}]}},

@@ -11,6 +11,7 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+import math
 import re
 import statistics
 import sys
@@ -3827,15 +3828,24 @@ def eff_magnitude(C):
                     continue
                 if r.get('visit') not in vm or (m.get('agg') == 'max' and r['value'] > vm[r['visit']]['value']):
                     vm[r.get('visit')] = r
+            allv = sorted(x['value'] for x in vm.values() if x['value'] > 0)
             for v, r in vm.items():
+                if r['value'] <= 0 or len(allv) < 3:
+                    continue
+                med = allv[len(allv) // 2] if len(allv) % 2 else (allv[len(allv) // 2 - 1] * allv[len(allv) // 2]) ** .5
+                lr = math.log10(r['value'] / med)
+                # MGK 2026-11-14：①参照取本人全部访视中位（含本次）——只有 3 次记录时，参照不含本次会让两个正常值互相「被异常」
+                # （2.68/2.67/266 三条全报）；②数量级错误＝小数点/单位移位，比值接近 10 的整数次幂（FeNO 28→1.7 是 16 倍，
+                # 生物制剂下真实下降可达此幅度，不按录入问题问）
+                if abs(lr) < 0.9 or abs(lr - round(lr)) > 0.15:
+                    continue
                 rest = sorted(x['value'] for w, x in vm.items() if w != v and x['value'] > 0)
-                if r['value'] > 0 and len(rest) >= 2 and not 0.1 < r['value'] / rest[len(rest) // 2] < 10:
-                    t_ = f"{m['label']} {fmt(r['value'])}{m.get('unit', '')}（{v}），本人其余访视中位数 {fmt(rest[len(rest) // 2])}"
-                    C.effmag.append({'sid': sid, 'site': C.subj[sid]['site'], 'k': f"{m['label']}量级异常", 'c': 'org', 'v': v, 't': t_,
-                                     'st': '核对单位或录入（疑似数量级错误）'})
-                    add_other(C, sid, '有效性数据量级异常', 3, f"{v}（{dshow(r.get('date'))}）{t_}，相差 10 倍以上", v, r.get('date'), r['sheet'], r['row'],
-                              m['label'], rule={'id': 'EFF-MAG', 'ask': '疑似单位或录入错误，请核对源文件并更正；如数值无误，请说明原因。'},
-                              bkey=f"{m['src']}|mag|{v}", wb=r.get('wb') or '')
+                t_ = f"{m['label']} {fmt(r['value'])}{m.get('unit', '')}（{v}），本人其余访视中位数 {fmt(rest[len(rest) // 2])}"
+                C.effmag.append({'sid': sid, 'site': C.subj[sid]['site'], 'k': f"{m['label']}量级异常", 'c': 'org', 'v': v, 't': t_,
+                                 'st': '核对单位或小数点（疑似数量级移位）'})
+                add_other(C, sid, '有效性数据量级异常', 3, f"{v}（{dshow(r.get('date'))}）{t_}，约相差 {10 ** round(abs(lr)):g} 倍", v, r.get('date'), r['sheet'], r['row'],
+                          m['label'], rule={'id': 'EFF-MAG', 'ask': '请核对该数值的单位与小数点位置是否与源文件一致；如数值无误，请说明原因。'},
+                          bkey=f"{m['src']}|mag|{v}", wb=r.get('wb') or '')
 
 
 def _diary_week(d, fd):
