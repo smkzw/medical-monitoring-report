@@ -2293,23 +2293,33 @@ def range_checks(C):
     site_n = Counter()
     for sh_site in {(C.subj[sid]['site'], sh, sid) for (sid, sh, _) in page}:
         site_n[sh_site[:2]] += 1
-    for (sid, sh, d), items in sorted(page.items()):
+    # MGK 2026-11-14：同一参与者同一表单逐次访视都漏填（中心系统性）时，按访视拆成十几条（91 条/32 人）→ 按（参与者，表单）合并一条，列出访视
+    by_form = defaultdict(list)
+    for (sid, sh, d), items in sorted(page.items(), key=lambda kv: (kv[0][0], kv[0][1], kv[0][2])):
         items.sort(key=lambda x: x[1].get('row') or 0)
+        by_form[(sid, sh)].append((d, items))
+    for (sid, sh), pages in sorted(by_form.items()):
+        d, items = pages[0]
         r = items[0][1]
-        labs = list(dict.fromkeys(C.metric[mid]['label'] for mid, _ in items))
+        labs = list(dict.fromkeys(C.metric[mid]['label'] for _, its in pages for mid, _ in its))
         n_site = site_n[(C.subj[sid]['site'], sh)]
         systemic = n_site >= 3
-        ctx = [f"同页未填范围的指标：{'、'.join(labs[:12])}{'…' if len(labs) > 12 else ''}"] if len(labs) > 1 else []
+        ctx = [f"未填范围的指标：{'、'.join(labs[:12])}{'…' if len(labs) > 12 else ''}"] if len(labs) > 1 else []
         ctx.append(f"同指标 {stats[items[0][0]][0]}/{stats[items[0][0]][1]} 条记录有范围（内部参考，不写进质疑）")
         if systemic:
             ctx.append(f"中心系统性未填（本中心本表单 {n_site} 例）：建议中心层面沟通，不逐例发 query")
         mid0 = items[0][0]
+        form = (C.A.get('formNames') or {}).get(sh) or r.get('group') or sh
+        if len(pages) == 1:
+            where = f"{r.get('visit')}（{dshow(r.get('date'))}）{form}有 {len(labs)} 项结果"
+        else:
+            vs = [str(its[0][1].get('visit') or dshow(dd)) for dd, its in pages]
+            where = f"{form}共 {len(pages)} 次访视（{'、'.join(vs[:8])}{'…' if len(vs) > 8 else ''}）的 {len(labs)} 项结果"
         add_other(C, sid, '参考范围缺失核对', 2 if systemic else 3,
-                  f"{r.get('visit')}（{dshow(r.get('date'))}）{(C.A.get('formNames') or {}).get(sh) or r.get('group') or sh}"
-                  f"有 {len(labs)} 项结果未填写参考范围（如 {C.metric[mid0]['label']} {r.get('raw')} {r.get('unit') or ''}）",
+                  f"{where}未填写参考范围（如 {r.get('visit')} {C.metric[mid0]['label']} {r.get('raw')} {r.get('unit') or ''}）",
                   r.get('visit'), r.get('date'), r['sheet'], r['row'], '、'.join(labs[:3]), r.get('clin'), ctx=ctx,
-                  rule={'ask': '请补充该页检验结果的参考范围（上下限），并据此核对临床意义评价。'},
-                  bkey=f"{sh}|{d}|range", wb=r.get('wb') or '')
+                  rule={'ask': '请补充这些检验结果的参考范围（上下限），并据此核对临床意义评价。'},
+                  bkey=f"{sh}|range", wb=r.get('wb') or '')
 
 
 def overlap(c, a, b):

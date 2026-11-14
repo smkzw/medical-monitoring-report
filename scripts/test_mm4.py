@@ -3743,6 +3743,24 @@ class V6Generalization(unittest.TestCase):
         self.assertEqual(len(hit), 1)                             # 同一张化验单 3 项 → 一条
         self.assertIn('3 项', hit[0]['sum'])
 
+    def test_range_missing_merged_across_visits(self):
+        """MGK：同一参与者同一表单每次访视都漏填范围 → 合并为一条、列出访视（原先按访视拆成十几条）。"""
+        from mm_build import range_checks
+        F, metric = {}, {}
+        for k in range(2):
+            mid = f'lab:T{k}'
+            metric[mid] = {'domain': 'lab', 'label': f'T{k}'}
+            F[('S1', mid)] = [{'sid': 'S1', 'value': 1.0, 'raw': '1', 'lo': None, 'hi': None, 'sheet': 'LB', 'row': 2 + v,
+                               'date': f'2026-0{3 + v}-01', 'visit': f'V{2 + v}'} for v in range(3)]
+            for j in range(2, 12):
+                F[(f'S{j}', mid)] = [{'sid': f'S{j}', 'value': 1.0, 'raw': '1', 'lo': 0, 'hi': 2, 'sheet': 'LB', 'row': 2, 'date': '2026-03-01'}]
+        subj = {f'S{j}': {'site': '01', 'fd': '2026-02-01'} for j in range(1, 12)}
+        C = self._C(F, metric, subj)
+        range_checks(C)
+        hit = [o for o in C.others if o['cat'] == '参考范围缺失核对']
+        self.assertEqual(len(hit), 1)
+        self.assertIn('共 3 次访视（V2、V3、V4）', hit[0]['sum'])
+
     def test_pregnancy_range_text_and_pre_dose(self):
         import ext_rules
         metric = {'lab:尿妊娠试验': {'label': '尿妊娠试验'}, 'lab:hCG参考区间': {'label': 'hCG参考区间'}}
