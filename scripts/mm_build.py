@@ -2607,6 +2607,11 @@ def cm_checks(C):
                         and _latest_date(c['e']) >= a          # 部分停药日期的最晚可能日仍早于禁用期 → 不追
                     if not by_atc and local_only and not _NONDERMAL.search(f"{c.get('rt') or ''} {c['t']}"):
                         continue
+                    if re.search(r'外用(药|制剂)?除外|外用.{0,4}不在此列', str(P.get('note') or '')) and \
+                            (_TOPICAL.search(c.get('rt') or '') or re.search(r'贴敷|敷贴|外敷|外洗|熏洗|泡洗|穴位贴', c['t'])):
+                        continue                 # 方案例外「外用药除外」（MGK 具有平喘作用的中药：中药贴敷）
+                    if re.search(r'活疫苗', P.get('name') or '') and re.search(r'灭活', c['t']):
+                        continue                 # 「活疫苗」不含灭活疫苗（MGK：三价流感疫苗（灭活疫苗）被判活疫苗）
                     if nonsed_ok and _NONSEDATING_AH.search(c['t']):
                         continue                 # F1：允许非镇静的镇静抗组胺条款不命中二代非镇静子类
                     if exc_re and exc_re.search(c['t']):
