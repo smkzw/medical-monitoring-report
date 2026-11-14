@@ -640,6 +640,22 @@ class MissingDateRenderingK95(unittest.TestCase):
         for o in C.others:
             self._assert_nodate(self, o['sum'])
 
+    def test_m20_unknown_criteria_not_reported_as_unchecked(self):
+        """MGK 2026-11-14：表里没有可识别的 SAE 标准列（信息缺席）时不报「SAE 标准均未勾选」——37 条误报。"""
+        from ext_rules import m20_ae_sae
+        C = self._ns(pop={'S1'}, subj={'S1': {'site': '01'}}, others=[], src={'sheets': {}},
+                     aes=[{'sid': 'S1', 't': '肺炎', 's': '2026-01-02', 'e': '', 'sae': True, 'sae_crit': '', 'sae_crit_known': False,
+                           'sh': 'AE', 'row': 2, 'n': 1, 'wb': ''}])
+        m20_ae_sae(C)
+        self.assertEqual([o for o in C.others if '均未勾选' in o['sum']], [])
+
+    def test_sdtm_sae_criteria_vars_recognized(self):
+        """只有变量名表头（AESHOSP/AESDTH…）时按 SDTM 标准变量名认 SAE 标准。"""
+        import normalize_listing as N
+        self.assertTrue(N._SAE_CRIT_VAR.fullmatch('AESHOSP') and N._SAE_CRIT_VAR.fullmatch('AESDETH'))
+        self.assertFalse(N._SAE_CRIT_VAR.fullmatch('AESER'))
+        self.assertEqual(N._SAE_CRIT_NAME['HOSP'], '住院或延长住院')
+
     def test_m20_death_without_dates_no_nonsense_query(self):
         """转归死亡但起止日期均缺失：无死亡日期无法定义「其后」，不得发出「（），其后仍有记录」类事实。"""
         from ext_rules import m20_ae_sae

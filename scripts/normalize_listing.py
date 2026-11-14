@@ -45,6 +45,9 @@ _CHK_RX = re.compile(r'是否|完成|勾选')
 _CHK_VALS = {'0', '1', '0.0', '1.0', '是', '否', '无', '有', 'true', 'false', 'y', 'n', '√'}
 # F03（RUX 深审）：SAE 标准勾选列（取值 1/0 或 是/否）——标签口径；「请说明」列不算，已映射列不重复采集。
 _SAE_CRIT_RX = re.compile(r'致死|导致死亡|危及生命|住院|致残|残疾|先天异常|出生缺陷|重要医学事件')
+_SAE_CRIT_VAR = re.compile(r'AES(DTH|DETH|LIFE|HOSP|DISAB|CONG|MIE)', re.I)   # SDTM AE 严重性标准变量
+_SAE_CRIT_NAME = {'DTH': '致死', 'DETH': '致死', 'LIFE': '危及生命', 'HOSP': '住院或延长住院', 'DISAB': '致残',
+                  'CONG': '先天异常', 'MIE': '其他重要医学事件'}
 # F04（RUX 深审）：AE 发生标志列（列名各厂商不同：是否发生不良事件？/有无不良事件/是否发生AE——
 # 但不含 严重/SAE/AESI/持续/措施 等，那些是别的字段）；真实术语列＝名称/术语类标签。
 _AE_FLAG_RX = re.compile(r'是否|有无')
@@ -276,6 +279,9 @@ def read_spec(spec, books, M, dom=None):
     term_is = [i for i, lb in enumerate(labels) if _AE_TERM_RX.search(lb) and not re.search(r'编码|CODE|版本|语言', lb, re.I)]
     crit_is = [i for i, lb in enumerate(labels) if _SAE_CRIT_RX.search(lb) and not re.search(r'请说明|描述|Code Value|编码值', lb, re.I)
                and i not in set(cols.values())]       # V6（MY008）：「…(Code Value)」编码副本列不重复计入 SAE 标准
+    if dom == 'ae':                                   # MGK 2026-11-14：只有变量名表头时按 SDTM 标准变量名认 SAE 标准（AESHOSP…）
+        crit_is += [i for i, v in enumerate(vars_ if any(vars_) else labels)
+                    if i not in crit_is and _SAE_CRIT_VAR.fullmatch(str(v or '').strip()) and i not in set(cols.values())]
     crit_txt = next((i for i, lb in enumerate(labels) if re.search(r'SAE\s*标准|严重(性)?标准', lb) and not re.search(r'是否|Code Value|编码值', lb, re.I)
                      and i not in crit_is), None) if dom == 'ae' else None
     # 审阅者 2026-11-10：合并用药表自带 WHODrug 编码时（锁库/稽查数据常见：ATC1–4 编码/代码列），收集全部层级 ATC 代码——
@@ -302,8 +308,10 @@ def read_spec(spec, books, M, dom=None):
             if fv in _AE_NO_VALS and all(i >= len(r) or r[i] in (None, '') for i in term_is):
                 continue          # 发生标志=否 且无任何术语 → 空白日志行，不是事件记录（F04：RUX 标志列名不同此前漏跳）
         if crit_is:               # F03：SAE 标准勾选（1/是/true/Y→勾选），勾选的条目名收集为 sae_crit
-            hit = [labels[i].strip() for i in crit_is if i < len(r) and yes(r[i])]
+            hit = [_SAE_CRIT_NAME.get(str(labels[i]).strip().upper()[4:], str(labels[i]).strip()) for i in crit_is if i < len(r) and yes(r[i])]
             rec['sae_crit'] = '、'.join(hit)
+        if dom == 'ae':
+            rec['sae_crit_known'] = bool(crit_is) or crit_txt is not None   # 表里根本没有 SAE 标准信息 ≠ 标准均未勾选
         if atc_is:
             codes = sorted({str(r[i]).strip().upper() for i in atc_is if i < len(r) and r[i] not in (None, '')
                             and re.fullmatch(r'[A-Z]\d{2}([A-Z]([A-Z](\d{2})?)?)?', str(r[i]).strip().upper())})

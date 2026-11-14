@@ -541,7 +541,7 @@ def build_events(C):
                'cm': a.get('cm') or '', 'wd': '是' if yes(a.get('withdraw')) else '', 'row': a['row'], 'sh': a['sheet'], 'wb': a.get('wb') or '', 'sid': sid, 'site': s['site'], 'fd': s['fd'] or '',
                'pre': _pre_dose(a.get('start'), s['fd']), '_rel': related,
                '_aesi_term': bool(aesi_all), '_aesi_def': aesi_hit, 'pt': a.get('pt') or '', 'soc': a.get('soc') or '',
-               'rpt': a.get('rpt') or '', 'aware': a.get('aware') or '', 'sae_crit': a.get('sae_crit') or '',
+               'rpt': a.get('rpt') or '', 'aware': a.get('aware') or '', 'sae_crit': a.get('sae_crit') or '', 'sae_crit_known': a.get('sae_crit_known') is not False,
                'gchg': a.get('gchg') or ''}
         rec['te'] = (not rec['pre']) and bool(s['fd']) and (not C.teEnd.get(sid) or not is_full_date(rec['s']) or rec['s'] <= C.teEnd[sid])
         # V6 R13：开始日期缺失/无法解析（如 D002「是」）→ TEAE 判定待定：暂按 TEAE 计（不漏报，常见 SAP 最坏情形口径），并发日期核对

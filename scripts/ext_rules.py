@@ -562,7 +562,7 @@ def m20_ae_sae(C):
         if sid not in C.pop or a.get('dup'):      # F08：重复记录成员不逐条发（组首覆盖）
             continue
         crit = str(a.get('sae_crit') or '')
-        if a['sae'] and not crit.strip():
+        if a['sae'] and not crit.strip() and a.get('sae_crit_known', True):   # 表里没有 SAE 标准列时不报「均未勾选」（MGK：信息缺席≠未勾选）
             add_ext(C, sid, 'SAE与死亡一致性核对', 'M20', 4,
                     f"AE「{a['t']}」（{dshow(a['s'])}）SAE=是，但 SAE 标准（致死/危及生命/住院/致残/先天异常/其他重要事件）均未勾选",
                     None, a['s'], a['sh'], a['row'], a['t'], rel=[['AE', a['t'], a['s'], a['n']]],
