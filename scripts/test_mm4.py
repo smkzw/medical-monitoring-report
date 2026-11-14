@@ -3752,9 +3752,9 @@ class V6Generalization(unittest.TestCase):
             metric[mid] = {'domain': 'lab', 'label': f'T{k}'}
             F[('S1', mid)] = [{'sid': 'S1', 'value': 1.0, 'raw': '1', 'lo': None, 'hi': None, 'sheet': 'LB', 'row': 2 + v,
                                'date': f'2026-0{3 + v}-01', 'visit': f'V{2 + v}'} for v in range(3)]
-            for j in range(2, 12):
+            for j in range(2, 22):                                # 同指标 ≥80% 记录有范围才判「漏填」
                 F[(f'S{j}', mid)] = [{'sid': f'S{j}', 'value': 1.0, 'raw': '1', 'lo': 0, 'hi': 2, 'sheet': 'LB', 'row': 2, 'date': '2026-03-01'}]
-        subj = {f'S{j}': {'site': '01', 'fd': '2026-02-01'} for j in range(1, 12)}
+        subj = {f'S{j}': {'site': '01', 'fd': '2026-02-01'} for j in range(1, 22)}
         C = self._C(F, metric, subj)
         range_checks(C)
         hit = [o for o in C.others if o['cat'] == '参考范围缺失核对']
