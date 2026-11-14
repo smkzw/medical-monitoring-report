@@ -2445,11 +2445,19 @@ def _tcm_off_target(P, c, C) -> bool:
     fd = P.get('forDisease')
     if not fd:     # 旧版编译结果洗脱条目没有 forDisease：按条目名「治疗X的…」补（与工作台 compile._for_disease 同一写法）
         m = re.search(r'对([^的，,。；（(]{1,24}?)有(?:治疗|改善|缓解)?作用', str(P.get('name') or '')) or \
+            re.search(r'具有([^的，,。；（(]{1,12}?)作用', str(P.get('name') or '')) or \
             re.search(r'(?:用于治疗|用于|治疗|针对)([^的，,。；（(]{1,12}?)的', str(P.get('name') or ''))
         fd = m.group(1) if m and not re.search(r'疾病|病症|病变|疾患|治疗|作用', m.group(1)) else ''
     if not fd or not c.get('tcm') or re.search(P.get('re') or '(?!)', c['t'], re.I):
         return False
     fd_terms = [x.replace('\\', '') for x in re.split(r'\||或|及|和|、|/', str(fd)) if x.strip()]
+    # 「具有平喘作用的中药」类：按国家医保目录中成药类别名判（ZA06E 平喘剂、ZA06「化痰、止咳、平喘剂」算；鼻病 ZF02、
+    # 解表剂 ZA01 不算）——MGK 2026-11-14：中成药一律当「具有平喘作用」，鼻窦炎口服液、感冒清热颗粒等 100 余条误报
+    names = [n for x in c['tcm'] for n in whodrug.tcm_cat_names(x)]
+    if names and any(t and t in n for t in fd_terms for n in names):
+        return False
+    if names and re.search(r'作用', str(P.get('name') or '')) and not re.search(r'治疗|用于', str(P.get('name') or '')):
+        return True
     dz = ' '.join(fd_terms + [str(t) for t in (C.A.get('diseaseTerms') or [])])
     spec = {k for k, r_ in _TCM_SPEC if re.search(r_, dz)}
     tops = {str(x)[:2] for x in c['tcm']}

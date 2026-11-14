@@ -4826,6 +4826,20 @@ class ReviewerFix20261109(unittest.TestCase):
         self.assertTrue(_same_event({'t': '上呼吸道感染'}, '预期不良反应·上呼吸道感染'))
         self.assertFalse(_same_event({'t': '尿路感染'}, '预期不良反应·上呼吸道感染'))
 
+    def test_tcm_effect_class_by_nhsa_category(self):
+        """「具有平喘作用的中药」按医保目录中成药类别名判：平喘剂/化痰止咳平喘剂算，鼻病、解表剂不算（MGK 2026-11-14）。"""
+        from types import SimpleNamespace
+        from unittest import mock
+        import mm_build, whodrug
+        cats = {'ZA': '内科用药', 'ZA06': '化痰、止咳、平喘剂', 'ZA06E': '平喘剂', 'ZA01': '解表剂', 'ZA01A': '辛温解表剂',
+                'ZF': '耳鼻喉科用药', 'ZF02': '鼻病'}
+        C = SimpleNamespace(A={'diseaseTerms': ['哮喘']})
+        P = {'name': '具有平喘作用的中药', 're': '中药|中成药'}
+        with mock.patch.object(whodrug, '_load_nhsa', lambda: {'cats': cats}):
+            self.assertFalse(mm_build._tcm_off_target(P, {'t': '桂龙咳喘宁胶囊', 'tcm': ['ZA06E'], 'why': ''}, C))
+            self.assertTrue(mm_build._tcm_off_target(P, {'t': '鼻窦炎口服液', 'tcm': ['ZF02'], 'why': ''}, C))
+            self.assertTrue(mm_build._tcm_off_target(P, {'t': '感冒清热颗粒', 'tcm': ['ZA01A'], 'why': ''}, C))
+
     def test_latest_possible_partial_date(self):
         """部分停药日期按最晚可能日判洗脱：2022-10-uk 早于窗口即满足，不追问。"""
         from mm_build import _latest_date

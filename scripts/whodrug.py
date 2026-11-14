@@ -69,6 +69,17 @@ def tcm_for(term) -> list:
     return []
 
 
+def tcm_cat_names(code) -> list:
+    """中成药类别码 → 本级及各上级类别名（ZA06E → 平喘剂、化痰、止咳、平喘剂、…），医保目录无类别表时 []。"""
+    cats = (_load_nhsa() or {}).get('cats') or {}
+    c, out = str(code or ''), []
+    while c:
+        if c in cats:
+            out.append(str(cats[c]))
+        c = c[:-1] if len(c) > 2 else ''
+    return out
+
+
 def _load():
     global _TBL, _KEYS
     if _TBL is not None:
