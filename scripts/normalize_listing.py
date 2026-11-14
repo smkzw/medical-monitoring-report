@@ -573,7 +573,7 @@ def main():
                     if dom in ('ae', 'mh', 'cm', 'proc') and 'term' in (s.get('cols') or {}) and \
                             re.fullmatch(r'(是|否|有|无|Y|N|Yes|No|NA|N/A|不适用|未知|不详)?', str(rec.get('term') or '').strip(), re.I):
                         continue                         # 日志表的占位行（如「是否发生了不良事件？=否」）不是事件记录
-                    if dom in ('mh', 'cm') and 'ongoing' in rec:
+                    if dom in ('mh', 'cm', 'events') and 'ongoing' in rec:      # events：方案事件（PLAN §17.20）
                         rec['ongoing'] = yes(rec['ongoing'])
                     recs.append(rec)
         if dom == 'subjects':  # merge several sheets per subject

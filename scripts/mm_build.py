@@ -21,6 +21,7 @@ import ctcae
 import bind
 import ext_rules
 import monitor_v5
+import proto_events                                     # 方案事件（PLAN §17.20）
 import raw_export
 import pd_rules
 import whodrug  # noqa: E402  本地授权 WHODrug 对照（按路径加载，不进仓库）
@@ -156,7 +157,7 @@ def load(study_p, norm_p):
     N = Path(norm_p)
     C.src = load_json(N / '_source.json', {})
     for dom in ('subjects', 'visits', 'exposure', 'ae', 'mh', 'cm', 'proc', 'findings', 'efficacy', 'pd', 'extq', 'groups',
-                'icf', 'sample', 'dispense', 'ie'):   # mm4：知情同意记录 / 样本采集 / 发药回收（可选域）；V6：入排标准页
+                'icf', 'sample', 'dispense', 'ie', 'events'):   # mm4：知情同意记录 / 样本采集 / 发药回收（可选域）；V6：入排标准页；方案事件（PLAN §17.20）
         setattr(C, dom, load_json(N / f'{dom}.json', []) or [])
     for f in C.findings:   # EDC 分组名「LB_VIR--实验室检查-传染病筛查」「PT--肺功能测定」：去掉表单代码前缀，页面只显示中文名（审阅 2026-11-11）
         for k_ in ('group', 'test'):   # 回测第五轮：单项检查表把表单名当检查名（「LBTUB--γ-干扰素释放试验」进了质疑正文）
@@ -2656,6 +2657,9 @@ def cm_checks(C):
                                   f"合并用药「{c['t']}」（{c['s']}~停药日期未知）属于{_cls_txt(P, c)}，未标持续，请核实停药日期是否在首剂（{s['fd']}）之前",
                                   None, c['s'], c['sh'], c['row'], c['t'], bkey=f"{c['t']}|{c['s']}|unkend", wb=c.get('wb') or '')
                         continue
+                    exc_m = re.search(r'例外[:：]\s*([^；;。]+?)(?:除外)?(?:[；;。]|$)', str(P.get('note') or ''))
+                    if exc_m and proto_events.in_event_window(C, sid, c, exc_m.group(1)):
+                        continue                 # 方案例外「控制急性发作…除外」：用药落在同类方案事件期间（PLAN §17.20，MGK 全身激素）
                     # 审阅者 2026-11-09（RUX：禁用期按方案「研究期间」到研究结束，文案却一律写「与治疗期重叠」，末次给药后随访期用药读起来像误报）
                     win = (f"{({'rand': '随机', 'icf': '知情', 'fd': '首剂'}).get(P.get('fromAnchor') or 'fd')}{('前 %d 天' % w0) if w0 else ''}至"
                            f"{({'eos': '研究结束', 'eot': '治疗结束', 'ld': '末次给药'}).get(P.get('toAnchor') or 'ld')}")
@@ -3953,7 +3957,7 @@ def build_subject_files(C, out):
              'eos': {'d': s.get('eos_d'), 'done': s.get('eos_done') or '', 'why': s.get('eos_why') or ''} if s.get('eos_d') or s.get('eos_done') else None,
              'visits': sorted(vis_by[sid], key=lambda x: (x[2] or '', C.vi(x[0]))), 'ae': [{k: v for k, v in a.items() if not k.startswith('_')} for a in C.ae_by[sid]],
              'mh': C.mh_by[sid], 'cm': C.cm_by[sid], 'ec': ex_by[sid], 'sur': pr_by[sid]['sur'], 'pr': pr_by[sid]['pr'], 'labs': {}, 'vs': {}, 'ecg': {},
-             'ext': [], 'eff': C.effsub.get(sid, {}), 'tl': [{'lane': k, 'pts': v} for k, v in C.tl.get(sid, {}).items()]}
+             'ext': [], 'eff': C.effsub.get(sid, {}), 'pev': getattr(C, 'pev_by', {}).get(sid, []), 'tl': [{'lane': k, 'pts': v} for k, v in C.tl.get(sid, {}).items()]}
         extg = defaultdict(list)
         for (s2, mid), rows in C.F.items():
             if s2 != sid:
@@ -4320,6 +4324,7 @@ def analyze(C):
     build_subjects(C)
     event_visits(C)                                      # 事件触发型访视（治疗结束/提前退出等）不进中心/试验汇总
     build_events(C)
+    proto_events.build(C)                                # 方案事件（急性发作/复发…）→ C.pev / C.pev_by
     ae_summary(C)
     micro_panel_mark(C)                                  # F-C＋第三轮：微生物培养/药敏先分域（build_findings 不收入 C.F）
     build_findings(C)
@@ -4335,6 +4340,7 @@ def analyze(C):
     threshold_rules(C)
     combo_rules(C)
     ae_checks(C)
+    proto_events.checks(C, add_other)                    # 方案事件需住院/急诊 ↔ SAE 一致性
     cm_checks(C)
     transfusion_checks(C)                                # 审阅者 2026-11-09：Hb 短期大幅上升无输血记录、输血记录缺日期
     disposition_checks(C)                                # 审阅者 2026-11-10：AE 记导致退出 vs 研究结束页记完成
@@ -4380,7 +4386,7 @@ def analyze(C):
     C.cfg['sheetNames'] = {k: v for k, v in sn.items() if k and v and v != k}
     KZ = {'cfg': C.cfg, 'meta': {'cutoff': cutoff, 'qs': len(C.queries), 'qsSignals': len(C.queries) + getattr(C, 'qMerged', 0),
                                  'qsMerged': getattr(C, 'qMerged', 0),
-                                 'counts': {k: len(getattr(C, k)) for k in ('subjects', 'visits', 'exposure', 'ae', 'mh', 'cm', 'findings', 'efficacy', 'pd', 'extq')},
+                                 'counts': {k: len(getattr(C, k)) for k in ('subjects', 'visits', 'exposure', 'ae', 'mh', 'cm', 'findings', 'efficacy', 'pd', 'extq', 'events')},
                                  'status': dict(stc), 'n': len(S), 'centers': len(C.centers), 'dosed': len(C.pop), 'built': dt.datetime.now().strftime('%Y-%m-%d %H:%M'),
                                  'sources': C.cfg.get('footer', {}).get('left', '')},
           'subs': subs, 'centers': C.centers, 'aes': [{**{k: v for k, v in x.items() if not k.startswith('_') and k != 'sh'}, 'rl': bool(x.get('_rel')), 'ak': ae_action(x.get('act')),
@@ -4393,7 +4399,7 @@ def analyze(C):
                      for o in C.others],                 # cl＝面向研究者的类别名（阈值类按方案处理动作命名；内部 cat 不变以保持质疑身份稳定）
           'queries': [{k: v for k, v in q.items() if not k.startswith('_')} for q in C.queries], 'qcommon': C.qcommon,
           'cro': [[x.get('form') or '', x.get('row') or '', x.get('sid') or '', x.get('visit') or '', x.get('text') or ''] for x in C.extq],
-          'cons': C.cons, 'rules': C.S.get('rules') or [], 'unres': C.S.get('unres') or [], 'methods': C.methods, 'eff': C.KZeff, 'effissues': [], 'v8': [],
+          'cons': C.cons, 'rules': C.S.get('rules') or [], 'unres': C.S.get('unres') or [], 'methods': C.methods, 'eff': C.KZeff, 'pev': proto_events.summarize(C, cutoff, monitor_v5.followup(C, cutoff)), 'effissues': [], 'v8': [],
           'tgroup': {}, 'study': C.S.get('study') or {}, 'review': C.review, 'todo': C.todo, 'pd': C.pdd, 'ops': C.ops, 'kri': C.kri, 'cred': C.cred, 'bind': {'notes': getattr(C, 'bind_notes', [])},
           # mm5 安全性概况（三级 Profile）：病史与合并用药明细（仅给药者；术语原文）
           'mhcm': {'mh': [[sid, m.get('t') or '', 1 if m.get('ong') == '是' else 0] for sid in sorted(C.pop) for m in C.mh_by[sid]],

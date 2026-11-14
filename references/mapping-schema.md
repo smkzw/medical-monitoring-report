@@ -34,6 +34,7 @@
 | dispense（mm4，预留） | `sid`* `visit` `date` `disp` `ret` |
 | extq | `sid`* `form` `visit` `row` `text`* |
 | groups | `sid`* `grp` `strat` |
+| events（2026-11-14，方案事件） | `sid`* `start`* `type`（或 const.type＝事件名）`end` `ongoing` `treat`（处理方式：住院/急诊/全身激素…）`hosp` `period`（研究阶段）`link_cm` `link_ae` `desc` `no` `visit`——方案规定的逐条事件（急性发作、复发、出血发作…），不限病种 |
 
 \* 必需。`link`（检验页“关联 AE/MH”字段）支持 `AE+1+头痛`、`MH+4+贫血`、`病史-3 - 贫血 - 2020-01-01`、`不良事件-2 - 头痛 - 日期`、`AE 3` 等写法
 （多条以 ; ， 、 换行或连续空格分隔），解析为 `[类型, 术语, _, 编号]`；特殊写法用 mapping 级 `link_re`（命名组 type/no/term）。

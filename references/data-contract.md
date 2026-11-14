@@ -17,6 +17,7 @@
 | `cons` | list | 同中心判定一致性 |
 | `rules` / `methods` / `study` | list / list / dict | 规则溯源、方法学、研究要点 |
 | `eff` | dict | 有效性：metrics, data, anomalies, rulesText |
+| `pev` | dict | 方案事件（PLAN §17.20）：types[{type,n,subj,py,rate,hosp,er,ongoing,pre,preSubj,centers[{site,n,subj,py,rate}],months[[YYYY-MM,n]],endpoints[[类型,原文]]}]，rows[[sid,site,type,start,end,ong,treat,hosp,pre,period]]，missing[[类型,原文]]（方案事件型终点无数据来源） |
 | `review` / `todo` / `unres` | list | 审阅流程、待办、未决 |
 | `pd` | dict | mm4 方案偏离：`taxonomy[[码,名称,层面,说明,DVCAT]]`、`potential[{id,sid,site,cat,layer,rule,title,dv,fact,date,visit,grade,why,action,src[[sheet,row,标签]],sig[类型,索引,qkey],ctx,status,matched}]`、`confirmed[{id,sid,site,cat,layer,rawCat,sub,desc,date,grade,rawGrade,status,src,matched[规则]}]`、`rules[{id,cat,title,grade,action,dv,logic,cfg,data,state,n}]`、`notDetectable`、`cutoff`、`hasListing`、`sites`、`critical`；signal 回链：`others[i].pdId`/`labrows[i].pdId` |
 | `ops` | dict | mm5 临床监察：`subs`（字段名见 `fields`：id,site,status,icf,first 首个访视日期,rand,rand_d,fd,ld,eot_d,eot_why,eos_d,eos_why,rescreen,prev）、`vis{sid:[[访视,日期]]}`、`win`（方案访视窗）、`planned`、`cutoff`、`stage`、`ex{sid:{n,miss,pause,fast,devi}}`、`icf{sid:[[版本,日期]]}`、`entry[{sid,site,test,visit,date,raw,unit,why,sh,row,ctq?}]`（疑似录入错误）；V5 追加 `due[[sid,site,访视,窗起,窗止,实际,overdue|out|ok,研究日,目标日,−窗,+窗]]`、`upcoming[[sid,site,访视,窗起,窗止,目标日期]]`、`fresh{site:[最近记录日,距截止天数,在研例数]}`、`fu{sid:随访人日}`、`nnum{site:数值型检验记录数}`、`planned`（缺省取方案设计摘要「计划例数」） |
@@ -44,7 +45,7 @@ labrows `pts` 行：`[visit,date,raw,unit,grade,clin,pct,sheet,row,desc,dev,wb]`
 `assets/ctcae.js` 只读此文件，不含任何版本特定阈值。`validate_contract.py` 校验 `KZG.label == cfg.ctcaeVersion` 且 map 中代码均在表内。
 
 ## data/s/<sid>.js → `KZ_SUB({...})`
-个例：基本信息、`visits[[code,label,date,flag]]`、`ae` `mh` `cm` `ec`（给药）`pr` `labs` `vs` `ecg`（按指标的时间序列；行 `[0 date,1 visit,2 value,3 raw,4 unit,5 lo,6 hi,7 clin,8 desc,9 sheet,10 row,11 tpt,12 time,13 isBaseline,14 归因码,15 原因说明,16 关联摘要（「；」分隔）,17 分级,18 较基线%,19 疑似录入错误说明]`，既有位不动、只在尾部扩位）`ext`（CRO 质疑）`eff` `tl`（时间线事件/风险行）。
+个例：基本信息、`visits[[code,label,date,flag]]`、`ae` `mh` `cm` `ec`（给药）`pr` `labs` `vs` `ecg`（按指标的时间序列；行 `[0 date,1 visit,2 value,3 raw,4 unit,5 lo,6 hi,7 clin,8 desc,9 sheet,10 row,11 tpt,12 time,13 isBaseline,14 归因码,15 原因说明,16 关联摘要（「；」分隔）,17 分级,18 较基线%,19 疑似录入错误说明]`，既有位不动、只在尾部扩位）`ext`（CRO 质疑）`eff` `pev`（方案事件 [{n,t,s,e,ong,treat,hosp,er,period,pre,cm,ae,row,sh,wb}]）`tl`（时间线事件/风险行）。
 `KZ.subs` 中每个参与者都必须有对应文件（按需加载）。
 
 ## 不变量

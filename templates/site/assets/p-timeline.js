@@ -39,6 +39,9 @@ async function one(id){
   d.ae.slice().sort((x,y)=>(x.s||'').localeCompare(y.s||'')).forEach(a=>{const y=lane(`${a.t} ${a.g.replace('级','')}`,'AE');const st=T(a.s),en=a.e?T(a.e):T(d.lo)||Date.now();const g=+a.g[0]||1;if(st)bars.push({y,a:st,b:Math.max(en,st)+864e5,c:GC[g]||'#FF9900',tip:`AE ${a.t}｜${a.g}｜${a.rel}｜${a.act}｜${a.out}<br>${a.s} → ${a.e||'持续'}${a.sae?'｜SAE':''}${a.aesi?'｜AESI':''}`,lab:'',aesi:a.aesi,open:!a.e,go:()=>K.evDrawer(`${id} · AE ${K.esc(a.t)}`,id,[[K.evKey(a.wb,a.sh),a.row]],K.aeBox(a))})});
   // CM (non-iron condensed, iron each)
   d.cm.slice().sort((x,y)=>(x.s||'').localeCompare(y.s||'')).forEach(c=>{const iron=hlRe&&hlRe.test(c.t);const nm=c.t.length>14?c.t.slice(0,14)+'…':c.t;let y=lanes.findIndex(l=>l.grp==='CM'&&l.name===nm);if(y<0)y=lane(nm,'CM');const a=Math.max(T(c.s)||T(d.icf),T(d.icf)-PRE*864e5),b=c.ong?(T(d.lo)||Date.now()):T(c.e)||a;bars.push({y,a,b:b+864e5,c:iron?'#8B0000':'#A85F34',op:iron?.85:.55,tip:`CM ${c.t}｜${c.dose} ${c.fq}<br>${c.s} → ${c.ong?'持续':c.e}<br>原因：${K.esc(c.why||'—')}`,open:c.ong,go:()=>K.evDrawer(`${id} · 合并用药 ${K.esc(c.t)}`,id,[[K.evKey(c.wb,c.sh),c.row]],`<div class="box small mb"><b>${K.esc(c.t)}</b> ${K.esc(c.dose||'')} ${K.esc(c.fq||'')}<div>${K.esc(c.s||'')} → ${c.ong?'持续':K.esc(c.e||'')} · 原因：${K.esc(c.why||'—')}</div></div>`)})});
+  // 方案事件（PLAN §17.20：急性发作/复发…，研究前的记录也画出、浅色）
+  (d.pev||[]).forEach(e=>{const nm='事件 '+(e.t.length>10?e.t.slice(0,10)+'…':e.t);let y=lanes.findIndex(l=>l.grp==='EV'&&l.name===nm);if(y<0)y=lane(nm,'EV');const a=T(e.s);if(!a)return;const b=e.ong?(T(d.lo)||Date.now()):(T(e.e)||a);
+    bars.push({y,a,b:Math.max(b,a)+864e5,c:e.hosp?'#8B0000':'#6A3D9A',op:e.pre?.45:1,tip:`${K.esc(e.t)}｜${e.s} → ${e.e||(e.ong?'持续':'')}${e.treat?'｜'+K.esc(e.treat):''}${e.pre?'｜研究前':''}`,go:()=>K.evDrawer(`${id} · ${K.esc(e.t)}`,id,[[K.evKey(e.wb,e.sh),e.row]],`<div class="box small mb">${K.esc(e.t)} ${K.esc(e.s||'')} → ${K.esc(e.e||(e.ong?'持续':''))}${e.treat?' · '+K.esc(e.treat):''}</div>`)})});
   // MH ongoing
   const mh=d.mh.filter(m=>m.ong==='是');if(mh.length){mh.forEach(m=>{const y=lane('MH '+(m.t.length>8?m.t.slice(0,8)+'…':m.t),'MH');const a=Math.max(T(m.s)||0,T(d.icf)-PRE*864e5);bars.push({y,a,b:T(d.lo)||Date.now(),c:'#C9CCD1',op:.6,tip:`MH ${m.t}｜开始 ${m.s}｜筛选期持续`,go:()=>K.evDrawer(`${id} · 病史 ${K.esc(m.t)}`,id,[[K.evKey(m.wb,m.sh),m.row]],`<div class="box small mb"><b>${K.esc(m.t)}</b> 开始 ${K.esc(m.s||'—')} · 持续</div>`)})})}
   // lab abnormal markers：按风险标签分行
@@ -54,7 +57,7 @@ async function one(id){
   const n=lanes.length;const h=Math.max(300,n*20+90);document.getElementById('tl').style.height=h+'px';
   const fd=T(d.fd),ld=T(d.ld);
   const tmin=Math.min(...bars.map(b=>b.a),...pts.map(p=>p.t).filter(Boolean),T(d.icf))-5*864e5,tmax=Math.max(...bars.map(b=>b.b),...pts.map(p=>p.t).filter(Boolean))+5*864e5;
-  const GCOL={A:'#407AAA',AE:'#FF9900',CM:'#A85F34',MH:'#9A9DA3',L:'#8B0000',O:'#0F1115',Q:'#E67E00'};
+  const GCOL={A:'#407AAA',AE:'#FF9900',CM:'#A85F34',EV:'#6A3D9A',MH:'#9A9DA3',L:'#8B0000',O:'#0F1115',Q:'#E67E00'};
   const ch=K.chart('#tl',{grid:{left:172,right:20,top:24,bottom:50},
     tooltip:{trigger:'item',formatter:p=>p.data.tip||''},
     dataZoom:[{type:'inside',xAxisIndex:0,filterMode:'none'},{type:'slider',xAxisIndex:0,height:16,bottom:8,filterMode:'none'}],

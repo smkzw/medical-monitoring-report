@@ -4865,6 +4865,36 @@ class ReviewerFix20261109(unittest.TestCase):
         self.assertEqual(_exc_ask({'note': '例外：外用药除外'}, {'why': ''}), {})
         self.assertEqual(_exc_ask({'note': '例外：控制急性发作除外'}, {'why': '急性发作'}), {})
 
+    def test_protocol_events_rate_window_and_sae(self):
+        """方案事件（PLAN §17.20，MGK 哮喘）：年化发生率＝研究期间事件数/暴露人年；研究前事件单列；
+        全身激素落在急性发作期内 → 方案例外；急性发作住院未见同期 SAE → 一致性核对；方案事件型终点无数据来源 → missing。"""
+        from types import SimpleNamespace
+        from collections import defaultdict
+        import proto_events as PE
+        subj = {'S1': {'site': '01', 'fd': '2026-01-01'}, 'S2': {'site': '02', 'fd': '2026-01-01'}}
+        C = SimpleNamespace(subj=subj, pop={'S1', 'S2'}, ae_by=defaultdict(list), others=[],
+                            S={'study': {'endpoints': [['主要终点', '治疗 52 周内重度哮喘急性发作事件的年化发生率'],
+                                                       ['次要终点', '治疗期间疾病复发事件的发生率']]}},
+                            events=[{'sid': 'S1', 'type': '重度哮喘急性发作记录', 'start': '2026-03-01', 'end': '2026-03-05', 'ongoing': '否',
+                                     'treat': '住院治疗', 'sheet': 'ASTR', 'row': 2},
+                                    {'sid': 'S1', 'type': '重度哮喘急性发作记录', 'start': '2026-06-01', 'end': '2026-06-03', 'ongoing': '否',
+                                     'treat': '接受至少3天的全身性糖皮质激素治疗', 'sheet': 'ASTR', 'row': 3},
+                                    {'sid': 'S2', 'type': '既往哮喘急性发作记录', 'start': '2025-06-01', 'end': '2025-06-05', 'sheet': 'MH3', 'row': 2}])
+        PE.build(C)
+        self.assertTrue(C.pev_by['S2'][0]['pre'])
+        ev = PE.in_event_window(C, 'S1', {'s': '2026-03-02'}, '控制重度哮喘急性发作和哮喘失控')
+        self.assertIsNotNone(ev)
+        self.assertIsNone(PE.in_event_window(C, 'S1', {'s': '2026-04-20'}, '控制重度哮喘急性发作和哮喘失控'))
+        got = []
+        PE.checks(C, lambda C_, sid, cat, pr, summ, *a, **k: got.append((sid, cat)))
+        self.assertEqual(got, [('S1', '方案事件与SAE一致性核对')])
+        out = PE.summarize(C, '2026-12-31', {'S1': 365, 'S2': 365})
+        t = next(x for x in out['types'] if x['type'] == '重度哮喘急性发作记录')
+        self.assertEqual((t['n'], t['subj'], t['hosp']), (2, 1, 1))
+        self.assertAlmostEqual(t['rate'], round(2 / (730 / 365.25), 2))
+        self.assertTrue(t['endpoints'])                          # 对上主要终点
+        self.assertEqual([m[1] for m in out['missing']], ['治疗期间疾病复发事件的发生率'])
+
     def test_latest_possible_partial_date(self):
         """部分停药日期按最晚可能日判洗脱：2022-10-uk 早于窗口即满足，不追问。"""
         from mm_build import _latest_date
