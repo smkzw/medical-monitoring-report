@@ -17,6 +17,7 @@ _HOSP = re.compile(r'住院')
 _ER = re.compile(r'急诊')
 _PRE = re.compile(r'既往|筛选前|筛选期|导入期|入组前|基线前')
 _EVENT_EP = re.compile(r'事件|发作|发生率|复发|次数')
+_YN = re.compile(r'(是|否|有|无|Y|N|Yes|No|1|0|√)?', re.I)
 
 
 def _bigrams(s):
@@ -40,7 +41,11 @@ def build(C):
         fd = C.subj[sid].get('fd') or ''
         pre = bool(_PRE.search(str(r.get('period') or '') + str(r.get('type') or ''))) or \
             (is_full_date(s) and is_full_date(fd) and s < fd)
-        e = {'n': r.get('no') or i + 1, 't': str(r.get('type') or '方案事件'), 's': s, 'e': r.get('end') or '',
+        t = str(r.get('type') or '').strip()
+        if not t or _YN.fullmatch(t):                 # 事件名缺省或取到勾选值 → 表单中文名（「#1-日期」实例后缀去掉）
+            t = re.sub(r'\s*#.*$', '', str(((getattr(C, 'A', None) or {}).get('formNames') or {}).get(r.get('sheet')) or '')) or str(r.get('sheet') or '方案事件')
+        sub = str(r.get('sub') or '').strip()
+        e = {'n': r.get('no') or i + 1, 't': t, 'sub': '' if _YN.fullmatch(sub) else sub, 's': s, 'e': r.get('end') or '',
              'ong': yes(r.get('ongoing')) if r.get('ongoing') not in (None, '') else False,
              'treat': str(r.get('treat') or ''), 'hosp': bool(_HOSP.search(treat)) or yes(r.get('hosp')) is True,
              'er': bool(_ER.search(treat)), 'period': str(r.get('period') or ''), 'pre': pre,
@@ -109,6 +114,6 @@ def summarize(C, cutoff, fu):
     have = [t['type'] for t in types]
     missing = [[k, x] for k, x in eps if _EVENT_EP.search(str(x)) and not any(_close(h, x) for h in have)]
     rows = [[e['sid'], C.subj[e['sid']]['site'], e['t'], e['s'], e['e'], 1 if e['ong'] else 0, e['treat'], 1 if e['hosp'] else 0,
-             1 if e['pre'] else 0, e['period']] for e in C.pev if e['sid'] in C.subj]
+             1 if e['pre'] else 0, e['period'], e.get('sub') or ''] for e in C.pev if e['sid'] in C.subj]
     return {'types': types, 'rows': rows, 'missing': missing, 'cutoff': cutoff,
-            'cols': ['参与者', '中心', '事件类型', '开始', '结束', '持续', '处理方式', '住院', '研究前', '阶段']}
+            'cols': ['参与者', '中心', '事件类型', '开始', '结束', '持续', '处理方式', '住院', '研究前', '阶段', '亚型']}

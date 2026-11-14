@@ -32,7 +32,7 @@ K.pevSection=function(el){
     K.table(d.querySelector('#pevR'),{sort:'s',dir:-1,pageSize:20,
       cols:[{t:'参与者',k:'sid',f:r=>`<a href="timeline.html#s=${encodeURIComponent(r.sid)}">${K.esc(r.sid)}</a>`},{t:'中心',k:'site'},{t:'事件类型',k:'type'},
             {t:'开始',k:'s',f:r=>K.esc(dd(r.s))},{t:'结束',k:'e',f:r=>K.esc(dd(r.e))},{t:'持续',k:'ong',f:r=>r.ong?'是':'否'},{t:'处理方式',k:'treat'},
-            {t:'住院',k:'hosp',f:r=>r.hosp?'是':''},{t:'研究前',k:'pre',f:r=>r.pre?'是':''},{t:'阶段',k:'period'}],
-      rows:P.rows.map(r=>({sid:r[0],site:r[1],type:r[2],s:r[3],e:r[4],ong:r[5],treat:r[6]||'',hosp:r[7],pre:r[8],period:r[9]||''}))});
+            {t:'住院',k:'hosp',f:r=>r.hosp?'是':''},{t:'研究前',k:'pre',f:r=>r.pre?'是':''},{t:'阶段',k:'period'},{t:'亚型/判定',k:'sub'}],
+      rows:P.rows.map(r=>({sid:r[0],site:r[1],type:r[2],s:r[3],e:r[4],ong:r[5],treat:r[6]||'',hosp:r[7],pre:r[8],period:r[9]||'',sub:r[10]||''}))});
   }
 };

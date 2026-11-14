@@ -4896,8 +4896,11 @@ class ReviewerFix20261109(unittest.TestCase):
                                     {'sid': 'S1', 'type': '重度哮喘急性发作记录', 'start': '2026-06-01', 'end': '2026-06-03', 'ongoing': '否',
                                      'treat': '接受至少3天的全身性糖皮质激素治疗', 'sheet': 'ASTR', 'row': 3},
                                     {'sid': 'S2', 'type': '既往哮喘急性发作记录', 'start': '2025-06-01', 'end': '2025-06-05', 'sheet': 'MH3', 'row': 2}])
+        C.events.append({'sid': 'S2', 'type': '是', 'sub': '是', 'start': '2026-02-01', 'sheet': 'ASTR', 'row': 9})   # 勾选值不是事件名/亚型
+        C.A = {'formNames': {'ASTR': '重度哮喘急性发作记录#1-2026-06-15'}}
         PE.build(C)
         self.assertTrue(C.pev_by['S2'][0]['pre'])
+        self.assertEqual([(e['t'], e['sub']) for e in C.pev_by['S2'] if e['row'] == 9], [('重度哮喘急性发作记录', '')])
         ev = PE.in_event_window(C, 'S1', {'s': '2026-03-02'}, '控制重度哮喘急性发作和哮喘失控')
         self.assertIsNotNone(ev)
         self.assertIsNone(PE.in_event_window(C, 'S1', {'s': '2026-04-20'}, '控制重度哮喘急性发作和哮喘失控'))
@@ -4906,8 +4909,8 @@ class ReviewerFix20261109(unittest.TestCase):
         self.assertEqual(got, [('S1', '方案事件与SAE一致性核对')])
         out = PE.summarize(C, '2026-12-31', {'S1': 365, 'S2': 365})
         t = next(x for x in out['types'] if x['type'] == '重度哮喘急性发作记录')
-        self.assertEqual((t['n'], t['subj'], t['hosp']), (2, 1, 1))
-        self.assertAlmostEqual(t['rate'], round(2 / (730 / 365.25), 2))
+        self.assertEqual((t['n'], t['subj'], t['hosp']), (3, 2, 1))
+        self.assertAlmostEqual(t['rate'], round(3 / (730 / 365.25), 2))
         self.assertTrue(t['endpoints'])                          # 对上主要终点
         self.assertEqual([m[1] for m in out['missing']], ['治疗期间疾病复发事件的发生率'])
 
