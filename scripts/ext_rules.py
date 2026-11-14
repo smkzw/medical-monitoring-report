@@ -557,6 +557,9 @@ def m19_ae_ex(C):
 
 # --------------------------------------------------------------------------- M20 AE-SAE
 def m20_ae_sae(C):
+    sae_n = [a for a in C.aes if a.get('sae') and a['sid'] in C.pop]
+    # 导出里没有 SAE 标准列：不逐条报「均未勾选」（信息缺席），由 defaults 在系统提示里说一次（可见，不静默）
+    C.sae_crit_absent = len(sae_n) if sae_n and not any(a.get('sae_crit_known', True) for a in sae_n) else 0
     for a in C.aes:
         sid = a['sid']
         if sid not in C.pop or a.get('dup'):      # F08：重复记录成员不逐条发（组首覆盖）

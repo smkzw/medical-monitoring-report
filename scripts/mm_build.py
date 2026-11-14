@@ -4239,6 +4239,11 @@ def defaults(C):
                            f"{'…' if len(miss_eff) > 3 else ''}（核查量表映射/指标名）", 'efficacy.html'])
     else:
         C.todo = C.S['todo']
+    if getattr(C, 'sae_crit_absent', 0):
+        C.todo.append(['SAE 标准', 'yel', f"导出数据中没有 SAE 标准（致死/住院等）列，{C.sae_crit_absent} 条 SAE 的判定与标准是否一致无法核对；"
+                                       f"如 SAE 标准在单独的 SAE 报告表中，请一并上传", 'safety.html'])
+    for m_ in ((getattr(C, 'KZpev', None) or {}).get('missing') or []):
+        C.todo.append(['终点缺失', 'solid-red', f"方案事件型终点「{m_[1][:60]}」未找到数据来源，请确认是否在单独的表或文件中", 'efficacy.html'])
     for k_, (t_, a_) in monitor_v5.odd_visit_targets(C.A.get('visitWindows') or {}).items():   # 用户 2026-11-12（D001 W12）
         C.todo.append(['访视窗', 'yel', f"方案 {k_} 目标日写 D{t_}，其余周访视均为周数×7+1（照此应为 D{a_}）；系统按方案原文 D{t_} 判定，"
                                         f"按 D{a_} 计在窗内的超窗已逐条注明，请核对方案原文", 'monitor.html#tab=vis'])
@@ -4365,6 +4370,11 @@ def analyze(C):
     monitor_v5.finalize(C)                               # V5 访视推算/新鲜度/随访人日/KRI/CtQ/数据可信度
     build_trend(C)
     build_eff(C)
+    _alld = [d for d in (f.get('date') for f in list(C.findings) + list(C.visits)) if is_full_date(d)]
+    _cut = C.cfg.get('study', {}).get('cutoff') or (max(_alld) if _alld else '')
+    C.KZpev = proto_events.summarize(C, _cut, monitor_v5.followup(C, _cut))   # 方案事件汇总（defaults 据 missing 写系统提示）
+    if C.KZpev['types'] and (C.KZeff or {}).get('notes'):    # 「主要终点没有对应指标」类说明：终点已由方案事件给出 → 不再说缺
+        C.KZeff['notes'] = [n for n in C.KZeff['notes'] if not (re.search(r'没有对应指标', n) and any(proto_events._close(t['type'], n) for t in C.KZpev['types']))]
     defaults(C)
     S = C.subj
     stc = Counter(s['status'] for s in S.values())
@@ -4399,7 +4409,7 @@ def analyze(C):
                      for o in C.others],                 # cl＝面向研究者的类别名（阈值类按方案处理动作命名；内部 cat 不变以保持质疑身份稳定）
           'queries': [{k: v for k, v in q.items() if not k.startswith('_')} for q in C.queries], 'qcommon': C.qcommon,
           'cro': [[x.get('form') or '', x.get('row') or '', x.get('sid') or '', x.get('visit') or '', x.get('text') or ''] for x in C.extq],
-          'cons': C.cons, 'rules': C.S.get('rules') or [], 'unres': C.S.get('unres') or [], 'methods': C.methods, 'eff': C.KZeff, 'pev': proto_events.summarize(C, cutoff, monitor_v5.followup(C, cutoff)), 'effissues': [], 'v8': [],
+          'cons': C.cons, 'rules': C.S.get('rules') or [], 'unres': C.S.get('unres') or [], 'methods': C.methods, 'eff': C.KZeff, 'pev': C.KZpev, 'effissues': [], 'v8': [],
           'tgroup': {}, 'study': C.S.get('study') or {}, 'review': C.review, 'todo': C.todo, 'pd': C.pdd, 'ops': C.ops, 'kri': C.kri, 'cred': C.cred, 'bind': {'notes': getattr(C, 'bind_notes', [])},
           # mm5 安全性概况（三级 Profile）：病史与合并用药明细（仅给药者；术语原文）
           'mhcm': {'mh': [[sid, m.get('t') or '', 1 if m.get('ong') == '是' else 0] for sid in sorted(C.pop) for m in C.mh_by[sid]],
