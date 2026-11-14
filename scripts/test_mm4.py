@@ -4840,6 +4840,13 @@ class ReviewerFix20261109(unittest.TestCase):
             self.assertTrue(mm_build._tcm_off_target(P, {'t': '鼻窦炎口服液', 'tcm': ['ZF02'], 'why': ''}, C))
             self.assertTrue(mm_build._tcm_off_target(P, {'t': '感冒清热颗粒', 'tcm': ['ZA01A'], 'why': ''}, C))
 
+    def test_prohibited_exception_ask(self):
+        from mm_build import _exc_ask
+        r = _exc_ask({'note': '例外：控制重度哮喘急性发作和哮喘失控除外；因治疗…不作为禁用药物报告'}, {'why': ''})
+        self.assertIn('是否用于控制重度哮喘急性发作和哮喘失控', r['rule']['ask'])
+        self.assertEqual(_exc_ask({'note': '例外：外用药除外'}, {'why': ''}), {})
+        self.assertEqual(_exc_ask({'note': '例外：控制急性发作除外'}, {'why': '急性发作'}), {})
+
     def test_latest_possible_partial_date(self):
         """部分停药日期按最晚可能日判洗脱：2022-10-uk 早于窗口即满足，不追问。"""
         from mm_build import _latest_date

@@ -2440,6 +2440,15 @@ def _dz_alt(t) -> str:
     return rf'(?<![A-Za-z]){e}(?![A-Za-z])' if re.fullmatch(r'[A-Za-z0-9\-]+', str(t)) else e
 
 
+def _exc_ask(P, c) -> dict:
+    """禁用条目带方案例外（「例外：控制重度哮喘急性发作和哮喘失控除外」）而用药原因为空：问法点明例外，封闭式确认
+    （MGK 2026-11-14：用药原因是勾选列、未映射，全身激素 40 余条只问「请核实并更正」，监查员看不出该问什么）。"""
+    m = re.search(r'例外[:：]\s*([^；;。]+?)(?:除外)?(?:[；;。]|$)', str(P.get('note') or ''))
+    if not m or str(c.get('why') or '').strip() or re.search(r'外用|局部|吸入|鼻用|眼用|滴眼|剂型|途径', m.group(1)):
+        return {}                       # 按给药途径的例外由途径判定处理，不按用途问
+    return {'rule': {'ask': f"请确认该药是否用于{m.group(1).strip()}；如是，请在用药原因中注明，否则请核实并更正。"}}
+
+
 def _tcm_off_target(P, c, C) -> bool:
     """「治疗X的中药」只靠中成药类别命中、而该药类别全是与 X 无关的专科（耳鼻喉/眼/妇/骨伤/肿瘤…）→ 不算（RUX：鼻炎片被判 AD 中药洗脱）。"""
     fd = P.get('forDisease')
@@ -2640,7 +2649,7 @@ def cm_checks(C):
                               f"合并用药「{c['t']}」（{c['s'] or '?'}~{'持续' if c['ong'] else c['e'] or '?'}）属于{_cls_txt(P, c)}，在方案禁用期（{win}）内使用"
                               f"{'（治疗结束 ' + s['eot_d'] + ' 之后的随访期）' if fu else ''}；用药原因：{c['why'] or '—'}",
                               None, c['s'], c['sh'], c['row'], c['t'], ctx=[P.get('note', '')] if P.get('note') else [],
-                              bkey=f"{c['t']}|{c['s']}", wb=c.get('wb') or '')
+                              bkey=f"{c['t']}|{c['s']}", wb=c.get('wb') or '', **_exc_ask(P, c))
         for pr_ in [x for x in getattr(C, 'proc', []) if x.get('sid') in C.pop]:    # 禁用的治疗/操作（造血干细胞移植等）也核对操作记录
             s = C.subj[pr_['sid']]
             d0 = str(pr_.get('date') or pr_.get('start') or '')
